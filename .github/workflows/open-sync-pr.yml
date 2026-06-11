@@ -1,0 +1,33 @@
+# Companion to the monorepo publish pipeline: snapshots arrive on the
+# sync/main branch (pushed via deploy key), and this workflow makes sure an
+# open pull request into main exists for them. Merging that PR is the
+# release step — main accepts no direct pushes.
+name: Open sync PR
+
+on:
+  push:
+    branches: ['sync/main']
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Open PR from sync/main if none exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OPEN=$(gh pr list --head sync/main --base main --state open --json number --jq length)
+          if [ "$OPEN" -gt 0 ]; then
+            echo "Sync PR already open."
+            exit 0
+          fi
+          gh pr create \
+            --head sync/main --base main \
+            --title "$(git log -1 --format=%s)" \
+            --body "Automated snapshot sync from the internal monorepo. Merging this PR releases the changes to main. Commit trailers reference the source commits."
