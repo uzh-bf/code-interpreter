@@ -335,6 +335,18 @@ spec:
           {{- if .Values.workerSandbox.kvmEnabled }}
           securityContext:
             privileged: false
+            # KVM-mode sandbox-runner needs no privilege escalation: isolation is the
+            # guest microVM (via /dev/kvm), not host setuid helpers. Drop it so a runner
+            # compromise cannot gain new privileges, and so the pod is PSA-baseline clean.
+            allowPrivilegeEscalation: false
+            # Drop ALL Linux capabilities. /dev/kvm is provided as a device-plugin extended
+            # resource (smarter-devices/kvm) and accessed via ioctl on an fd, which needs no
+            # capability; libkrun uses no elevated cap in device-plugin mode. runAsNonRoot is
+            # intentionally NOT set yet: the sandbox-runner image declares no non-root USER
+            # (tracked in DEPLOY.md §11) and would otherwise fail admission.
+            capabilities:
+              drop:
+                - ALL
             {{- if and .Values.workerSandbox.seccomp .Values.workerSandbox.seccomp.enabled }}
             seccompProfile:
               type: Localhost
