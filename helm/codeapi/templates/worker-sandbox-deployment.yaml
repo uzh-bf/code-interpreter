@@ -100,8 +100,9 @@ spec:
       labels:
         {{- include "codeapi.serviceWorker.selectorLabels" . | nindent 8 }}
     spec:
-      # service-worker does not call the Kubernetes API; suppress the auto-mounted SA token.
-      automountServiceAccountToken: false
+      # service-worker does not call the Kubernetes API; the chart-wide
+      # automountServiceAccountToken value (default true) can suppress the auto-mounted SA token.
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       {{- if or .Values.workerSandbox.serviceAccount.create .Values.workerSandbox.serviceAccount.name }}
       serviceAccountName: {{ $serviceWorkerServiceAccount }}
       {{- end }}
@@ -144,6 +145,10 @@ spec:
               value: {{ include "codeapi.redis.host" . }}
             - name: REDIS_PORT
               value: {{ include "codeapi.redis.port" . | quote }}
+            {{- if and (not .Values.redis.enabled) .Values.redis.external.tls }}
+            - name: REDIS_TLS
+              value: "true"
+            {{- end }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -219,7 +224,7 @@ metadata:
   labels:
     {{- include "codeapi.sandboxRunner.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.workerSandbox.sandboxRunner.autoscaling.enabled }}
+  {{- if and (not .Values.workerSandbox.sandboxRunner.autoscaling.enabled) (not .Values.workerSandbox.sandboxRunner.externalAutoscaler) }}
   replicas: {{ $sandboxRunnerReplicas }}
   {{- end }}
   selector:
@@ -233,8 +238,9 @@ spec:
       # Hardened sandbox rejects unexpected CODEAPI_* env. Kubernetes injects
       # service-link env (<RELEASE>_*_SERVICE_HOST etc.) for every Service in the
       # namespace; with a codeapi-prefixed release those collide with the guard and
-      # crash the sandbox. The sandbox must not get service-discovery env anyway.
-      enableServiceLinks: false
+      # crash the sandbox. The sandbox must not get service-discovery env anyway, so set
+      # workerSandbox.sandboxRunner.enableServiceLinks=false for a hardened deploy.
+      enableServiceLinks: {{ .Values.workerSandbox.sandboxRunner.enableServiceLinks }}
       {{- if or .Values.workerSandbox.sandboxServiceAccount.create .Values.workerSandbox.sandboxServiceAccount.name }}
       serviceAccountName: {{ $sandboxRunnerServiceAccount }}
       {{- end }}
@@ -337,6 +343,7 @@ spec:
           {{- if .Values.workerSandbox.kvmEnabled }}
           securityContext:
             privileged: false
+            {{- if .Values.workerSandbox.sandboxRunner.hardenSecurityContext }}
             # KVM-mode sandbox-runner needs no privilege escalation: isolation is the
             # guest microVM (via /dev/kvm), not host setuid helpers. Drop it so a runner
             # compromise cannot gain new privileges, and so the pod is PSA-baseline clean.
@@ -349,6 +356,7 @@ spec:
             capabilities:
               drop:
                 - ALL
+            {{- end }}
             {{- if and .Values.workerSandbox.seccomp .Values.workerSandbox.seccomp.enabled }}
             seccompProfile:
               type: Localhost

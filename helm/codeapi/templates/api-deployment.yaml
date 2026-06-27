@@ -25,8 +25,9 @@ spec:
       labels:
         {{- include "codeapi.api.selectorLabels" . | nindent 8 }}
     spec:
-      # api does not call the Kubernetes API; suppress the auto-mounted SA token.
-      automountServiceAccountToken: false
+      # api does not call the Kubernetes API; the chart-wide automountServiceAccountToken
+      # value (default true) can suppress the auto-mounted SA token.
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -48,6 +49,10 @@ spec:
               value: {{ include "codeapi.redis.host" . }}
             - name: REDIS_PORT
               value: {{ include "codeapi.redis.port" . | quote }}
+            {{- if and (not .Values.redis.enabled) .Values.redis.external.tls }}
+            - name: REDIS_TLS
+              value: "true"
+            {{- end }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
