@@ -35,8 +35,9 @@ spec:
       labels:
         {{- include "codeapi.fileServer.selectorLabels" . | nindent 8 }}
     spec:
-      # file-server does not call the Kubernetes API; suppress the auto-mounted SA token.
-      automountServiceAccountToken: false
+      # file-server does not call the Kubernetes API; the chart-wide
+      # automountServiceAccountToken value (default true) can suppress the auto-mounted SA token.
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       {{- if or .Values.fileServer.serviceAccount.create .Values.fileServer.serviceAccount.name }}
       serviceAccountName: {{ .Values.fileServer.serviceAccount.name | default (printf "%s-file-server" (include "codeapi.fullname" .)) }}
       {{- end }}
@@ -107,6 +108,10 @@ spec:
               value: {{ include "codeapi.redis.host" . }}
             - name: REDIS_PORT
               value: {{ include "codeapi.redis.port" . | quote }}
+            {{- if and (not .Values.redis.enabled) .Values.redis.external.tls }}
+            - name: REDIS_TLS
+              value: "true"
+            {{- end }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:

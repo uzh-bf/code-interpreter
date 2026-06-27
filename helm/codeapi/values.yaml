@@ -22,6 +22,22 @@ internalServiceAuth:
 
 hardenedSandboxMode: true
 
+# Render the chart-managed Secret (codeapi-<release>-secrets). Set false when an external
+# secrets operator (External Secrets Operator, Infisical, Sealed Secrets, ...) owns that
+# Secret so Helm/ArgoCD does not fight the operator over its contents. The deployments still
+# reference the Secret by name, so the operator must populate every key the chart would have
+# rendered (redis-password, codeapi-internal-service-token, codeapi-execution-manifest-private-key,
+# minio-access-key, minio-secret-key).
+secrets:
+  create: true
+
+# Mount the default ServiceAccount token into the CONTROL-PLANE pods (api, egress-gateway,
+# file-server, tool-call-server, service-worker). None of them calls the Kubernetes API, so set
+# false to drop the auto-mounted token (defense-in-depth). Default true = Kubernetes default
+# behaviour. The untrusted sandbox-runner has its own switch:
+# workerSandbox.sandboxServiceAccount.automountServiceAccountToken.
+automountServiceAccountToken: true
+
 otel:
   enabled: false
   # OTLP/HTTP collector endpoint, e.g. "http://opentelemetry-collector.observability:4318".
@@ -200,6 +216,23 @@ workerSandbox:
     # namespaceSelector peers. The target namespace must exist (PSA-labelled) and be
     # whitelisted in the ArgoCD AppProject. See deploy/stg for the staging split.
     namespaceOverride: ""
+    # Inject Kubernetes service-link env (<RELEASE>_*_SERVICE_HOST etc.) for every Service in the
+    # namespace. Default true = Kubernetes default. Set false for a hardened sandbox: the untrusted
+    # runner needs no service discovery, and with a codeapi-prefixed release the injected CODEAPI_*
+    # vars collide with the hardened guard and crash the sandbox.
+    enableServiceLinks: true
+    # Add the restricted-PSA securityContext hardening to the KVM-mode sandbox-runner:
+    # allowPrivilegeEscalation=false + capabilities.drop=[ALL]. Safe in device-plugin mode (/dev/kvm
+    # is an extended resource accessed via ioctl, needing no Linux capability). Default false =
+    # upstream behaviour (privileged:false + seccomp only). runAsNonRoot is intentionally still not
+    # set (the sandbox-runner image declares no non-root USER).
+    hardenSecurityContext: false
+    # Cede the sandbox-runner replica count to an EXTERNAL autoscaler (e.g. KEDA ScaledObject).
+    # When true the Deployment omits spec.replicas (so the autoscaler owns it and GitOps self-heal
+    # does not revert scaling) WITHOUT rendering the chart HPA. Takes precedence over
+    # autoscaling.enabled: if both are set, the chart HPA is suppressed (externalAutoscaler wins) so
+    # the two can never both own the replica count. Default false.
+    externalAutoscaler: false
     # Defaults to workerSandbox.replicaCount when unset.
     replicaCount: null
     # Restart a sandbox-runner before launcher/VMM host-side fd retention can
@@ -411,11 +444,16 @@ redis:
       enabled: true
       size: 1Gi
 
-  # If using external Redis, configure here:
-  # external:
-  #   host: redis.example.com
-  #   port: 6379
-  #   password: secret
+  # External Redis (used only when redis.enabled=false), e.g. a managed Upstash/ElastiCache
+  # instance. host/port are read into REDIS_HOST/REDIS_PORT; password feeds the rendered
+  # redis-password Secret key (or is supplied by an external secrets operator when
+  # secrets.create=false). Set tls=true for a TLS endpoint (emits REDIS_TLS=true so the app
+  # connects over TLS); leave false for plaintext / in-cluster Redis.
+  external:
+    host: ""
+    port: 6379
+    password: ""
+    tls: false
 
 # =============================================================================
 # MINIO (S3-compatible storage)

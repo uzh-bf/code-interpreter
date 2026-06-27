@@ -1,5 +1,7 @@
 {{- if .Values.workerSandbox.enabled }}
-{{- if .Values.workerSandbox.sandboxRunner.autoscaling.enabled }}
+{{- /* externalAutoscaler (e.g. KEDA) is authoritative: it suppresses the chart HPA so the two
+       cannot both own the sandbox-runner replica count. */}}
+{{- if and .Values.workerSandbox.sandboxRunner.autoscaling.enabled (not .Values.workerSandbox.sandboxRunner.externalAutoscaler) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
