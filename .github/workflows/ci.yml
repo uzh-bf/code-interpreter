@@ -57,6 +57,7 @@ jobs:
         working-directory: api/src
         run: |
           gcc -O2 -static -Wall -Wextra -Werror -o /tmp/spec-guard spec-guard.c
+          chmod 0555 /tmp/spec-guard
           # Smoke: spec-guard must execvp its argument cleanly. Use a
           # parent process with a known FD population so we also assert
           # the close-inherited-FDs path runs (child must see only the

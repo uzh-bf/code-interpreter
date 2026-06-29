@@ -29,8 +29,9 @@ RUN git clone -b master --single-branch https://github.com/google/nsjail.git . \
 RUN make -j$(nproc)
 
 COPY api/src/spec-guard.c /tmp/spec-guard.c
+# KVM/nsjail execution may need read permission on virtiofs-backed rootfs.
 RUN gcc -O2 -static -o /usr/local/bin/spec-guard /tmp/spec-guard.c \
-    && chmod 0111 /usr/local/bin/spec-guard
+    && chmod 0555 /usr/local/bin/spec-guard
 
 # ============================================================================
 # Stage 1b: Build language runtime packages (only consumed by sandbox-runner-baked)
