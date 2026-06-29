@@ -10,6 +10,7 @@ import { env } from './config';
 import logger from './logger';
 import { redisKeepAliveOptions } from './redis-options';
 import { bullmqQueueJobs, registerBullmqQueueMetricsCollector } from './metrics';
+import { waitForJobFinished } from './queue-wait';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 2000;
@@ -109,4 +110,4 @@ registerBullmqQueueMetricsCollector(async () => {
  * BullMQ coordination objects. */
 setMaxListeners(0, pyQueue, otherQueue, pyQueueEvents, otherQueueEvents);
 
-export { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, connection };
+export { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, connection, waitForJobFinished };
