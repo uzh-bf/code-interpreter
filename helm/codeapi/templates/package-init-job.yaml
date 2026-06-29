@@ -1,7 +1,7 @@
 {{/*
 Package Init Job
-Runs as a Helm pre-install/pre-upgrade hook to populate the packages PVC
-with Python, Node, Bun, and Bash runtimes for the NsJail sandbox.
+Runs before deployments in Argo CD syncs to populate the packages PVC with
+Python, Node, Bun, and Bash runtimes for the NsJail sandbox.
 */}}
 {{- if and .Values.workerSandbox.enabled .Values.workerSandbox.packages.initJob.enabled }}
 {{- $packageInitNodeSelector := .Values.workerSandbox.sandboxRunner.nodeSelector }}
@@ -21,9 +21,9 @@ metadata:
     {{- include "codeapi.labels" . | nindent 4 }}
     app.kubernetes.io/component: package-init
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation
+    "argocd.argoproj.io/hook": Sync
+    "argocd.argoproj.io/sync-wave": "-5"
+    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: {{ .Values.workerSandbox.packages.initJob.backoffLimit }}
   {{- if .Values.workerSandbox.packages.initJob.ttlSecondsAfterFinished }}

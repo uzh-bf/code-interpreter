@@ -8,7 +8,8 @@ NOTE on access modes:
   Requires storage class that supports RWX (NFS, EFS, Azure Files, GlusterFS, etc.)
 
 If using the initJob to populate packages:
-- The PVC is created as a Helm hook (pre-install) so it exists before the init job runs
+- The PVC is created as a normal retained resource so Argo CD never deletes it
+  as a hook during upgrades
 - The init job writes packages to the PVC
 - Worker pods then mount the PVC (read-only at container level)
 */}}
@@ -22,14 +23,11 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-packages
   labels:
     {{- include "codeapi.labels" . | nindent 4 }}
-  {{- if .Values.workerSandbox.packages.initJob.enabled }}
   annotations:
-    # Create PVC before the init job runs (lower weight = runs first)
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-10"
-    # Keep the PVC across upgrades (don't delete)
+    # Create PVC before the init job runs in Argo CD syncs.
+    "argocd.argoproj.io/sync-wave": "-10"
+    # Keep the PVC across app deletion/prune events.
     "helm.sh/resource-policy": keep
-  {{- end }}
 spec:
   accessModes:
     - {{ .Values.workerSandbox.packages.persistence.accessMode | default "ReadWriteOnce" }}
