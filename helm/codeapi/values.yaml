@@ -293,8 +293,7 @@ workerSandbox:
       # If you have pre-built packages, specify the existing claim
       existingClaim: ""
 
-    # Init job to populate packages on first install
-    # Runs as a Helm pre-install/pre-upgrade hook
+    # Init job to populate packages before sandbox deployments in Argo CD syncs
     # Compiles Python from source and downloads Node/Bun binaries
     initJob:
       enabled: true
