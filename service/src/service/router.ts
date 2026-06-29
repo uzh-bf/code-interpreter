@@ -10,7 +10,7 @@ import { sessionAuth } from '../middleware/auth';
 import { executionLimiter, uploadLimiter, downloadLimiter, fetchLimiter } from '../middleware/limits';
 import { internalServiceHeaders } from '../internal-service-auth';
 import { resolveSessionKey, resolveOutputBucketSessionKey, SessionKeyResolutionError, parseUploadSessionKeyInput, type SessionKeyInput } from '../session-key';
-import { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, connection } from '../queue';
+import { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, connection, waitForJobFinished } from '../queue';
 import { sleep, getAxiosErrorDetails, publicExecutionFailure } from '../utils';
 import { env, planLimits, resolveLanguage } from '../config';
 import { createPayload } from '../payload';
@@ -226,7 +226,7 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
       }, {
         removeOnComplete: {
           age: 60,
-          count: 1,
+          count: 100,
         },
         removeOnFail: {
           age: 180,
@@ -251,7 +251,7 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
       'messaging.system': 'bullmq',
       'messaging.destination.name': queueName,
       'codeapi.language': language,
-    }, () => job.waitUntilFinished(queueEvents, env.JOB_TIMEOUT), 'CONSUMER');
+    }, () => waitForJobFinished(job, queue, queueEvents, env.JOB_TIMEOUT), 'CONSUMER');
 
     if (!isSyntheticRequest) {
       logger.info('Execution completed', { session_id, user_id });

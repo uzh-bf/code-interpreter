@@ -6,7 +6,7 @@ import type { Queue, QueueEvents } from 'bullmq';
 import type * as t from '../types';
 import { checkServiceStartUp, checkServiceShutDown } from '../lifecycle';
 import { executionLimiter } from '../middleware/limits';
-import { pyQueue, pyQueueEvents, otherQueue, otherQueueEvents, connection } from '../queue';
+import { pyQueue, pyQueueEvents, otherQueue, otherQueueEvents, connection, waitForJobFinished } from '../queue';
 import { createProgrammaticPayload, extractPendingFromStdout } from '../preamble';
 import { findBashToolNameCollision } from '../preamble-bash';
 import type { LCTool } from '../preamble';
@@ -405,13 +405,13 @@ async function runReplayIteration(
     egressGrantClaims: sandboxSecurity.egressGrantClaims,
     egressGrantToken: sandboxSecurity.egressGrantToken,
   }, {
-    removeOnComplete: { age: 60, count: 1 },
+    removeOnComplete: { age: 60, count: 100 },
     removeOnFail: { age: 180, count: 1 },
     attempts: 1,
   });
   jobsSubmitted.inc({ language });
 
-  return job.waitUntilFinished(events, env.JOB_TIMEOUT);
+  return waitForJobFinished(job, queue, events, env.JOB_TIMEOUT);
 }
 
 function isSandboxRunSuccess(result: t.ExecuteResult): boolean {
@@ -1372,7 +1372,7 @@ async function handleBlocking(
       egressGrantClaims: sandboxSecurity.egressGrantClaims,
       egressGrantToken: sandboxSecurity.egressGrantToken,
     }, {
-      removeOnComplete: { age: 60, count: 1 },
+      removeOnComplete: { age: 60, count: 100 },
       removeOnFail: { age: 180, count: 1 },
       attempts: 1,
       jobId: session_id,
@@ -1394,7 +1394,7 @@ async function handleBlocking(
       }
     });
 
-    job.waitUntilFinished(pyQueueEvents, env.JOB_TIMEOUT)
+    waitForJobFinished(job, pyQueue, pyQueueEvents, env.JOB_TIMEOUT)
       .then(async (result) => {
         if (clientDisconnected) return;
         await setExecutionResult(execution_id, result);
