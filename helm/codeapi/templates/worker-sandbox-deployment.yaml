@@ -92,6 +92,11 @@ metadata:
     {{- include "codeapi.serviceWorker.labels" . | nindent 4 }}
 spec:
   replicas: {{ $serviceWorkerReplicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       {{- include "codeapi.serviceWorker.selectorLabels" . | nindent 6 }}
