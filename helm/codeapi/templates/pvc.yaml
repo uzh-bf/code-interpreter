@@ -24,8 +24,8 @@ metadata:
   labels:
     {{- include "codeapi.labels" . | nindent 4 }}
   annotations:
-    # Create PVC before the init job runs in Argo CD syncs.
-    "argocd.argoproj.io/sync-wave": "-10"
+    # Apply with the init job so WaitForFirstConsumer storage can bind.
+    "argocd.argoproj.io/sync-wave": "-5"
     # Keep the PVC across app deletion/prune events.
     "helm.sh/resource-policy": keep
 spec:
