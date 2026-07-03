@@ -119,6 +119,7 @@ spec:
         - name: wait-for-redis
           image: busybox:1.36.1
           command: ['sh', '-c', 'until nc -z {{ include "codeapi.redis.host" . }} {{ include "codeapi.redis.port" . }}; do echo waiting for redis; sleep 2; done']
+        {{- if not .Values.workerSandbox.sandboxRunner.externalAutoscaler }}
         - name: wait-for-sandbox-runner
           image: busybox:1.36.1
           {{- if .Values.workerSandbox.sandboxRunner.namespaceOverride }}
@@ -126,6 +127,7 @@ spec:
           {{- else }}
           command: ['sh', '-c', 'until nc -z {{ include "codeapi.fullname" . }}-sandbox-runner {{ .Values.workerSandbox.sandbox.port }}; do echo waiting for sandbox-runner; sleep 2; done']
           {{- end }}
+        {{- end }}
       containers:
         - name: service-worker
           image: "{{ .Values.workerSandbox.workerImage.repository }}:{{ .Values.workerSandbox.workerImage.tag }}"
