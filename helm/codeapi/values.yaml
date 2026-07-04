@@ -293,10 +293,16 @@ workerSandbox:
       # If you have pre-built packages, specify the existing claim
       existingClaim: ""
 
-    # Init job to populate packages before sandbox deployments in Argo CD syncs
-    # Compiles Python from source and downloads Node/Bun binaries
+    # Init job to populate packages before sandbox deployments in Argo CD syncs.
+    # Compiles Python from source and downloads Node/Bun binaries. Managed
+    # resource ordered by sync-wave, not a Sync hook — see package-init-job.yaml
+    # for why. No ttlSecondsAfterFinished: a TTL-deleted Job would be recreated
+    # on the next sync and wake the sandbox pool.
     initJob:
       enabled: true
+      # The Job spec is immutable and (de-hooked) persists after completion. To
+      # force a rebuild or change runtime versions, delete the existing Job first
+      # (kubectl delete job <release>-package-init), then set true / bump and sync.
       forceRebuild: false
       image:
         repository: codeapi-package-init
@@ -307,7 +313,6 @@ workerSandbox:
       bunVersion: "1.3.14"
       bashPackageVersion: "5.2.0"
       backoffLimit: 2
-      ttlSecondsAfterFinished: 3600
       resources:
         requests:
           cpu: 500m

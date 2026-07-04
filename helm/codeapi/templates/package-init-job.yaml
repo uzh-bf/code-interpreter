@@ -1,7 +1,12 @@
 {{/*
 Package Init Job
-Runs before deployments in Argo CD syncs to populate the packages PVC with
-Python, Node, Bun, and Bash runtimes for the NsJail sandbox.
+Populates the packages PVC (Python, Node, Bun, Bash runtimes for the NsJail
+sandbox) once. Ordered before the sandbox-runner by Argo CD sync-wave -5.
+Managed resource, NOT a Sync hook: an unchanged sync is an apply no-op that
+does NOT re-run the Job or wake the (scale-to-zero) sandbox node pool. No TTL,
+so the completed Job persists and stays a no-op across syncs. Its spec is
+immutable: to re-run it (forceRebuild or a runtime-version bump), delete the Job
+first, then sync (see values.yaml initJob.forceRebuild).
 */}}
 {{- if and .Values.workerSandbox.enabled .Values.workerSandbox.packages.initJob.enabled }}
 {{- $packageInitNodeSelector := .Values.workerSandbox.sandboxRunner.nodeSelector }}
@@ -21,14 +26,9 @@ metadata:
     {{- include "codeapi.labels" . | nindent 4 }}
     app.kubernetes.io/component: package-init
   annotations:
-    "argocd.argoproj.io/hook": Sync
     "argocd.argoproj.io/sync-wave": "-5"
-    "argocd.argoproj.io/hook-delete-policy": BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: {{ .Values.workerSandbox.packages.initJob.backoffLimit }}
-  {{- if .Values.workerSandbox.packages.initJob.ttlSecondsAfterFinished }}
-  ttlSecondsAfterFinished: {{ .Values.workerSandbox.packages.initJob.ttlSecondsAfterFinished }}
-  {{- end }}
   template:
     metadata:
       labels:
