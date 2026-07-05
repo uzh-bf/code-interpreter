@@ -115,13 +115,16 @@ helm install codeapi . -f values-local.yaml
 
 ### 4. Language Packages (Automatic)
 
-The chart includes a **package-init Job** that runs as a Helm `pre-install` hook. It automatically compiles Python, downloads Node/Bun, installs offline package sets, and registers Bash into the packages PVC before the worker pods start.
+The chart includes a **package-init Job** that compiles Python, downloads Node/Bun, installs offline package sets, and registers Bash into the packages PVC before the worker pods start. Under Argo CD it is a plain managed resource ordered by `sync-wave: -5` (not a hook), so it runs once and an unchanged sync does not re-run it or wake the (scale-to-zero) sandbox node pool. The completed Job persists (no TTL) and its spec is immutable — forcing a rebuild or bumping runtime versions requires deleting the Job first.
 
-This happens automatically on `helm install`. To force a rebuild:
+This happens automatically on `helm install`. To force a rebuild, delete the completed Job first (its spec is immutable, so `helm upgrade`/sync alone cannot patch it), then re-apply with `forceRebuild=true`:
 
 ```bash
+kubectl delete job codeapi-package-init
 helm upgrade codeapi . --set workerSandbox.packages.initJob.forceRebuild=true
 ```
+
+Under Argo CD, delete the Job the same way and re-sync — it is recreated and re-runs.
 
 To check init job status:
 
@@ -135,6 +138,7 @@ When deploying the `/pkgs` package-root migration, update sandbox env values to
 so generated Python/Node/Bun paths are recreated under `/pkgs`:
 
 ```bash
+kubectl delete job codeapi-package-init
 helm upgrade codeapi . --set workerSandbox.packages.initJob.forceRebuild=true
 ```
 
@@ -319,7 +323,8 @@ kubectl describe pod <pod-name>
 kubectl get jobs -l app.kubernetes.io/component=package-init
 kubectl logs job/codeapi-package-init
 
-# Force a rebuild:
+# Force a rebuild (delete the immutable Job first, then re-apply):
+kubectl delete job codeapi-package-init
 helm upgrade codeapi . --set workerSandbox.packages.initJob.forceRebuild=true
 
 # Then restart sandbox-runner pods
