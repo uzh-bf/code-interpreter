@@ -58,10 +58,13 @@ function ttlSeconds(exp: number): number {
 
 function redisConnection(): IORedis {
   if (redis) return redis;
-  const retryStrategy: CommonRedisOptions['retryStrategy'] = times => {
-    if (times > 5) return null;
-    return 2000;
-  };
+  // Retry indefinitely with capped backoff (matching file-server / tool-call-server)
+  // so a transient outage never leaves this singleton permanently disconnected. The
+  // previous strategy returned null after 5 attempts, which put ioredis into the "end"
+  // state for good; the readiness probe (/ready -> pingEgressLedger) then failed
+  // forever while /live kept returning 200, so the pod never restarted to recover.
+  const retryStrategy: CommonRedisOptions['retryStrategy'] = times =>
+    Math.min(times * 500, 2000);
   redis = new IORedis({
     host: process.env.REDIS_HOST ?? 'redis',
     port: Number(process.env.REDIS_PORT) || 6379,
