@@ -36,7 +36,7 @@ jobs:
                     - image: codeapi-sandbox-runner
                       dockerfile: api/Dockerfile
                       platforms: linux/amd64
-                      target: sandbox-runner
+                      target: sandbox-runner-baked
                     - image: codeapi-package-init
                       dockerfile: docker/Dockerfile.package-init
                       platforms: linux/amd64

@@ -8,7 +8,7 @@ so the completed Job persists and stays a no-op across syncs. Its spec is
 immutable: to re-run it (forceRebuild or a runtime-version bump), delete the Job
 first, then sync (see values.yaml initJob.forceRebuild).
 */}}
-{{- if and .Values.workerSandbox.enabled .Values.workerSandbox.packages.initJob.enabled }}
+{{- if and .Values.workerSandbox.enabled (eq (.Values.workerSandbox.packages.source | default "image") "pvc") .Values.workerSandbox.packages.initJob.enabled }}
 {{- $packageInitNodeSelector := .Values.workerSandbox.sandboxRunner.nodeSelector }}
 {{- $packageInitTolerations := .Values.workerSandbox.sandboxRunner.tolerations }}
 {{- if .Values.workerSandbox.sandboxRunner.inheritSharedScheduling }}
