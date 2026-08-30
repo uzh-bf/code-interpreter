@@ -11,7 +11,7 @@ import { executionLimiter, uploadLimiter, downloadLimiter, fetchLimiter } from '
 import { internalServiceHeaders } from '../internal-service-auth';
 import { resolveSessionKey, resolveOutputBucketSessionKey, SessionKeyResolutionError, parseUploadSessionKeyInput, type SessionKeyInput } from '../session-key';
 import { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, queueNames, connection, waitForJobFinished } from '../queue';
-import { sleep, getAxiosErrorDetails, publicExecutionFailure } from '../utils';
+import { sleep, publicExecutionFailure } from '../utils';
 import { env, jobCompletionWaitTimeoutMs, planLimits, resolveLanguage } from '../config';
 import { createPayload } from '../payload';
 import { summarizeRequestedFiles } from '../execution-log';
@@ -25,9 +25,9 @@ import { Jobs, Languages } from '../enum';
 import { FileRefAuthorizationError, authorizeRequestedFiles } from './file-authorization';
 import { createUploadSessionRegistrar } from './upload-session';
 import { prepareSandboxJobSecurity } from '../sandbox-egress';
+import { operationalErrorMeta, operationalRoute } from '../operational-log';
 import logger from '../logger';
 
-const { INSTANCE_ID } = env;
 const JOB_COMPLETION_WAIT_TIMEOUT_MS = jobCompletionWaitTimeoutMs(
   env.JOB_TIMEOUT,
   env.LAMBDA_MICROVM_LAUNCH_TIMEOUT_MS,
@@ -66,16 +66,10 @@ function sendFileRefAuthorizationError(
   req?: t.AuthenticatedRequest,
 ): boolean {
   if (error instanceof FileRefAuthorizationError) {
-    const queryEntityId = typeof req?.query?.entity_id === 'string' ? req.query.entity_id : undefined;
     logger.warn('File reference authorization rejected', {
       status: error.status,
       reason: error.reason,
-      message: error.message,
-      requestUserId: req?.codeApiAuthContext?.userId,
-      requestApiKeyId: req ? getCredentialId(req) : undefined,
-      requestEntityId: queryEntityId,
-      tenantId: req?.codeApiAuthContext?.tenantId,
-      ...error.context,
+      route: req == null ? 'v1.exec' : operationalRoute(req),
     });
     res.status(error.status).json({ error: error.message });
     return true;
@@ -90,8 +84,7 @@ function sendFileRefAuthorizationError(
  * `codeApiAuthContext`, malformed kind/version on uploads) would
  * surface as 500/400s in the response body with zero server-side
  * trail — silent in production logs and easy to miss until a user
- * reports it. Includes auth/request context so the failure mode is
- * traceable without correlating HTTP captures.
+ * reports it. The log keeps only the fixed stage and status.
  */
 function sendSessionKeyResolutionError(
   error: unknown,
@@ -100,14 +93,13 @@ function sendSessionKeyResolutionError(
   context: string,
 ): boolean {
   if (error instanceof SessionKeyResolutionError) {
-    logger.error(`[${INSTANCE_ID}] sessionKey resolution failed (${context})`, {
+    logger.error('Session key resolution failed', {
       status: error.status,
-      message: error.message,
-      method: req.method,
-      path: req.path,
-      requestUserId: req.codeApiAuthContext?.userId,
-      authContextUserId: req.codeApiAuthContext?.userId,
-      tenantId: req.codeApiAuthContext?.tenantId,
+      stage: context === 'resolveOutputBucketSessionKey'
+        ? 'resolve_output_bucket'
+        : 'resolve_upload_identity',
+      route: operationalRoute(req),
+      ...operationalErrorMeta(error),
     });
     res.status(error.status).json({ error: error.message });
     return true;
@@ -134,7 +126,7 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
   }
 
   const body = req.body as t.RequestBody;
-  const { user_id, lang: rawLang, code, files } = body;
+  const { lang: rawLang, code, files } = body;
   const language = resolveLanguage(rawLang);
   if (language == null) {
     return res.status(400).json({ error: `Unsupported language: ${rawLang}` });
@@ -169,7 +161,10 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
     body.files = authorizedFiles.length > 0 ? authorizedFiles : undefined;
   } catch (error) {
     if (sendFileRefAuthorizationError(error, res, req)) return;
-    logger.error(`[${INSTANCE_ID}] Error authorizing file refs:`, error);
+    logger.error('File reference authorization failed', {
+      route: 'v1.exec',
+      ...operationalErrorMeta(error),
+    });
     return res.status(500).json({ error: 'Internal server error' });
   }
 
@@ -199,13 +194,10 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
   try {
     if (!isSyntheticRequest) {
       logger.info('Request received', {
-        userId,
-        apiKeyId,
-        user: user_id,
-        session_id,
+        route: 'v1.exec',
         language,
         files: summarizeRequestedFiles(authorizedFiles),
-        sessionKey,
+        codeLength: code.length,
       });
     }
 
@@ -271,9 +263,14 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
     req.on('close', async () => {
       try {
         await job.remove();
-        logger.info(`[${INSTANCE_ID}] Job ${job.id} removed due to client disconnect`);
+        logger.info('Execution job removed after client disconnect', {
+          route: 'v1.exec',
+        });
       } catch (error) {
-        logger.error(`[${INSTANCE_ID}] Error removing job ${job.id} on client disconnect:`, error);
+        logger.error('Execution job cleanup failed after client disconnect', {
+          route: 'v1.exec',
+          ...operationalErrorMeta(error),
+        });
       }
     });
 
@@ -285,12 +282,16 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
     }, () => waitForJobFinished(job, queue, queueEvents, JOB_COMPLETION_WAIT_TIMEOUT_MS), 'CONSUMER');
 
     if (!isSyntheticRequest) {
-      logger.info('Execution completed', { session_id, user_id });
+      logger.info('Execution completed', { route: 'v1.exec', language });
     }
     return res.status(200).json(result);
   } catch (error) {
-    logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | User ID: ${user_id} | Error during execution:`, error);
     const publicFailure = publicExecutionFailure(error);
+    logger.error('Execution failed', {
+      route: 'v1.exec',
+      status: publicFailure?.status ?? 500,
+      ...operationalErrorMeta(error),
+    });
     if (publicFailure) {
       return res.status(publicFailure.status).json(publicFailure.body);
     }
@@ -312,7 +313,11 @@ router.get('/download/:session_id/:fileId', downloadLimiter, sessionAuth, async 
   }
 
   if (exists === 0) {
-    logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | File ID: ${fileId} | File not found in cache`);
+    logger.warn('File download rejected', {
+      route: 'v1.download',
+      status: 404,
+      reason: 'upload_marker_missing',
+    });
     return res.status(404).json({
       error: 'File not found',
       details: 'The file may have expired or does not exist'
@@ -330,8 +335,10 @@ router.get('/download/:session_id/:fileId', downloadLimiter, sessionAuth, async 
     res.set(response.headers);
     response.data.pipe(res);
   } catch (error) {
-    const errorDetails = getAxiosErrorDetails(error);
-    logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | File ID: ${fileId} | Error downloading file:`, errorDetails);
+    logger.error('File download failed', {
+      route: 'v1.download',
+      ...operationalErrorMeta(error),
+    });
 
     return res.status(500).json({
       error: 'Error downloading file',
@@ -393,11 +400,17 @@ router.post('/upload', uploadLimiter, async (req: t.AuthenticatedRequest, res: R
 
       file.on('limit', () => {
         if (hasResponded) {
-          logger.warn(`[${INSTANCE_ID}] Post-process file size limit exceeded: ${filename} | Session: ${session_id}`);
+          logger.warn('Upload file size limit reached after response', {
+            route: 'v1.upload',
+            limitBytes: planFileSize,
+          });
           return;
         }
         hasResponded = true;
-        logger.warn(`[${INSTANCE_ID}] File size limit exceeded: ${filename} | Session: ${session_id}`);
+        logger.warn('Upload file size limit reached', {
+          route: 'v1.upload',
+          limitBytes: planFileSize,
+        });
         abortController.abort();
         file.resume();
         res.status(413).json({ error: 'File size limit exceeded' });
@@ -446,7 +459,7 @@ router.post('/upload', uploadLimiter, async (req: t.AuthenticatedRequest, res: R
         }
         connection.set(`session:${session_id}`, sessionKey, 'EX', env.SESSION_CACHE_TTL)
           .then(() => {
-            logger.info(`[${INSTANCE_ID}] Upload: Session ID: ${session_id} | User ID: ${userId} | Session key: ${sessionKey}`);
+            logger.info('Upload session registered', { route: 'v1.upload' });
             return axios.put<t.UploadResult>(
               `${env.FILE_SERVER_URL}/sessions/${session_id}/objects/${fileId}`,
               file,
@@ -478,17 +491,25 @@ router.post('/upload', uploadLimiter, async (req: t.AuthenticatedRequest, res: R
 
     bb.on('error', (error) => {
       if (hasResponded) {
-        logger.warn(`[${INSTANCE_ID}] Post-process busboy error for session ${session_id}:`, error);
+        logger.warn('Upload parser failed after response', {
+          route: 'v1.upload',
+          ...operationalErrorMeta(error),
+        });
         return;
       }
       hasResponded = true;
-      logger.error(`[${INSTANCE_ID}] Busboy error for session ${session_id}:`, error);
+      logger.error('Upload parser failed', {
+        route: 'v1.upload',
+        ...operationalErrorMeta(error),
+      });
       res.status(500).json({ error: 'Error processing upload' });
     });
 
     bb.on('finish', async () => {
       if (hasResponded) {
-        logger.warn(`[${INSTANCE_ID}] Post-process upload already responded for session ${session_id}`);
+        logger.warn('Upload completion ignored after response', {
+          route: 'v1.upload',
+        });
         void Promise.allSettled(uploadPromises);
         return;
       }
@@ -502,7 +523,10 @@ router.post('/upload', uploadLimiter, async (req: t.AuthenticatedRequest, res: R
         };
         res.status(200).json(response);
       } catch (error) {
-        logger.error(`[${INSTANCE_ID}] Error uploading files for session ${session_id}:`, error);
+        logger.error('Upload failed', {
+          route: 'v1.upload',
+          ...operationalErrorMeta(error),
+        });
         if (!res.headersSent) {
           if (error instanceof Error) {
             if (error.message === 'Upload timeout') {
@@ -521,16 +545,25 @@ router.post('/upload', uploadLimiter, async (req: t.AuthenticatedRequest, res: R
 
     req.on('error', (error) => {
       if (hasResponded) {
-        logger.warn(`[${INSTANCE_ID}] Post-process request error for session ${session_id}:`, error);
+        logger.warn('Upload request failed after response', {
+          route: 'v1.upload',
+          ...operationalErrorMeta(error),
+        });
         return;
       }
       hasResponded = true;
-      logger.error(`[${INSTANCE_ID}] Request error for session ${session_id}:`, error);
+      logger.error('Upload request failed', {
+        route: 'v1.upload',
+        ...operationalErrorMeta(error),
+      });
       res.status(500).json({ error: 'Error processing request' });
     });
 
   } catch (error) {
-    logger.error(`[${INSTANCE_ID}] Unexpected upload error:`, error);
+    logger.error('Unexpected upload failure', {
+      route: 'v1.upload',
+      ...operationalErrorMeta(error),
+    });
     if (!res.headersSent) {
       res.status(500).json({ error: 'An unexpected error occurred' });
     }
@@ -565,7 +598,9 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
     let sessionRegistrationError: Error | undefined;
 
     const ensureSessionRegistered = createUploadSessionRegistrar((sessionKey) => {
-      logger.info(`[${INSTANCE_ID}] Batch upload: Session ID: ${session_id} | User ID: ${userId} | Session key: ${sessionKey}`);
+      logger.info('Batch upload session registered', {
+        route: 'v1.upload.batch',
+      });
       return connection.set(`session:${session_id}`, sessionKey, 'EX', env.SESSION_CACHE_TTL);
     });
 
@@ -596,7 +631,10 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
 
     bb.on('filesLimit', () => {
       filesLimitReached = true;
-      logger.warn(`[${INSTANCE_ID}] Batch upload files limit reached (${MAX_BATCH_FILES}) for session ${session_id}`);
+      logger.warn('Batch upload file count limit reached', {
+        route: 'v1.upload.batch',
+        maxFiles: MAX_BATCH_FILES,
+      });
     });
 
     bb.on('file', (_fieldname: string, file: Readable, info: busboy.FileInfo) => {
@@ -605,7 +643,10 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
       const abortController = new AbortController();
 
       file.on('limit', () => {
-        logger.warn(`[${INSTANCE_ID}] Batch upload file size limit exceeded: ${filename} | Session: ${session_id}`);
+        logger.warn('Batch upload file size limit reached', {
+          route: 'v1.upload.batch',
+          limitBytes: planFileSize,
+        });
         abortController.abort('size_limit');
         file.resume();
       });
@@ -684,7 +725,10 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
           }
           file.resume();
           const message = error instanceof Error ? error.message : 'Unknown upload error';
-          logger.error(`[${INSTANCE_ID}] Batch upload file failed: ${filename} | Session: ${session_id}`, { error: message });
+          logger.error('Batch upload file failed', {
+            route: 'v1.upload.batch',
+            ...operationalErrorMeta(error),
+          });
           resolve({ status: 'error', filename, error: message });
         };
         const forwardFile = (): Promise<void> => axios.put<t.UploadResult>(
@@ -711,17 +755,25 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
 
     bb.on('error', (error) => {
       if (hasResponded) {
-        logger.warn(`[${INSTANCE_ID}] Post-process busboy error for batch session ${session_id}:`, error);
+        logger.warn('Batch upload parser failed after response', {
+          route: 'v1.upload.batch',
+          ...operationalErrorMeta(error),
+        });
         return;
       }
       hasResponded = true;
-      logger.error(`[${INSTANCE_ID}] Busboy error for batch session ${session_id}:`, error);
+      logger.error('Batch upload parser failed', {
+        route: 'v1.upload.batch',
+        ...operationalErrorMeta(error),
+      });
       res.status(500).json({ error: 'Error processing upload' });
     });
 
     bb.on('finish', async () => {
       if (hasResponded) {
-        logger.warn(`[${INSTANCE_ID}] Post-process batch upload already responded for session ${session_id}`);
+        logger.warn('Batch upload completion ignored after response', {
+          route: 'v1.upload.batch',
+        });
         return;
       }
       hasResponded = true;
@@ -730,10 +782,10 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
         const results = await Promise.all(uploadPromises);
 
         if (sessionRegistrationError) {
-          logger.error(
-            `[${INSTANCE_ID}] Batch upload session registration failed for session ${session_id}:`,
-            sessionRegistrationError,
-          );
+          logger.error('Batch upload session registration failed', {
+            route: 'v1.upload.batch',
+            ...operationalErrorMeta(sessionRegistrationError),
+          });
           res.status(500).json({ error: 'Error registering upload session' });
           return;
         }
@@ -745,10 +797,12 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
          * `partial_success` when a tenantId gap or similar makes
          * EVERY upload structurally impossible. */
         if (serverError) {
-          logger.error(
-            `[${INSTANCE_ID}] Batch upload faulted on sessionKey resolution: ${serverError.message}`,
-            { session_id, files: results.length },
-          );
+          logger.error('Batch upload session key resolution failed', {
+            route: 'v1.upload.batch',
+            fileCount: results.length,
+            status: serverError.status,
+            ...operationalErrorMeta(serverError),
+          });
           res.status(500).json({ error: serverError.message });
           return;
         }
@@ -785,7 +839,10 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
         };
         res.status(statusCode).json(response);
       } catch (error) {
-        logger.error(`[${INSTANCE_ID}] Error in batch upload finish for session ${session_id}:`, error);
+        logger.error('Batch upload completion failed', {
+          route: 'v1.upload.batch',
+          ...operationalErrorMeta(error),
+        });
         if (!res.headersSent) {
           res.status(500).json({ error: 'Error processing batch upload' });
         }
@@ -796,16 +853,25 @@ router.post('/upload/batch', uploadLimiter, async (req: t.AuthenticatedRequest, 
 
     req.on('error', (error) => {
       if (hasResponded) {
-        logger.warn(`[${INSTANCE_ID}] Post-process request error for batch session ${session_id}:`, error);
+        logger.warn('Batch upload request failed after response', {
+          route: 'v1.upload.batch',
+          ...operationalErrorMeta(error),
+        });
         return;
       }
       hasResponded = true;
-      logger.error(`[${INSTANCE_ID}] Request error for batch session ${session_id}:`, error);
+      logger.error('Batch upload request failed', {
+        route: 'v1.upload.batch',
+        ...operationalErrorMeta(error),
+      });
       res.status(500).json({ error: 'Error processing request' });
     });
 
   } catch (error) {
-    logger.error(`[${INSTANCE_ID}] Unexpected batch upload error:`, error);
+    logger.error('Unexpected batch upload failure', {
+      route: 'v1.upload.batch',
+      ...operationalErrorMeta(error),
+    });
     if (!res.headersSent) {
       res.status(500).json({ error: 'An unexpected error occurred' });
     }
@@ -824,8 +890,10 @@ router.get('/files/:session_id', fetchLimiter, sessionAuth, async (req: t.Authen
 
     return res.status(200).json(response.data);
   } catch (error) {
-    const errorDetails = getAxiosErrorDetails(error);
-    logger.error(`[${INSTANCE_ID}] Error fetching file info for session ${session_id}:`, errorDetails);
+    logger.error('File listing failed', {
+      route: 'v1.files.list',
+      ...operationalErrorMeta(error),
+    });
     return res.status(500).json({
       error: 'Error fetching file information',
     });
@@ -859,11 +927,10 @@ router.get('/sessions/:session_id/objects/:fileId', fetchLimiter, sessionAuth, a
     if (axios.isAxiosError(error) && error.response?.status === 404) {
       return res.status(404).json({ error: 'File not found' });
     }
-    const errorDetails = getAxiosErrorDetails(error);
-    logger.error(
-      `[${INSTANCE_ID}] Error fetching object metadata - Session ID: ${session_id} | File ID: ${fileId}:`,
-      errorDetails,
-    );
+    logger.error('File metadata lookup failed', {
+      route: 'v1.files.metadata',
+      ...operationalErrorMeta(error),
+    });
     return res.status(500).json({ error: 'Error fetching object metadata' });
   }
 });
@@ -878,11 +945,13 @@ router.delete('/files/:session_id/:fileId', fetchLimiter, sessionAuth, async (re
     );
 
     await connection.del(`upload:${req.sessionKey}${session_id}${fileId}`);
-    logger.info(`[${INSTANCE_ID}] File deleted: Session ID: ${session_id} | File ID: ${fileId}`);
+    logger.info('File deleted', { route: 'v1.files.delete' });
     return res.status(200).json(response.data);
   } catch (error) {
-    const errorDetails = getAxiosErrorDetails(error);
-    logger.error(`[${INSTANCE_ID}] Error deleting file - Session ID: ${session_id} | File ID: ${fileId}:`, errorDetails);
+    logger.error('File deletion failed', {
+      route: 'v1.files.delete',
+      ...operationalErrorMeta(error),
+    });
     return res.status(500).json({
       error: 'Error deleting file',
     });

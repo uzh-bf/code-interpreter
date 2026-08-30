@@ -11,8 +11,13 @@ import { AuthProviderConfigError, getAuthProviderMode } from '../auth/provider';
 import {
   authenticateSyntheticRequest,
   CODEAPI_SYNTHETIC_AUTH_HEADER,
-  hasSyntheticAccessToken,
 } from '../auth/synthetic';
+import {
+  operationalErrorClass,
+  operationalMethod,
+  operationalRoute,
+} from '../operational-log';
+import { buildAuthLogMeta } from './auth-log';
 import logger from '../logger';
 
 /**
@@ -30,14 +35,14 @@ const logSessionKeyResolutionError = (
   context: string,
 ): boolean => {
   if (err instanceof SessionKeyResolutionError) {
-    logger.error(`sessionKey resolution failed (${context})`, {
+    logger.error('Session key resolution failed', {
       status: err.status,
-      message: err.message,
-      method: req.method,
-      path: req.path,
-      requestUserId: req.codeApiAuthContext?.userId,
-      authContextUserId: req.codeApiAuthContext?.userId,
-      tenantId: req.codeApiAuthContext?.tenantId,
+      stage: context.includes('parseUploadSessionKeyInput')
+        ? 'parse_upload_identity'
+        : 'resolve_session_key',
+      method: operationalMethod(req.method),
+      route: operationalRoute(req),
+      errorClass: operationalErrorClass(err),
     });
     res.status(err.status).json({ error: err.message });
     return true;
@@ -47,23 +52,6 @@ const logSessionKeyResolutionError = (
 
 const jwtProvider = new LibreChatJwtAuthProvider();
 
-function authLogMeta(req: AuthenticatedRequest, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    method: req.method,
-    path: req.originalUrl || req.path,
-    ip: req.ip,
-    authProvider: process.env.CODEAPI_AUTH_PROVIDER || 'librechat-jwt',
-    hasBearerToken: Boolean(req.header('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()),
-    hasApiKeyHeader: Boolean(req.header('X-API-Key')),
-    hasSyntheticToken: hasSyntheticAccessToken(req),
-    principalSource: req.codeApiPrincipal?.principalSource,
-    userId: req.codeApiAuthContext?.userId,
-    tenantId: req.codeApiAuthContext?.tenantId,
-    authContextHash: req.codeApiAuthContext?.authContextHash,
-    ...extra,
-  };
-}
-
 export const apiKeyAuth = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -71,7 +59,7 @@ export const apiKeyAuth = async (
 ): Promise<void | Response> => {
   if (env.LOCAL_MODE === true) {
     applyLocalPrincipal(req);
-    logger.debug('CodeAPI local request authenticated', authLogMeta(req, { mode: 'local' }));
+    logger.debug('CodeAPI local request authenticated', buildAuthLogMeta(req, { mode: 'local' }));
     next();
     return;
   }
@@ -81,7 +69,7 @@ export const apiKeyAuth = async (
   const syntheticToken = req.header(CODEAPI_SYNTHETIC_AUTH_HEADER)?.trim();
   const authHeaderCount = [legacyApiKeyHeader, bearerToken, syntheticToken].filter(Boolean).length;
   if (authHeaderCount > 1) {
-    logger.warn('Rejecting ambiguous CodeAPI auth headers', authLogMeta(req));
+    logger.warn('Rejecting ambiguous CodeAPI auth headers', buildAuthLogMeta(req));
     return res.status(400).json({ error: 'Ambiguous authentication headers' });
   }
 
@@ -89,7 +77,11 @@ export const apiKeyAuth = async (
     const syntheticAuthResult = authenticateSyntheticRequest(req);
     if (syntheticAuthResult !== null) {
       if (!syntheticAuthResult.ok) {
-        const logMeta = authLogMeta(req, { mode: 'synthetic', reason: syntheticAuthResult.reason });
+        const logMeta = buildAuthLogMeta(req, {
+          mode: 'synthetic',
+          reason: syntheticAuthResult.reason,
+          reasonSource: 'synthetic',
+        });
         if (syntheticAuthResult.status >= 500) {
           logger.error('Rejecting synthetic CodeAPI request', logMeta);
         } else {
@@ -99,7 +91,7 @@ export const apiKeyAuth = async (
       }
 
       applyPrincipal(req, syntheticAuthResult.principal);
-      logger.debug('CodeAPI synthetic request authenticated', authLogMeta(req, { mode: 'synthetic' }));
+      logger.debug('CodeAPI synthetic request authenticated', buildAuthLogMeta(req, { mode: 'synthetic' }));
       next();
       return;
     }
@@ -108,7 +100,7 @@ export const apiKeyAuth = async (
     let principal: CodeApiPrincipal | null = null;
 
     if (legacyApiKeyHeader) {
-      logger.warn('Rejecting legacy CodeAPI API key header', authLogMeta(req, { mode }));
+      logger.warn('Rejecting legacy CodeAPI API key header', buildAuthLogMeta(req, { mode }));
       return res.status(401).json({ error: 'Bearer token is required' });
     }
 
@@ -116,7 +108,7 @@ export const apiKeyAuth = async (
       if (process.env.CODEAPI_ALLOW_AUTH_PROVIDER_NONE !== 'true') {
         logger.error(
           'Rejecting CODEAPI_AUTH_PROVIDER=none outside local mode',
-          authLogMeta(req, { mode }),
+          buildAuthLogMeta(req, { mode }),
         );
         return res
           .status(500)
@@ -131,42 +123,50 @@ export const apiKeyAuth = async (
       };
     } else {
       if (!bearerToken) {
-        logger.warn('Rejecting CodeAPI request without bearer token', authLogMeta(req, { mode }));
+        logger.warn('Rejecting CodeAPI request without bearer token', buildAuthLogMeta(req, { mode }));
         return res.status(401).json({ error: 'Bearer token is required' });
       }
       principal = await jwtProvider.verify(req);
     }
 
     if (!principal) {
-      logger.warn('CodeAPI auth provider returned no principal', authLogMeta(req, { mode }));
+      logger.warn('CodeAPI auth provider returned no principal', buildAuthLogMeta(req, { mode }));
       return res.status(401).json({ error: 'Authentication is required' });
     }
     applyPrincipal(req, principal);
-    logger.debug('CodeAPI request authenticated', authLogMeta(req, { mode }));
+    logger.debug('CodeAPI request authenticated', buildAuthLogMeta(req, { mode }));
     next();
   } catch (error) {
     if (error instanceof CodeApiJwtAuthError) {
       if (error.reason === 'config') {
         logger.error(
-          `JWT auth configuration failure request from ${req.ip}: ${error.message}`,
-          authLogMeta(req, { reason: error.reason, error }),
+          'JWT auth configuration failure',
+          buildAuthLogMeta(req, {
+            reason: error.reason,
+            reasonSource: 'jwt',
+            error,
+          }),
         );
         return res.status(500).json({ error: 'CodeAPI JWT auth is misconfigured' });
       }
       logger.warn(
-        `JWT auth failure request from ${req.ip}: ${error.reason}`,
-        authLogMeta(req, { reason: error.reason }),
+        'JWT authentication failed',
+        buildAuthLogMeta(req, {
+          reason: error.reason,
+          reasonSource: 'jwt',
+          error,
+        }),
       );
       return res.status(401).json({ error: 'Invalid bearer token' });
     }
     if (error instanceof AuthProviderConfigError) {
       logger.error(
-        `Auth provider configuration failure request from ${req.ip}: ${error.message}`,
-        authLogMeta(req, { error }),
+        'Auth provider configuration failure',
+        buildAuthLogMeta(req, { error }),
       );
       return res.status(500).json({ error: 'CodeAPI auth provider is misconfigured' });
     }
-    logger.error(`CodeAPI authentication error request from ${req.ip}:`, authLogMeta(req, { error }));
+    logger.error('CodeAPI authentication error', buildAuthLogMeta(req, { error }));
     return res.status(401).json({ error: 'Authentication is required' });
   }
 };
@@ -187,30 +187,38 @@ export const sessionAuth = async (req: AuthenticatedRequest, res: Response, next
   const { session_id, fileId } = req.params as { session_id?: string; fileId?: string };
 
   if (!isValidId(session_id)) {
-    logger.error(`Invalid session ID: ${session_id}`);
+    logger.warn('Session authorization rejected', {
+      status: 400,
+      reason: 'invalid_session_id',
+      route: operationalRoute(req),
+    });
     return res.status(400).json({ error: 'Bad request' });
   } else if (fileId != null && fileId.length > 0 && !isValidId(fileId)) {
-    logger.error(`Invalid file ID: ${fileId}`);
+    logger.warn('Session authorization rejected', {
+      status: 400,
+      reason: 'invalid_file_id',
+      route: operationalRoute(req),
+    });
     return res.status(400).json({ error: 'Bad request' });
   }
 
   const userId = req.codeApiAuthContext?.userId ?? '';
   if (!userId) {
-    logger.warn('Rejecting session auth without authContext.userId', authLogMeta(req));
+    logger.warn('Rejecting session auth without authenticated user', buildAuthLogMeta(req));
     return res.status(401).json({ error: 'User not found' });
   }
 
   const { kind, id, version } = req.query;
   if (kind !== undefined && typeof kind !== 'string') {
-    logger.warn('Rejecting session auth with malformed kind query', authLogMeta(req));
+    logger.warn('Rejecting session auth with malformed kind query', buildAuthLogMeta(req));
     return res.status(400).json({ error: 'Bad request' });
   }
   if (id !== undefined && typeof id !== 'string') {
-    logger.warn('Rejecting session auth with malformed id query', authLogMeta(req));
+    logger.warn('Rejecting session auth with malformed id query', buildAuthLogMeta(req));
     return res.status(400).json({ error: 'Bad request' });
   }
   if (version !== undefined && typeof version !== 'string') {
-    logger.warn('Rejecting session auth with malformed version query', authLogMeta(req));
+    logger.warn('Rejecting session auth with malformed version query', buildAuthLogMeta(req));
     return res.status(400).json({ error: 'Bad request' });
   }
 
@@ -240,7 +248,11 @@ export const sessionAuth = async (req: AuthenticatedRequest, res: Response, next
   }
   const cachedSessionKey = await connection.get(`session:${session_id}`);
   if (cachedSessionKey !== sessionKey) {
-    logger.error(`Unauthorized download: Cached session key: ${cachedSessionKey} | Expected session key: ${sessionKey} | Session ID: ${session_id} | File ID: ${fileId}`);
+    logger.warn('Session authorization rejected', {
+      status: 403,
+      reason: 'session_key_mismatch',
+      route: operationalRoute(req),
+    });
     return res.status(403).json({ error: 'Unauthorized' });
   }
 

@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe('buildRequestErrorLogMeta', () => {
-  test('includes request path and auth context for session-key failures', () => {
+  test('keeps only values-free request classes for session-key failures', () => {
     process.env.CODEAPI_AUTH_PROVIDER = 'librechat-jwt';
 
     const meta = buildRequestErrorLogMeta(
@@ -55,46 +55,36 @@ describe('buildRequestErrorLogMeta', () => {
     expect(meta).toMatchObject({
       status: 500,
       method: 'POST',
-      path: '/v1/exec',
-      requestId: 'req_123',
-      userAgent: 'unit-test',
+      route: 'v1.exec',
       authProvider: 'librechat-jwt',
       principalSource: 'librechat_jwt',
-      userId: 'user_123',
-      tenantId: 'tenant_abc',
-      authContextHash: 'hash_123',
+      errorClass: 'session_key',
     });
-    expect(meta.error).toMatchObject({
-      name: 'SessionKeyResolutionError',
-      message: 'tenantId missing from auth context',
-    });
+    expect(JSON.stringify(meta)).not.toContain('user_123');
+    expect(JSON.stringify(meta)).not.toContain('tenant_abc');
+    expect(JSON.stringify(meta)).not.toContain('hash_123');
   });
 
-  test('keeps JWT auth failure reason observable', () => {
+  test('classifies JWT failures without retaining their messages', () => {
     const meta = buildRequestErrorLogMeta(
       new CodeApiJwtAuthError('malformed_claims', 'tenant_id is required'),
       request() as AuthenticatedRequest,
     );
 
     expect(meta.status).toBe(401);
-    expect(meta.error).toMatchObject({
-      name: 'CodeApiJwtAuthError',
-      message: 'tenant_id is required',
-      reason: 'malformed_claims',
-    });
+    expect(meta.errorClass).toBe('authentication');
+    expect(JSON.stringify(meta)).not.toContain('tenant_id is required');
   });
 });
 
 describe('buildRequestNotFoundLogMeta', () => {
-  test('includes unmatched path and auth-header presence', () => {
+  test('classifies routes and keeps only auth-header presence', () => {
     const meta = buildRequestNotFoundLogMeta(request());
 
     expect(meta).toMatchObject({
       status: 404,
       method: 'POST',
-      path: '/v1/exec',
-      requestId: 'req_123',
-      userAgent: 'unit-test',
+      route: 'v1.exec',
       hasBearerToken: false,
       hasApiKeyHeader: false,
       hasSyntheticToken: false,

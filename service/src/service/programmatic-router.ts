@@ -36,6 +36,11 @@ import { findUnregisteredToolCall } from '../tool-scope';
 import { summarizeRequestedFiles } from '../execution-log';
 import { FileRefAuthorizationError, authorizeRequestedFiles } from './file-authorization';
 import { buildReplayExecutionState } from './programmatic-state';
+import {
+  operationalErrorMeta,
+  operationalMethod,
+  operationalRoute,
+} from '../operational-log';
 import logger from '../logger';
 import {
   type ExecutionState,
@@ -59,7 +64,6 @@ import {
   validateContinuationBatch,
 } from './replay-state';
 
-const { INSTANCE_ID } = env;
 const POLL_INTERVAL = 100; // ms (blocking mode only)
 const MAX_POLL_TIME = 300000; // 5 minutes (blocking mode only)
 const TOOL_CALL_SERVER_RETRY_ATTEMPTS = 3;
@@ -84,11 +88,7 @@ function sendFileRefAuthorizationError(
     logger.warn('File reference authorization rejected', {
       status: error.status,
       reason: error.reason,
-      message: error.message,
-      requestUserId: req?.codeApiAuthContext?.userId,
-      requestApiKeyId: req ? getCredentialId(req) : undefined,
-      tenantId: req?.codeApiAuthContext?.tenantId,
-      ...error.context,
+      route: req == null ? 'v1.exec.programmatic' : operationalRoute(req),
     });
     res.status(error.status).json({ error: error.message });
     return true;
@@ -108,14 +108,14 @@ function sendSessionKeyResolutionError(
   context: string,
 ): boolean {
   if (error instanceof SessionKeyResolutionError) {
-    logger.error(`sessionKey resolution failed (${context})`, {
+    logger.error('Session key resolution failed', {
       status: error.status,
-      message: error.message,
-      method: req.method,
-      path: req.path,
-      requestUserId: req.codeApiAuthContext?.userId,
-      authContextUserId: req.codeApiAuthContext?.userId,
-      tenantId: req.codeApiAuthContext?.tenantId,
+      stage: context.includes('blocking')
+        ? 'resolve_blocking_output_bucket'
+        : 'resolve_replay_output_bucket',
+      method: operationalMethod(req.method),
+      route: operationalRoute(req),
+      ...operationalErrorMeta(error),
     });
     res.status(error.status).json({ error: error.message });
     return true;
@@ -128,6 +128,15 @@ async function retryToolCallServerRequest<T>(
   context: string,
 ): Promise<T> {
   let lastError: Error | undefined;
+  const operation = context === 'Get pending tool calls'
+    ? 'get_pending_calls'
+    : context === 'Get execution status'
+      ? 'get_execution_status'
+      : context === 'Submit tool results'
+        ? 'submit_results'
+        : context === 'Create Tool Call Server session'
+          ? 'create_session'
+          : 'other';
 
   for (let attempt = 1; attempt <= TOOL_CALL_SERVER_RETRY_ATTEMPTS; attempt++) {
     try {
@@ -140,15 +149,24 @@ async function retryToolCallServerRequest<T>(
         }
       }
       if (attempt < TOOL_CALL_SERVER_RETRY_ATTEMPTS) {
-        logger.warn(`${context} failed (attempt ${attempt}/${TOOL_CALL_SERVER_RETRY_ATTEMPTS}), retrying...`, {
-          error: lastError.message,
+        logger.warn('Tool Call Server request failed; retrying', {
+          route: 'v1.exec.programmatic',
+          operation,
+          attempt,
+          maxAttempts: TOOL_CALL_SERVER_RETRY_ATTEMPTS,
+          ...operationalErrorMeta(error),
         });
         await new Promise(resolve => setTimeout(resolve, TOOL_CALL_SERVER_RETRY_DELAY * attempt));
       }
     }
   }
 
-  logger.error(`${context} failed after ${TOOL_CALL_SERVER_RETRY_ATTEMPTS} attempts`);
+  logger.error('Tool Call Server request failed after retries', {
+    route: 'v1.exec.programmatic',
+    operation,
+    attempts: TOOL_CALL_SERVER_RETRY_ATTEMPTS,
+    ...operationalErrorMeta(lastError),
+  });
   throw lastError;
 }
 
@@ -158,7 +176,10 @@ async function retryToolCallServerRequest<T>(
  * timer the test process would have to clean up. */
 setInterval(() => {
   cleanupStaleExecutions().catch(err => {
-    logger.error('Cleanup interval error:', err);
+    logger.error('Programmatic cleanup interval failed', {
+      route: 'v1.exec.programmatic',
+      ...operationalErrorMeta(err),
+    });
   });
 }, STALE_CLEANUP_INTERVAL_MS);
 
@@ -388,7 +409,7 @@ async function runReplayIteration(
   if (DEBUG_MODE) {
     const firstFile = rawPayload.files[0] as { content?: string } | undefined;
     logger.debug('Replay enqueue details', {
-      execution_id: state.execution_id,
+      route: 'v1.exec.programmatic',
       historySize: Object.keys(history).length,
       callCount: state.callCount ?? 0,
       toolCount: (state.tools ?? []).length,
@@ -442,12 +463,7 @@ async function handleReplayInitial(
   },
 ): Promise<void> {
   const { apiKeyId, userId } = params;
-  const {
-    code,
-    tools,
-    user_id,
-    files,
-  } = req.body as t.ProgrammaticRequestBody;
+  const { code, tools, files } = req.body as t.ProgrammaticRequestBody;
   let timeout: number;
   try {
     timeout = normalizeProgrammaticTimeoutMs((req.body as t.ProgrammaticRequestBody).timeout);
@@ -519,7 +535,10 @@ async function handleReplayInitial(
     (req.body as t.ProgrammaticRequestBody).files = authorizedFiles.length > 0 ? authorizedFiles : undefined;
   } catch (error) {
     if (sendFileRefAuthorizationError(error, res, req)) return;
-    logger.error('Error authorizing replay file refs:', error);
+    logger.error('Replay file reference authorization failed', {
+      route: 'v1.exec.programmatic',
+      ...operationalErrorMeta(error),
+    });
     res.status(500).json({ error: 'Internal server error' });
     return;
   }
@@ -572,9 +591,7 @@ async function handleReplayInitial(
   } catch (err) {
     if (err instanceof ExecutionStateTooLargeError) {
       logger.warn('Rejecting replay request: ExecutionState exceeds Redis cap', {
-        execution_id,
-        userId,
-        apiKeyId,
+        route: 'v1.exec.programmatic',
         bytes: err.bytes,
         cap: err.cap,
       });
@@ -589,16 +606,12 @@ async function handleReplayInitial(
   }
 
   logger.info('Programmatic execution request received (replay)', {
-    userId,
-    apiKeyId,
-    user: user_id,
-    session_id,
-    execution_id,
+    route: 'v1.exec.programmatic',
+    mode: 'replay',
     language,
     toolCount: tools.length,
     codeLength: code.length,
     files: summarizeRequestedFiles(authorizedFiles),
-    sessionKey,
     timeout,
   });
 
@@ -708,13 +721,9 @@ async function handleReplayContinuation(
     if (!pre.ok) {
       if (pre.status === 403) {
         logger.warn('Unauthorized replay continuation request rejected', {
-          execution_id: state.execution_id,
-          requestUserId: userId,
-          requestApiKeyId: apiKeyId,
-          requestTenantId: identity.storageNamespace,
-          executionUserId: state.userId,
-          executionApiKeyId: state.apiKeyId,
-          executionTenantId: state.tenantId,
+          route: 'v1.exec.programmatic',
+          mode: 'replay',
+          status: 403,
         });
       }
       if (pre.cleanupOnReject === true) {
@@ -725,7 +734,8 @@ async function handleReplayContinuation(
     }
 
     logger.info('Replay continuation received', {
-      execution_id: state.execution_id,
+      route: 'v1.exec.programmatic',
+      mode: 'replay',
       resultCount: validatedResults.length,
       newCallCount: delta.newCallIds.length,
       prevCallCount: state.callCount ?? 0,
@@ -753,7 +763,8 @@ async function handleReplayContinuation(
          * old execution to free the lock and Redis keys, then return
          * an actionable 413 instead of a generic 500. */
         logger.warn('Replay continuation rejected: ExecutionState exceeds Redis cap', {
-          execution_id: state.execution_id,
+          route: 'v1.exec.programmatic',
+          mode: 'replay',
           bytes: err.bytes,
           cap: err.cap,
           callCount: state.callCount,
@@ -781,8 +792,9 @@ async function handleReplayContinuation(
        * 500 — clients (and load balancers) treat 5xx classes very
        * differently for retry policy. */
       logger.error('Failed to commit replay continuation; returning retryable 503', {
-        execution_id: state.execution_id,
-        err: (err as Error).message,
+        route: 'v1.exec.programmatic',
+        mode: 'replay',
+        ...operationalErrorMeta(err),
       });
       res.status(503).json({
         status: 'error',
@@ -793,7 +805,8 @@ async function handleReplayContinuation(
     }
     if (delta.newCallIds.length !== validatedResults.length) {
       logger.info('Idempotent continuation retry detected', {
-        execution_id: state.execution_id,
+        route: 'v1.exec.programmatic',
+        mode: 'replay',
         total: validatedResults.length,
         new: delta.newCallIds.length,
         bytesDelta: delta.bytesDelta,
@@ -829,7 +842,11 @@ async function runAndRespond(
   try {
     result = await runReplayIteration(req, state, apiKeyId, userId);
   } catch (err) {
-    logger.error('Replay iteration failed', { execution_id: state.execution_id, err });
+    logger.error('Replay iteration failed', {
+      route: 'v1.exec.programmatic',
+      mode: 'replay',
+      ...operationalErrorMeta(err),
+    });
     await cleanupExecution(state.execution_id, 'replay');
     if (!isDisconnected()) {
       const message = (err as Error).message;
@@ -844,7 +861,8 @@ async function runAndRespond(
 
   if (isDisconnected()) {
     logger.info('Client disconnected during replay; cleaning up', {
-      execution_id: state.execution_id,
+      route: 'v1.exec.programmatic',
+      mode: 'replay',
     });
     await cleanupExecution(state.execution_id, 'replay');
     return;
@@ -858,7 +876,8 @@ async function runAndRespond(
   if (pending != null) {
     if (pending.length === 0) {
       logger.error('Sentinel emitted with empty pending array', {
-        execution_id: state.execution_id,
+        route: 'v1.exec.programmatic',
+        mode: 'replay',
       });
       await cleanupExecution(state.execution_id, 'replay');
       res.status(200).json({
@@ -873,9 +892,9 @@ async function runAndRespond(
     const unregisteredToolCall = findUnregisteredToolCall(pending, state.tools);
     if (unregisteredToolCall != null) {
       logger.warn('Sandbox requested unregistered replay tool call', {
-        execution_id: state.execution_id,
-        call_id: unregisteredToolCall.call_id,
-        tool_name: unregisteredToolCall.tool_name,
+        route: 'v1.exec.programmatic',
+        mode: 'replay',
+        status: 400,
       });
       await cleanupExecution(state.execution_id, 'replay');
       res.status(200).json({
@@ -931,8 +950,9 @@ async function runAndRespond(
       await refreshExecutionTtl(state.execution_id);
     } catch (err) {
       logger.error('Failed to persist execution state before continuation; aborting', {
-        execution_id: state.execution_id,
-        err: (err as Error).message,
+        route: 'v1.exec.programmatic',
+        mode: 'replay',
+        ...operationalErrorMeta(err),
       });
       await cleanupExecution(state.execution_id, 'replay').catch(() => {});
       if (!isDisconnected()) {
@@ -1083,7 +1103,10 @@ router.post('/exec/programmatic', executionLimiter, async (req: t.AuthenticatedR
     }
     return await handleBlocking(req, res, { apiKeyId, userId });
   } catch (err) {
-    logger.error(`[${INSTANCE_ID}] Programmatic routing error:`, err);
+    logger.error('Programmatic routing failed', {
+      route: 'v1.exec.programmatic',
+      ...operationalErrorMeta(err),
+    });
     if (!res.headersSent) {
       return res.status(500).json({ error: 'Internal server error' });
     }
@@ -1105,7 +1128,6 @@ async function handleBlocking(
   const {
     code,
     tools,
-    user_id,
     files,
     continuation_token,
     tool_results,
@@ -1144,19 +1166,16 @@ async function handleBlocking(
       )
     ) {
       logger.warn('Unauthorized blocking continuation request rejected', {
-        execution_id,
-        requestUserId: userId,
-        requestApiKeyId: apiKeyId,
-        requestTenantId: identity.storageNamespace,
-        executionUserId: execution.userId,
-        executionApiKeyId: execution.apiKeyId,
-        executionTenantId: execution.tenantId,
+        route: 'v1.exec.programmatic',
+        mode: 'blocking',
+        status: 403,
       });
       return res.status(403).json({ error: 'Forbidden' });
     }
 
     logger.info('Continuation request received', {
-      execution_id,
+      route: 'v1.exec.programmatic',
+      mode: 'blocking',
       resultCount: tool_results.length,
     });
 
@@ -1205,7 +1224,11 @@ async function handleBlocking(
         session_id: execution.session_id,
       });
     } catch (error) {
-      logger.error('Error processing continuation:', error);
+      logger.error('Blocking continuation failed', {
+        route: 'v1.exec.programmatic',
+        mode: 'blocking',
+        ...operationalErrorMeta(error),
+      });
       await cleanupExecution(execution_id, 'blocking');
       return res.status(500).json({ error: 'Internal server error' });
     }
@@ -1219,10 +1242,10 @@ async function handleBlocking(
     return res.status(400).json({ error: 'Missing required field: tools (must be a non-empty array)' });
   }
   if (tools.length > MAX_TOOLS_PER_REQUEST) {
-    logger.warn(`Too many tools provided: ${tools.length}, limit is ${MAX_TOOLS_PER_REQUEST}`, {
-      execution_id: 'pre-creation',
-      userId,
+    logger.warn('Programmatic tool count limit reached', {
+      route: 'v1.exec.programmatic',
       toolCount: tools.length,
+      maxTools: MAX_TOOLS_PER_REQUEST,
     });
     return res.status(400).json({
       error: `Too many tools provided (${tools.length}). Maximum is ${MAX_TOOLS_PER_REQUEST}.`,
@@ -1247,7 +1270,10 @@ async function handleBlocking(
     (req.body as t.ProgrammaticRequestBody).files = authorizedFiles.length > 0 ? authorizedFiles : undefined;
   } catch (error) {
     if (sendFileRefAuthorizationError(error, res, req)) return;
-    logger.error('Error authorizing programmatic file refs:', error);
+    logger.error('Programmatic file reference authorization failed', {
+      route: 'v1.exec.programmatic',
+      ...operationalErrorMeta(error),
+    });
     return res.status(500).json({ error: 'Internal server error' });
   }
 
@@ -1290,15 +1316,11 @@ async function handleBlocking(
 
   try {
     logger.info('Programmatic execution request received', {
-      userId,
-      apiKeyId,
-      user: user_id,
-      session_id,
-      execution_id,
+      route: 'v1.exec.programmatic',
+      mode: 'blocking',
       toolCount: tools.length,
       codeLength: code.length,
       files: summarizeRequestedFiles(authorizedFiles),
-      sessionKey,
       timeout,
     });
 
@@ -1306,7 +1328,11 @@ async function handleBlocking(
     try {
       callbackUrl = normalizeEgressGatewayUrl(env.EGRESS_GATEWAY_URL);
     } catch (error) {
-      logger.error('Blocking PTC requires egress gateway callback URL:', error);
+      logger.error('Blocking programmatic callback URL is unavailable', {
+        route: 'v1.exec.programmatic',
+        mode: 'blocking',
+        ...operationalErrorMeta(error),
+      });
       await cleanupExecution(execution_id, 'blocking');
       return res.status(503).json({ error: 'Egress gateway unavailable' });
     }
@@ -1335,7 +1361,11 @@ async function handleBlocking(
         allowedToolNames: tools.map(tool => tool.name),
       });
     } catch (error) {
-      logger.error('Failed to create Tool Call Server session or callback token:', error);
+      logger.error('Blocking programmatic callback setup failed', {
+        route: 'v1.exec.programmatic',
+        mode: 'blocking',
+        ...operationalErrorMeta(error),
+      });
       await cleanupExecution(execution_id, 'blocking');
       return res.status(503).json({ error: 'Tool Call Server unavailable' });
     }
@@ -1352,7 +1382,11 @@ async function handleBlocking(
         timeout,
       });
     } catch (error) {
-      logger.error('Failed to create payload', { execution_id, error: (error as Error).message });
+      logger.error('Blocking programmatic payload creation failed', {
+        route: 'v1.exec.programmatic',
+        mode: 'blocking',
+        ...operationalErrorMeta(error),
+      });
       await cleanupExecution(execution_id, 'blocking');
       return res.status(400).json({
         error: (error as Error).message || 'Failed to generate code payload',
@@ -1391,18 +1425,28 @@ async function handleBlocking(
     });
     jobsSubmitted.inc({ language: 'python' });
 
-    logger.info('Job queued, polling for tool calls', { execution_id, session_id });
+    logger.info('Programmatic execution job queued', {
+      route: 'v1.exec.programmatic',
+      mode: 'blocking',
+    });
 
     let clientDisconnected = false;
     req.on('close', async () => {
       if (clientDisconnected) return;
       clientDisconnected = true;
-      logger.warn(`Client disconnected for execution ${execution_id}`);
+      logger.warn('Client disconnected during programmatic execution', {
+        route: 'v1.exec.programmatic',
+        mode: 'blocking',
+      });
       try {
         await job.remove();
         await cleanupExecution(execution_id, 'blocking');
       } catch (error) {
-        logger.error('Error cleaning up after client disconnect:', error);
+        logger.error('Programmatic disconnect cleanup failed', {
+          route: 'v1.exec.programmatic',
+          mode: 'blocking',
+          ...operationalErrorMeta(error),
+        });
       }
     });
 
@@ -1445,7 +1489,11 @@ async function handleBlocking(
       session_id,
     });
   } catch (error) {
-    logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | Execution ID: ${execution_id} | Error:`, error);
+    logger.error('Blocking programmatic execution failed', {
+      route: 'v1.exec.programmatic',
+      mode: 'blocking',
+      ...operationalErrorMeta(error),
+    });
     await cleanupExecution(execution_id, 'blocking');
     return res.status(500).json({ error: 'Internal server error' });
   }

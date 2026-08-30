@@ -8,14 +8,6 @@ const MAX_FILE_REF_NAME_LENGTH = 256;
 const MAX_FILE_REF_NESTING_DEPTH = 10;
 const KNOWN_KINDS = new Set<string>(CODE_ENV_KINDS);
 
-/* Diagnostic redaction bounds for `describeValue`. Short strings
- * (≤64 chars — typical id/slug shapes) inline whole; longer ones
- * become a head…tail sample so logs can distinguish "wrong shape"
- * from "wrong char" without dumping unbounded user input. */
-const REDACT_INLINE_THRESHOLD = 64;
-const REDACT_PREFIX_LEN = 32;
-const REDACT_SUFFIX_LEN = 16;
-
 type FileRefStore = {
   get(key: string): Promise<string | null>;
   exists(key: string): Promise<number>;
@@ -55,14 +47,7 @@ function describeValue(value: unknown): Record<string, unknown> {
     return { type };
   }
   const s = value as string;
-  if (s.length <= REDACT_INLINE_THRESHOLD) {
-    return { type, length: s.length, value: s };
-  }
-  return {
-    type,
-    length: s.length,
-    sample: `${s.slice(0, REDACT_PREFIX_LEN)}…${s.slice(-REDACT_SUFFIX_LEN)}`,
-  };
+  return { type, length: s.length };
 }
 
 function failValidation(message: string, context: Record<string, unknown>): never {
@@ -226,18 +211,6 @@ export async function authorizeRequestedFiles(args: {
         403,
         'Unauthorized file reference',
         'session_key_mismatch',
-        {
-          file: {
-            id: file.id,
-            resource_id: file.resource_id,
-            storage_session_id: file.storage_session_id,
-            name: file.name,
-            kind: file.kind,
-            version: file.version,
-          },
-          resolvedSessionKey: sessionKey,
-          cachedSessionKey,
-        },
       );
     }
 
@@ -253,18 +226,6 @@ export async function authorizeRequestedFiles(args: {
         403,
         'Unauthorized file reference',
         'upload_missing',
-        {
-          file: {
-            id: file.id,
-            resource_id: file.resource_id,
-            storage_session_id: file.storage_session_id,
-            name: file.name,
-            kind: file.kind,
-            version: file.version,
-          },
-          resolvedSessionKey: sessionKey,
-          uploadKey,
-        },
       );
     }
   }

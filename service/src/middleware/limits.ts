@@ -1,5 +1,4 @@
 // src/middleware/limits.ts
-import { createHash } from 'crypto';
 import rateLimitFactory from 'express-rate-limit';
 import RateLimitRedisStore from 'rate-limit-redis';
 import type { RateLimitRequestHandler } from 'express-rate-limit';
@@ -8,6 +7,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { AuthenticatedRequest } from '../types';
 import { env } from '../config';
 import { getExecutionIdentity } from '../execution-identity';
+import { operationalPrincipalSource, operationalRoute } from '../operational-log';
 import logger from '../logger';
 
 type RedisCommandTarget = {
@@ -56,12 +56,6 @@ const unknownPrincipal = 'unknown';
 const keySegment = (value: string | undefined, fallback = unknownPrincipal): string => {
   const trimmed = value?.trim();
   return trimmed ? trimmed.replace(/:/g, '_') : fallback;
-};
-
-const hashLabel = (value: string | undefined): string | undefined => {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return createHash('sha256').update(trimmed).digest('hex').slice(0, 12);
 };
 
 export function setRateLimitRedisForTests(client?: RedisCommandTarget): void {
@@ -124,19 +118,17 @@ const buildRateLimiter = (
 
       if (options.logRejections) {
         const authReq = req as AuthenticatedRequest;
-        const principal = authReq.codeApiPrincipal;
         const identity = getExecutionIdentity(authReq);
         const hasIdentity = Boolean(identity.canonicalUserId);
         logger.warn('CodeAPI rate limit rejected', {
           limiter: prefix,
-          path: req.originalUrl || req.path,
+          route: operationalRoute(req),
           retryAfterSeconds: retryAfter,
           limit: rateLimit?.limit ?? max,
           windowMs,
-          principalSource: hasIdentity ? identity.principalSource : undefined,
-          tenantHash: hasIdentity ? hashLabel(identity.storageNamespace) : undefined,
-          userHash: hasIdentity ? hashLabel(identity.canonicalUserId) : undefined,
-          credentialHash: hashLabel(principal?.credentialId),
+          principalSource: hasIdentity
+            ? operationalPrincipalSource(identity.principalSource)
+            : undefined,
         });
       }
 

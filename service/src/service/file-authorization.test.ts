@@ -176,11 +176,7 @@ describe('validateRequestedFiles', () => {
     expect(() => validateRequestedFiles([broken])).toThrow(/version is only valid/);
   });
 
-  /* Diagnostic context — the warn log lives or dies by `error.context`.
-   * Pre-fix the validator threw context-free 400s, so log lines like
-   * "files[0].resource_id is invalid" gave operators no offending value
-   * to act on. These lock the contract. */
-  test('attaches index, field, type, length, value to the rejection context', () => {
+  test('keeps only type and size evidence in rejection context', () => {
     const broken = validFile({ resource_id: 'has space' });
     try {
       validateRequestedFiles([broken]);
@@ -193,8 +189,9 @@ describe('validateRequestedFiles', () => {
         field: 'resource_id',
         type: 'string',
         length: 9,
-        value: 'has space',
       });
+      expect(e.context).not.toHaveProperty('value');
+      expect(e.context).not.toHaveProperty('sample');
     }
   });
 
@@ -212,7 +209,7 @@ describe('validateRequestedFiles', () => {
     }
   });
 
-  test('overlong string is sampled head…tail rather than dumped whole', () => {
+  test('overlong string reports length without a sample', () => {
     const longBad = `${'a'.repeat(100)} ${'b'.repeat(100)}`; // space → fails regex
     const broken = validFile({ resource_id: longBad });
     try {
@@ -222,8 +219,7 @@ describe('validateRequestedFiles', () => {
       const e = err as FileRefAuthorizationError;
       expect(e.context).not.toHaveProperty('value');
       expect(e.context.length).toBe(longBad.length);
-      expect(typeof e.context.sample).toBe('string');
-      expect((e.context.sample as string).length).toBeLessThan(longBad.length);
+      expect(e.context).not.toHaveProperty('sample');
     }
   });
 });

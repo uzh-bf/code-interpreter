@@ -27,6 +27,7 @@ import type { LCTool } from '../preamble';
 import { connection } from '../queue';
 import { env } from '../config';
 import { internalServiceHeaders } from '../internal-service-auth';
+import { operationalErrorMeta } from '../operational-log';
 import logger from '../logger';
 import {
   ptcReplayHistorySize,
@@ -358,7 +359,10 @@ export async function releaseExecutionLock(execution_id: string, token: string):
   try {
     await redis.releaseExecutionLockScript(`exec_lock:${execution_id}`, token);
   } catch (err) {
-    logger.warn('Failed to release exec lock', { execution_id, err });
+    logger.warn('Failed to release execution lock', {
+      mode: 'replay',
+      ...operationalErrorMeta(err),
+    });
   }
 }
 
@@ -382,7 +386,10 @@ export async function scanKeys(
       if (out.length >= limit) {
         stream.destroy();
         logger.warn('scanKeys hit limit; remaining keys deferred to next pass', {
-          match, limit,
+          keyClass: match.startsWith('exec_state:')
+            ? 'execution_state'
+            : 'other',
+          limit,
         });
         return out;
       }
@@ -565,8 +572,7 @@ export async function computeToolHistoryDelta(
       });
     } catch {
       logger.warn('Malformed existing tool_history entry; treating as absent', {
-        execution_id,
-        call_id: callIds[i],
+        mode: 'replay',
       });
     }
   }
@@ -693,7 +699,7 @@ export async function loadToolHistory(execution_id: string): Promise<Record<stri
     try {
       out[k] = JSON.parse(v) as HistoryEntry;
     } catch {
-      logger.warn('Dropping malformed tool_history entry', { execution_id, call_id: k });
+      logger.warn('Dropping malformed tool history entry', { mode: 'replay' });
     }
   }
   return out;
@@ -753,7 +759,7 @@ export async function cleanupStaleExecutions(): Promise<number> {
            * and structured logs, instead of silently disappearing. */
           const orphanId = batchKeys[i].slice('exec_state:'.length);
           logger.warn('Reaping malformed exec_state and sibling keys', {
-            execution_id: orphanId,
+            mode: 'replay',
           });
           await Promise.all([
             redis.del(batchKeys[i]),
@@ -761,8 +767,8 @@ export async function cleanupStaleExecutions(): Promise<number> {
             deleteBlockingResult(orphanId),
           ]).catch(err => {
             logger.warn('Sibling delete failed during malformed-key cleanup', {
-              execution_id: orphanId,
-              error: err instanceof Error ? err.message : String(err),
+              mode: 'replay',
+              ...operationalErrorMeta(err),
             });
           });
           cleaned++;
@@ -773,7 +779,6 @@ export async function cleanupStaleExecutions(): Promise<number> {
 
         if (idle > EXECUTION_STATE_TTL * 1000 && state.jobCompleted !== true) {
           logger.warn('Cleaning up stale execution', {
-            execution_id: state.execution_id,
             idleSeconds: idle / 1000,
             totalAgeSeconds: (now - state.startTime) / 1000,
             mode: state.mode,
@@ -796,12 +801,14 @@ export async function cleanupStaleExecutions(): Promise<number> {
     }
 
     if (cleaned > 0) {
-      logger.info(`Cleaned up ${cleaned} stale executions`);
+      logger.info('Cleaned up stale executions', { count: cleaned });
       ptcReplayStaleCleanups.inc(cleaned);
     }
     return cleaned;
   } catch (error) {
-    logger.error('Error cleaning up stale executions:', error);
+    logger.error('Failed to clean up stale executions', {
+      ...operationalErrorMeta(error),
+    });
     return 0;
   }
 }
@@ -821,9 +828,12 @@ export async function cleanupExecution(execution_id: string, mode: 'blocking' | 
       );
     }
     await Promise.all(ops);
-    logger.info('Execution cleanup completed', { execution_id, mode });
+    logger.info('Execution cleanup completed', { mode });
   } catch (error) {
-    logger.error('Error during execution cleanup:', { execution_id, error });
+    logger.error('Execution cleanup failed', {
+      mode,
+      ...operationalErrorMeta(error),
+    });
   }
 }
 
