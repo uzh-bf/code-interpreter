@@ -49,10 +49,10 @@ export interface SandboxExecuteContext {
 }
 
 /** Raw sandbox response, pre-gateway-restore. */
-export type SandboxRawResponse = t.ExecuteResponse & {
+export type SandboxRawResponse = t.SandboxExecuteResponse & {
   session_id: string;
   files?: t.FileRefs;
-  run?: t.ExecuteResponse['run'];
+  run?: t.SandboxExecuteResponse['run'];
 };
 
 export interface SandboxBackend {

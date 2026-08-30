@@ -335,7 +335,6 @@ router.get('/download/:session_id/:fileId', downloadLimiter, sessionAuth, async 
 
     return res.status(500).json({
       error: 'Error downloading file',
-      details: (error as Error).message
     });
   }
 });

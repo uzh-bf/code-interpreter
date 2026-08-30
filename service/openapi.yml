@@ -1,14 +1,14 @@
-openapi: '3.0.0'
+openapi: 3.0.3
 info:
-  title: LibreChat Code Interpreter API
-  version: '1.0.0'
+  title: CodeAPI Public Service API
+  version: 1.0.0
   description: >-
-    API for sandbox code execution and file management. Trusted callers should
-    assert the intended deployment with X-CodeAPI-Expected-Profile on every
-    request; responses advertise the actual profile.
+    Public authenticated API for sandboxed code execution and file management.
+    This contract describes the service gateway mounted at /v1. It does not
+    describe the internal sandbox-runner API.
 servers:
   - url: https://api.librechat.ai/v1
-    description: LibreChat API server
+    description: Public CodeAPI service
 
 security:
   - BearerAuth: []
@@ -27,10 +27,22 @@ components:
       required: false
       description: >-
         Trusted routing assertion. A mismatched endpoint returns HTTP 409
-        before any work is enqueued. Optional only for backwards compatibility.
+        before work is enqueued. Optional for backwards compatibility.
       schema:
         type: string
         enum: [default, stateful]
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        type: string
 
   headers:
     ExecutionProfile:
@@ -38,19 +50,45 @@ components:
       schema:
         type: string
         enum: [default, stateful]
+    RetryAfter:
+      description: Seconds until the caller should retry.
+      schema:
+        type: integer
+        minimum: 1
+    RateLimitLimit:
+      description: Request limit for the current window.
+      schema:
+        type: integer
+        minimum: 1
+    RateLimitRemaining:
+      description: Requests remaining in the current window.
+      schema:
+        type: integer
+        minimum: 0
+    RateLimitReset:
+      description: Seconds until the current rate-limit window resets.
+      schema:
+        type: integer
+        minimum: 1
 
   responses:
     BadRequest:
-      description: Invalid request or invalid expected execution profile
+      description: Invalid request or expected execution profile
       headers:
         X-CodeAPI-Execution-Profile:
           $ref: '#/components/headers/ExecutionProfile'
       content:
         application/json:
           schema:
-            anyOf:
+            oneOf:
               - $ref: '#/components/schemas/Error'
               - $ref: '#/components/schemas/ExecutionProfileError'
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     Conflict:
       description: Request conflict or execution-profile mismatch
       headers:
@@ -59,159 +97,78 @@ components:
       content:
         application/json:
           schema:
-            anyOf:
+            oneOf:
               - $ref: '#/components/schemas/Error'
               - $ref: '#/components/schemas/ExecutionProfileError'
+    GenericRateLimited:
+      description: Request rate limit exceeded
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ExecutionRateLimited:
+      description: Execution request rate limit exceeded
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
+    InternalError:
+      description: Internal server error without backend details
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   schemas:
-    FileRef:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        path:
-          type: string
-
-    RequestFile:
-      type: object
-      properties:
-        id:
-          type: string
-        session_id:
-          type: string
-        name:
-          type: string
-      required:
-        - id
-        - session_id
-        - name
-
-    ExecuteResponse:
-      type: object
-      properties:
-        run:
-          type: object
-          properties:
-            stdout:
-              type: string
-            stderr:
-              type: string
-            code:
-              type: integer
-              nullable: true
-            signal:
-              type: string
-              nullable: true
-            output:
-              type: string
-            memory:
-              type: integer
-              nullable: true
-            message:
-              type: string
-              nullable: true
-            status:
-              type: string
-              nullable: true
-            cpu_time:
-              type: number
-              nullable: true
-            wall_time:
-              type: number
-              nullable: true
-        language:
-          type: string
-        version:
-          type: string
-        session_id:
-          type: string
-        files:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileRef'
-
-    RequestBody:
-      type: object
-      required:
-        - code
-        - lang
-      properties:
-        code:
-          type: string
-        lang:
-          type: string
-        args:
-          type: array
-          items:
-            type: string
-        user_id:
-          type: string
-        entity_id:
-          type: string
-        files:
-          type: array
-          items:
-            $ref: '#/components/schemas/RequestFile'
-        runtime_session_hint:
-          type: string
-          maxLength: 128
-          pattern: '^[A-Za-z0-9._:-]+$'
-          description: >-
-            Stable opaque hint for stateful runtime reuse. The server binds it
-            to the authenticated tenant and user. Required in strict runtime
-            session mode and ignored by the default stateless profile.
-
-    FileObject:
-      type: object
-      properties:
-        name:
-          type: string
-        id:
-          type: string
-        session_id:
-          type: string
-        content:
-          type: string
-        size:
-          type: number
-        lastModified:
-          type: string
-        etag:
-          type: string
-        metadata:
-          type: object
-          properties:
-            content-type:
-              type: string
-            original-filename:
-              type: string
-        contentType:
-          type: string
-
-    UploadResponse:
-      type: object
-      properties:
-        message:
-          type: string
-        session_id:
-          type: string
-        files:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileObject'
-
     Error:
       type: object
+      required: [error]
       properties:
         error:
           type: string
+        message:
+          type: string
         details:
+          type: string
+          description: Optional fixed public guidance, never an internal error payload.
+    PublicExecutionError:
+      type: object
+      required: [error, message]
+      properties:
+        error:
           type: string
         message:
           type: string
-
+    RateLimitError:
+      type: object
+      required: [error, message, retry_after_seconds]
+      properties:
+        error:
+          type: string
+          enum: [rate_limited]
+        message:
+          type: string
+        retry_after_seconds:
+          type: integer
+          minimum: 1
     ExecutionProfileError:
       type: object
       required: [error, message, actual_profile]
@@ -227,11 +184,282 @@ components:
           type: string
           enum: [default, stateful]
 
+    RequestFile:
+      type: object
+      additionalProperties: false
+      required: [id, resource_id, storage_session_id, name, kind]
+      properties:
+        id:
+          type: string
+          description: Storage object identifier.
+        resource_id:
+          type: string
+          description: Owner resource identifier used for authorization.
+        storage_session_id:
+          type: string
+          description: Storage session containing the object.
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [skill, agent, user]
+        version:
+          type: integer
+          description: Required for skill resources and forbidden for other kinds.
+    ExecuteRequest:
+      type: object
+      additionalProperties: false
+      required: [code, lang]
+      properties:
+        code:
+          type: string
+        lang:
+          type: string
+        args:
+          type: array
+          items:
+            type: string
+        user_id:
+          type: string
+          deprecated: true
+          description: Legacy caller metadata. Authentication determines identity.
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequestFile'
+        runtime_session_hint:
+          type: string
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+          description: >-
+            Stable opaque hint for stateful runtime reuse. The server binds it
+            to authenticated identity. It is ignored by the stateless profile.
+
+    FileRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        storage_session_id:
+          type: string
+        path:
+          type: string
+        modified_from:
+          type: object
+          required: [id, storage_session_id]
+          properties:
+            id:
+              type: string
+            storage_session_id:
+              type: string
+        inherited:
+          type: boolean
+          enum: [true]
+    ExecuteResponse:
+      type: object
+      required: [session_id, stdout, stderr, files]
+      properties:
+        session_id:
+          type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileRef'
+        code:
+          type: integer
+          nullable: true
+        signal:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        wall_time:
+          type: number
+          nullable: true
+
+    UploadRequest:
+      type: object
+      required: [kind, id, files]
+      properties:
+        kind:
+          type: string
+          enum: [skill, agent, user]
+        id:
+          type: string
+        version:
+          type: integer
+        read_only:
+          type: boolean
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+    UploadResult:
+      type: object
+      required: [filename, fileId]
+      properties:
+        filename:
+          type: string
+        fileId:
+          type: string
+    UploadResponse:
+      type: object
+      required: [message, storage_session_id, files]
+      properties:
+        message:
+          type: string
+          enum: [success]
+        storage_session_id:
+          type: string
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/UploadResult'
+    BatchUploadFileSuccess:
+      type: object
+      required: [status, filename, fileId]
+      properties:
+        status:
+          type: string
+          enum: [success]
+        filename:
+          type: string
+        fileId:
+          type: string
+    BatchUploadFileError:
+      type: object
+      required: [status, filename, error]
+      properties:
+        status:
+          type: string
+          enum: [error]
+        filename:
+          type: string
+        error:
+          type: string
+    BatchUploadResponse:
+      type: object
+      required: [message, storage_session_id, files, succeeded, failed]
+      properties:
+        message:
+          type: string
+          enum: [success, partial_success, error]
+        storage_session_id:
+          type: string
+        files:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/BatchUploadFileSuccess'
+              - $ref: '#/components/schemas/BatchUploadFileError'
+        succeeded:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        filesLimitReached:
+          type: boolean
+        maxFiles:
+          type: integer
+          minimum: 1
+
+    SummaryFileObject:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: number
+        lastModified:
+          type: string
+          format: date-time
+        etag:
+          type: string
+    FullFileObject:
+      allOf:
+        - $ref: '#/components/schemas/SummaryFileObject'
+        - type: object
+          properties:
+            metadata:
+              type: object
+              additionalProperties: true
+            versionId:
+              type: string
+              nullable: true
+            contentType:
+              type: string
+    NormalizedFileObject:
+      type: object
+      required: [id, name, storage_session_id, size, contentType, lastModified]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        storage_session_id:
+          type: string
+        size:
+          type: number
+        contentType:
+          type: string
+        lastModified:
+          type: string
+          format: date-time
+        read_only:
+          type: boolean
+    FileListItem:
+      oneOf:
+        - type: string
+        - $ref: '#/components/schemas/SummaryFileObject'
+        - $ref: '#/components/schemas/FullFileObject'
+        - $ref: '#/components/schemas/NormalizedFileObject'
+    ObjectMetadata:
+      type: object
+      required: [name, originalFilename, size, lastModified, etag, contentType, readOnly]
+      properties:
+        name:
+          type: string
+        originalFilename:
+          type: string
+        size:
+          type: number
+        lastModified:
+          type: string
+          format: date-time
+        etag:
+          type: string
+        contentType:
+          type: string
+        readOnly:
+          type: boolean
+    DeleteResponse:
+      type: object
+      required: [message, session_id, fileId]
+      properties:
+        message:
+          type: string
+        session_id:
+          type: string
+        fileId:
+          type: string
+
 paths:
   /exec:
     post:
       summary: Execute code
-      description: Execute code with specified language and parameters
       operationId: executeCode
       parameters:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
@@ -240,7 +468,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RequestBody'
+              $ref: '#/components/schemas/ExecuteRequest'
       responses:
         '200':
           description: Successful execution
@@ -251,38 +479,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExecuteResponse'
-        '401':
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
-        '503':
-          description: Service unavailable
+        '413':
+          description: Input files exceed the delivery limit
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/PublicExecutionError'
+        '422':
+          description: One or more input files are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicExecutionError'
+        '429':
+          $ref: '#/components/responses/ExecutionRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          description: Sandbox or input-file service failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicExecutionError'
+        '503':
+          description: Service or sandbox unavailable
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Error'
+                  - $ref: '#/components/schemas/PublicExecutionError'
+        '504':
+          description: Execution or input delivery timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicExecutionError'
 
   /download/{session_id}/{fileId}:
     get:
       summary: Download a file
+      operationId: downloadFile
       parameters:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/FileId'
       responses:
         '200':
           description: File content
@@ -294,20 +541,27 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           description: File not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/GenericRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /upload:
     post:
       summary: Upload files
+      operationId: uploadFiles
       parameters:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
       requestBody:
@@ -315,15 +569,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              type: object
-              properties:
-                entity_id:
-                  type: string
-                files:
-                  type: array
-                  items:
-                    type: string
-                    format: binary
+              $ref: '#/components/schemas/UploadRequest'
       responses:
         '200':
           description: Successful upload
@@ -334,35 +580,85 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '413':
           description: File size limit exceeded
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/GenericRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '504':
+          description: Upload timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /upload/batch:
+    post:
+      summary: Upload a bounded batch of files
+      operationId: uploadFilesBatch
+      parameters:
+        - $ref: '#/components/parameters/ExpectedExecutionProfile'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UploadRequest'
+      responses:
+        '200':
+          description: Complete or partial upload success
+          headers:
+            X-CodeAPI-Execution-Profile:
+              $ref: '#/components/headers/ExecutionProfile'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchUploadResponse'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: All files failed or the request contained no files
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Error'
+                  - $ref: '#/components/schemas/BatchUploadResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/GenericRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /files/{session_id}:
     get:
-      summary: Get files information
+      summary: List files in a storage session
+      operationId: listFiles
       parameters:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/SessionId'
         - name: detail
           in: query
+          required: false
           schema:
             type: string
+            enum: [simple, summary, full, normalized]
             default: simple
       responses:
         '200':
-          description: Files information
+          description: Files at the requested detail level
           headers:
             X-CodeAPI-Execution-Profile:
               $ref: '#/components/headers/ExecutionProfile'
@@ -371,40 +667,78 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/FileObject'
+                  $ref: '#/components/schemas/FileListItem'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/GenericRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
-  /files/{session_id}/{fileId}:
-    delete:
-      summary: Delete a file
+  /sessions/{session_id}/objects/{fileId}:
+    get:
+      summary: Read file metadata
+      operationId: getFileMetadata
       parameters:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/FileId'
       responses:
         '200':
-          description: File deleted successfully
+          description: File metadata
           headers:
             X-CodeAPI-Execution-Profile:
               $ref: '#/components/headers/ExecutionProfile'
-        '500':
-          description: Error deleting file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: File not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/GenericRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /files/{session_id}/{fileId}:
+    delete:
+      summary: Delete a file
+      operationId: deleteFile
+      parameters:
+        - $ref: '#/components/parameters/ExpectedExecutionProfile'
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: File deleted
+          headers:
+            X-CodeAPI-Execution-Profile:
+              $ref: '#/components/headers/ExecutionProfile'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/GenericRateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'

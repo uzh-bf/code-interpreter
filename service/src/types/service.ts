@@ -103,7 +103,7 @@ export type RequestFile = {
 
 export type FileRefs = FileRef[];
 
-export type ExecuteResponse = {
+export type SandboxExecuteResponse = {
   run?: {
     stdout: string;
     stderr: string;
@@ -227,6 +227,10 @@ export type ExecuteResult = {
   status?: string | null;
   wall_time?: number | null;
 };
+
+/** Public `/v1/exec` response. The sandbox transport uses
+ * `SandboxExecuteResponse` and is not part of the public API. */
+export type ExecuteResponse = ExecuteResult;
 
 export interface LanguageConfig {
   language: string;
