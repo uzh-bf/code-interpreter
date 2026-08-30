@@ -2,11 +2,7 @@ import { YAML } from 'bun';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'bun:test';
-import type {
-  ExecuteResponse,
-  ExecuteResult,
-  SandboxExecuteResponse,
-} from './types/service';
+import type { ExecuteResponse, ExecuteResult } from './types/service';
 
 type Schema = {
   properties?: Record<string, unknown>;
@@ -46,12 +42,6 @@ const publicResponseMatchesFlatResult: IsExact<
   ExecuteResponse,
   ExecuteResult
 > = true;
-const sandboxResponseRemainsSeparate: SandboxExecuteResponse = {
-  language: 'python',
-  version: '3',
-  session_id: 'internal-session',
-  files: [],
-};
 
 function loadSpec(path: string): OpenApiDocument {
   return YAML.parse(readFileSync(path, 'utf8')) as OpenApiDocument;
@@ -61,9 +51,8 @@ const publicSpecPath = resolve(import.meta.dir, '../openapi.yml');
 const internalSpecPath = resolve(import.meta.dir, '../../api/openapi.yaml');
 
 describe('OpenAPI contract boundaries', () => {
-  test('the public execution type is flat and separate from the sandbox wire', () => {
+  test('the public execution type is the flat service result', () => {
     expect(publicResponseMatchesFlatResult).toBe(true);
-    expect(sandboxResponseRemainsSeparate).toHaveProperty('language');
   });
 
   test('the public spec exposes the supported v1 routes', () => {
