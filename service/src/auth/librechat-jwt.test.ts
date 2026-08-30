@@ -286,7 +286,7 @@ describe('LibreChat JWT auth provider', () => {
 
   test('rejects malformed, ambiguous, and incomplete modern trust configuration', () => {
     const valid = trustEntry();
-    const invalidEntries: unknown[] = [
+    const invalidEntries: unknown[][] = [
       [],
       [{ ...valid, unknown: true }],
       [{ ...valid, audiences: ['codeapi', 'codeapi'] }],
@@ -298,11 +298,7 @@ describe('LibreChat JWT auth provider', () => {
     ];
 
     for (const entries of invalidEntries) {
-      delete process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON;
-      delete process.env.CODEAPI_JWT_ISSUER;
-      delete process.env.CODEAPI_JWT_AUDIENCE;
-      delete process.env.CODEAPI_JWT_ALLOWED_ALGS;
-      process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON = JSON.stringify(entries);
+      setModernTrustEntries(entries);
       expectJwtReason(signJwt(baseClaims()), 'config');
     }
 
