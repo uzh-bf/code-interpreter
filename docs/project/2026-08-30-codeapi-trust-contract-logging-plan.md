@@ -275,9 +275,23 @@ and review.
   repository-defined service suite (`569` tests), and both package builds
   passed. Existing Rollup export, circular-dependency, and two TS2352 warnings
   remain unchanged.
-- Current slice: S4 commit and immutable-slice reviews.
+- 2026-08-30: S4 committed at
+  `0be1654b052bcceaea9e4b585a502dbdbd50ec9e`. Its required simplifier and
+  privacy/security reviewer both returned `DONE`; neither found a material
+  correction.
+- 2026-08-30: S5 exact-source verification used `0be1654`. `bun ci` reported
+  no dependency changes in either package. API tests and build passed; the
+  repository-defined service tests passed `569/569`, and the service build
+  passed with the unchanged warnings above. Both
+  `tests/block_root_package_delivery.sh` and
+  `tests/sandbox_runner_healthcheck.sh` passed.
+- 2026-08-30: A diagnostic bare `bun test` in `service/` is not the
+  repository-defined suite: it also discovers the k6 stress script and fails
+  because Bun cannot resolve `k6/http`. This result is not represented as a
+  service-suite pass or failure; `bun run test` is the configured CI command.
+- Current slice: S5 final integrated review.
 - Required delivery layer: `pr_ready`.
-- Achieved delivery layer: S4 locally verified; reviews and exact-head proof
-  remain.
+- Achieved delivery layer: exact-source local verification complete; final
+  review remains.
 - Delivery status: local execution continues; push and PR are
   `delivery_pending`.
