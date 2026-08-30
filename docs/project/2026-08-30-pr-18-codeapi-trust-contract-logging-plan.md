@@ -1,6 +1,6 @@
-# CodeAPI issuer trust, public contract, and values-free logging
+# PR 18: CodeAPI issuer trust, public contract, and values-free logging
 
-Status: approved for local execution
+Status: draft pull request open
 
 ## Goal
 
@@ -8,9 +8,9 @@ Prepare the public CodeAPI repository for a future Klicker tutor integration by
 binding JWT trust to issuers, publishing a truthful v1 execution and file API
 contract, and removing linkable client values from operational logs.
 
-This package stops at a locally committed, verified, and review-complete
-branch. Push, pull-request creation, image publication, deployment, cluster
-access, and live proof remain separate decisions.
+This package stops at a pushed, verified, review-complete draft pull request.
+Image publication, deployment, cluster access, live proof, and merge remain
+separate decisions.
 
 ## Baseline and authority
 
@@ -18,17 +18,19 @@ access, and live proof remain separate decisions.
 - Worktree: `trees/codeapi-trust-contract-logging`
 - Branch: `rs/codeapi-trust-contract-logging`
 - Base: `origin/main`
+- Pull request: [#18](https://github.com/uzh-bf/code-interpreter/pull/18)
 - Planning SHA: `83c4f7b105b6b3e69eda12701ad4ec437acba08f`
 - Required delivery layer: `pr_ready`
-- Authorized terminal layer: `local_review_complete`
+- Authorized terminal layer: `pr_ready`
 - Boundary owner: current execution orchestrator
 - Pause conditions: a material contract change, secret or personal-data
   exposure, upstream integration requirement, or any withheld external action
 
-The user approved the roadmap, approved execution as a goal, and instructed the
-agent to proceed. That approval covers this plan's reversible local edits,
-verification, reviews, progress updates, and local commits. It does not cover
-the withheld actions above.
+The user approved the roadmap and local execution as a goal, then separately
+authorized pushing the reviewed branch and opening draft pull request
+[#18](https://github.com/uzh-bf/code-interpreter/pull/18). Integration, merge,
+image publication, deployment, cluster access, live proof, branch deletion,
+and worktree cleanup remain withheld.
 
 ## Research and planning review
 
@@ -243,8 +245,8 @@ and review.
 - relabelling internal `/api/v2/execute` as public v1;
 - telemetry redesign, execution-output redaction, storage redesign, or a
   rate-limit behavior change;
-- upstream merge or rebase, push, PR creation, image publication, deployment,
-  cluster access, live proof, merge, branch deletion, or worktree cleanup.
+- upstream merge or rebase, image publication, deployment, cluster access, live
+  proof, merge, branch deletion, or worktree cleanup.
 
 ## Progress
 
@@ -292,10 +294,15 @@ and review.
 - 2026-08-30: The integrated final reviewer covered correctness, plan
   compliance, maintainability, security, and architecture across
   `83c4f7b..0be1654` and returned `DONE` with no findings.
-- Current slice: S5 complete.
+- 2026-08-30: Draft pull request
+  [#18](https://github.com/uzh-bf/code-interpreter/pull/18) opened for the
+  reviewed package; this metadata-only rename records its identifier.
+- Current slice: delivery complete through the draft PR boundary.
 - Required delivery layer: `pr_ready`.
-- Achieved delivery layer: `local_review_complete` at source SHA `0be1654`;
-  the later plan-only evidence update does not change reviewed behavior.
-- Delivery status: push and draft PR creation are authorized and in progress;
-  integration, merge, publication, deployment, cluster access, and live proof
-  remain withheld.
+- Achieved delivery layer: `pr_ready` through draft pull request
+  [#18](https://github.com/uzh-bf/code-interpreter/pull/18); source review and
+  verification remain anchored at `0be1654`, with later commits limited to
+  plan metadata.
+- Delivery status: exact-head GitHub checks remain the merge blocker.
+  Integration, merge, image publication, deployment, cluster access, and live
+  proof remain withheld.
