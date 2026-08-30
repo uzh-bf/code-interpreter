@@ -3,13 +3,14 @@ import { generateKeyPairSync, sign as cryptoSign } from 'crypto';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { KeyObject } from 'crypto';
+import type { JsonWebKey, KeyObject } from 'crypto';
 import { CodeApiJwtAuthError, verifyLibreChatJwt } from './librechat-jwt';
 
 const ENV_KEYS = [
   'CODEAPI_JWT_ISSUER',
   'CODEAPI_JWT_AUDIENCE',
   'CODEAPI_JWT_ALLOWED_ALGS',
+  'CODEAPI_JWT_TRUST_ENTRIES_JSON',
   'CODEAPI_JWT_CLOCK_SKEW_SECONDS',
   'CODEAPI_JWT_MAX_TTL_SECONDS',
   'CODEAPI_JWT_KEY_CACHE_TTL_SECONDS',
@@ -52,6 +53,7 @@ type JwtClaims = {
 
 const originalEnv = new Map<string, string | undefined>();
 let privateKey: KeyObject;
+let publicJwk: JsonWebKey;
 
 function base64Url(value: Buffer | string): string {
   return Buffer.from(value).toString('base64url');
@@ -111,6 +113,24 @@ function expectJwtReason(token: string, reason: string): void {
   }
 }
 
+function setModernTrustEntries(entries: unknown[]): void {
+  delete process.env.CODEAPI_JWT_ISSUER;
+  delete process.env.CODEAPI_JWT_AUDIENCE;
+  delete process.env.CODEAPI_JWT_ALLOWED_ALGS;
+  process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON = JSON.stringify(entries);
+}
+
+function trustEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    issuer: 'librechat',
+    audiences: ['codeapi'],
+    keyIds: ['test-kid'],
+    allowedAlgorithms: ['EdDSA'],
+    principalSources: ['librechat_jwt', 'openid_reuse'],
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   if (originalEnv.size === 0) {
     for (const key of ENV_KEYS) {
@@ -120,7 +140,7 @@ beforeEach(() => {
 
   const { publicKey, privateKey: generatedPrivateKey } = generateKeyPairSync('ed25519');
   privateKey = generatedPrivateKey;
-  const jwk = publicKey.export({ format: 'jwk' });
+  publicJwk = publicKey.export({ format: 'jwk' });
 
   process.env.CODEAPI_JWT_ISSUER = 'librechat';
   process.env.CODEAPI_JWT_AUDIENCE = 'codeapi';
@@ -129,8 +149,9 @@ beforeEach(() => {
   process.env.CODEAPI_JWT_MAX_TTL_SECONDS = '300';
   process.env.CODEAPI_JWT_KEY_CACHE_TTL_SECONDS = '30';
   process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
-    keys: [{ ...jwk, kid: 'test-kid', alg: 'EdDSA' }],
+    keys: [{ ...publicJwk, kid: 'test-kid', alg: 'EdDSA' }],
   });
+  delete process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON;
   delete process.env.CODEAPI_JWT_PUBLIC_KEYS_DIR;
   delete process.env.CODEAPI_JWT_PUBLIC_KEY;
   delete process.env.CODEAPI_JWT_KID;
@@ -215,6 +236,113 @@ describe('LibreChat JWT auth provider', () => {
 
     expect(principal.userId).toBe('user_123');
     expect(principal.tenantId).toBe('tenant_abc');
+  });
+
+  test('binds issuer, key, audience, algorithm, and principal source in modern mode', () => {
+    const klicker = generateKeyPairSync('ed25519');
+    const klickerJwk = klicker.publicKey.export({ format: 'jwk' });
+    process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
+      keys: [
+        { ...publicJwk, kid: 'test-kid', alg: 'EdDSA' },
+        { ...klickerJwk, kid: 'klicker-kid', alg: 'EdDSA' },
+      ],
+    });
+    setModernTrustEntries([
+      trustEntry(),
+      trustEntry({
+        issuer: 'klicker',
+        audiences: ['klicker-codeapi'],
+        keyIds: ['klicker-kid'],
+        principalSources: ['klicker_jwt'],
+      }),
+    ]);
+
+    expect(verifyLibreChatJwt(signJwt(baseClaims())).principalSource).toBe('openid_reuse');
+    const klickerClaims = baseClaims({
+      iss: 'klicker',
+      aud: 'klicker-codeapi',
+      principal_source: 'klicker_jwt',
+    });
+    expect(
+      verifyLibreChatJwt(
+        signJwt(klickerClaims, { kid: 'klicker-kid' }, klicker.privateKey),
+      ).principalSource,
+    ).toBe('klicker_jwt');
+
+    expectJwtReason(signJwt(klickerClaims), 'unknown_kid');
+    expectJwtReason(
+      signJwt({ ...klickerClaims, principal_source: 'openid_reuse' }, { kid: 'klicker-kid' }, klicker.privateKey),
+      'malformed_claims',
+    );
+    expectJwtReason(
+      signJwt({ ...klickerClaims, aud: 'codeapi' }, { kid: 'klicker-kid' }, klicker.privateKey),
+      'wrong_audience',
+    );
+    expectJwtReason(
+      signJwt(baseClaims(), { kid: 'klicker-kid' }, klicker.privateKey),
+      'unknown_kid',
+    );
+  });
+
+  test('rejects malformed, ambiguous, and incomplete modern trust configuration', () => {
+    const valid = trustEntry();
+    const invalidEntries: unknown[] = [
+      [],
+      [{ ...valid, unknown: true }],
+      [{ ...valid, audiences: ['codeapi', 'codeapi'] }],
+      [{ ...valid, allowedAlgorithms: ['ES256'] }],
+      [{ ...valid, principalSources: ['api_key'] }],
+      [valid, { ...valid }],
+      [{ ...valid, keyIds: ['missing-kid'] }],
+      [{ ...valid, allowedAlgorithms: ['RS256'] }],
+    ];
+
+    for (const entries of invalidEntries) {
+      delete process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON;
+      delete process.env.CODEAPI_JWT_ISSUER;
+      delete process.env.CODEAPI_JWT_AUDIENCE;
+      delete process.env.CODEAPI_JWT_ALLOWED_ALGS;
+      process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON = JSON.stringify(entries);
+      expectJwtReason(signJwt(baseClaims()), 'config');
+    }
+
+    setModernTrustEntries([valid]);
+    process.env.CODEAPI_JWT_ISSUER = 'stale-issuer';
+    expectJwtReason(signJwt(baseClaims()), 'config');
+
+    delete process.env.CODEAPI_JWT_ISSUER;
+    process.env.CODEAPI_JWT_PUBLIC_KEY = JSON.stringify(publicJwk);
+    process.env.CODEAPI_JWT_KID = 'test-kid';
+    expectJwtReason(signJwt(baseClaims()), 'config');
+  });
+
+  test('rejects orphan and cross-entry key assignments in modern mode', () => {
+    const second = generateKeyPairSync('ed25519');
+    const secondJwk = second.publicKey.export({ format: 'jwk' });
+    process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
+      keys: [
+        { ...publicJwk, kid: 'test-kid', alg: 'EdDSA' },
+        { ...secondJwk, kid: 'second-kid', alg: 'EdDSA' },
+      ],
+    });
+
+    setModernTrustEntries([trustEntry()]);
+    expectJwtReason(signJwt(baseClaims()), 'config');
+
+    setModernTrustEntries([
+      trustEntry(),
+      trustEntry({ issuer: 'second', keyIds: ['test-kid'] }),
+    ]);
+    expectJwtReason(signJwt(baseClaims()), 'config');
+  });
+
+  test('reloads modern trust metadata immediately when its fingerprint changes', () => {
+    setModernTrustEntries([trustEntry()]);
+    const token = signJwt(baseClaims());
+    expect(verifyLibreChatJwt(token).principalSource).toBe('openid_reuse');
+
+    setModernTrustEntries([trustEntry({ principalSources: ['librechat_jwt'] })]);
+    expectJwtReason(token, 'malformed_claims');
   });
 
   test('defaults missing tenant_id to the single-tenant namespace outside strict mode', () => {

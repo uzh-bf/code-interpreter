@@ -110,6 +110,17 @@ function updateEnvText(text, updates) {
   return next;
 }
 
+function removeEnvKeys(text, keys) {
+  const removals = new Set(keys);
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
+      return !match || !removals.has(match[1]);
+    })
+    .join('\n');
+}
+
 function writeEnvFile(filePath, text) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, text);
@@ -267,9 +278,15 @@ function main() {
   const codeApiUpdates = {
     LOCAL_MODE: 'false',
     CODEAPI_AUTH_PROVIDER: args.provider,
-    CODEAPI_JWT_ISSUER: issuer,
-    CODEAPI_JWT_AUDIENCE: audience,
-    CODEAPI_JWT_ALLOWED_ALGS: signing.alg,
+    CODEAPI_JWT_TRUST_ENTRIES_JSON: JSON.stringify([
+      {
+        issuer,
+        audiences: [audience],
+        keyIds: [signing.kid],
+        allowedAlgorithms: [signing.alg],
+        principalSources: ['librechat_jwt', 'openid_reuse'],
+      },
+    ]),
     CODEAPI_JWT_CLOCK_SKEW_SECONDS: '30',
     CODEAPI_JWT_MAX_TTL_SECONDS: '300',
     CODEAPI_JWT_KEY_CACHE_TTL_SECONDS: '30',
@@ -285,13 +302,19 @@ function main() {
   );
   writeEnvFile(
     codeApiEnvPath,
-    updateEnvText(codeApiFile.text, codeApiUpdates),
+    updateEnvText(
+      removeEnvKeys(codeApiFile.text, [
+        'CODEAPI_JWT_ISSUER',
+        'CODEAPI_JWT_AUDIENCE',
+        'CODEAPI_JWT_ALLOWED_ALGS',
+      ]),
+      codeApiUpdates,
+    ),
   );
 
   console.log(`Updated LibreChat env: ${librechatEnvPath}`);
   console.log(`Updated CodeAPI env: ${codeApiEnvPath}`);
   console.log(`Provider: ${args.provider}`);
-  console.log(`kid: ${signing.kid}`);
   if (signing.generated) {
     console.log('Generated a new local Ed25519 signing key for LibreChat.');
   }

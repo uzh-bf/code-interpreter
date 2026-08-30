@@ -109,17 +109,29 @@ api:
   extraEnv:
     - name: CODEAPI_AUTH_PROVIDER
       value: librechat-jwt
+    - name: CODEAPI_JWT_TRUST_ENTRIES_JSON
+      value: '[{"issuer":"librechat","audiences":["codeapi"],"keyIds":["librechat-2026"],"allowedAlgorithms":["EdDSA"],"principalSources":["librechat_jwt","openid_reuse"]}]'
     - name: CODEAPI_JWT_PUBLIC_KEY     # single PEM/base64-DER verifier key
       valueFrom:
         secretKeyRef:
           name: codeapi-jwt-verifier
           key: public-key
     - name: CODEAPI_JWT_KID
-      value: my-key-id
+      value: librechat-2026
 ```
 
 `CODEAPI_JWT_PUBLIC_KEYS_DIR` (a mounted directory of PEM files) and
 `CODEAPI_JWT_JWKS_JSON` (inline JWKS) are also supported for key rotation.
+Each modern trust entry binds one exact issuer to accepted audiences, key IDs,
+algorithms, and principal sources. Key IDs must be globally unique across
+entries, and every loaded key must belong to exactly one entry. A Klicker entry
+uses only `klicker_jwt` as its principal source.
+
+When `CODEAPI_JWT_TRUST_ENTRIES_JSON` is absent, the verifier preserves the
+legacy single-LibreChat behavior from `CODEAPI_JWT_ISSUER`,
+`CODEAPI_JWT_AUDIENCE`, and `CODEAPI_JWT_ALLOWED_ALGS`. Do not set those three
+legacy variables together with the modern trust table. An empty or malformed
+trust table fails startup.
 For development only, `LOCAL_MODE=true` bypasses authentication — see
 `values-local.yaml`.
 

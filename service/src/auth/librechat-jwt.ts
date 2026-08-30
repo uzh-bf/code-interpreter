@@ -12,7 +12,7 @@ import type { AuthProvider } from './provider';
 import type { CodeApiPrincipal } from './principal';
 
 type JwtAlg = 'EdDSA' | 'RS256' | 'HS256';
-type LibreChatPrincipalSource = 'librechat_jwt' | 'openid_reuse';
+type JwtPrincipalSource = 'librechat_jwt' | 'openid_reuse' | 'klicker_jwt';
 
 interface JwtHeader {
   alg?: string;
@@ -46,10 +46,16 @@ interface PublicKeyEntry {
   key: KeyObject | Buffer;
 }
 
-interface VerificationConfig {
+interface JwtTrustEntry {
   issuer: string;
-  audience: string;
+  audiences: Set<string>;
+  keyIds: Set<string>;
   allowedAlgs: Set<JwtAlg>;
+  principalSources: Set<JwtPrincipalSource>;
+}
+
+interface VerificationConfig {
+  trustEntries: Map<string, JwtTrustEntry>;
   clockSkewSeconds: number;
   maxTokenLifetimeSeconds: number;
   keys: Map<string, PublicKeyEntry>;
@@ -72,9 +78,18 @@ const MAX_KEY_CACHE_TTL_SECONDS = 300;
 const DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 300;
 const MAX_TOKEN_LIFETIME_SECONDS = 300;
 const DEFAULT_SINGLE_TENANT_ID = 'legacy';
-const TRUSTED_PRINCIPAL_SOURCES = new Set<LibreChatPrincipalSource>([
+const SUPPORTED_ALGORITHMS = new Set<JwtAlg>(['EdDSA', 'RS256', 'HS256']);
+const SUPPORTED_PRINCIPAL_SOURCES = new Set<JwtPrincipalSource>([
   'librechat_jwt',
   'openid_reuse',
+  'klicker_jwt',
+]);
+const TRUST_ENTRY_FIELDS = new Set([
+  'issuer',
+  'audiences',
+  'keyIds',
+  'allowedAlgorithms',
+  'principalSources',
 ]);
 
 function base64UrlDecode(value: string): Buffer {
@@ -120,6 +135,36 @@ function parseAllowedAlgs(): Set<JwtAlg> {
   return allowed;
 }
 
+function assertUniqueStrings(value: unknown, name: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new CodeApiJwtAuthError('config', `${name} must be a non-empty array`);
+  }
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string' || item.trim() === '') {
+      throw new CodeApiJwtAuthError('config', `${name} must contain non-empty strings`);
+    }
+    if (item !== item.trim()) {
+      throw new CodeApiJwtAuthError('config', `${name} values must not contain surrounding whitespace`);
+    }
+    if (seen.has(item)) {
+      throw new CodeApiJwtAuthError('config', `${name} must not contain duplicate values`);
+    }
+    seen.add(item);
+    result.push(item);
+  }
+  return result;
+}
+
+function assertNoUnknownFields(value: Record<string, unknown>, name: string): void {
+  for (const field of Object.keys(value)) {
+    if (!TRUST_ENTRY_FIELDS.has(field)) {
+      throw new CodeApiJwtAuthError('config', `${name} contains unknown field ${field}`);
+    }
+  }
+}
+
 function parseClockSkew(): number {
   const parsed = Number(process.env.CODEAPI_JWT_CLOCK_SKEW_SECONDS);
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -148,6 +193,17 @@ function publicKeyFromValue(value: string): KeyObject {
   }
 }
 
+function addKey(
+  keys: Map<string, PublicKeyEntry>,
+  kid: string,
+  entry: PublicKeyEntry,
+): void {
+  if (keys.has(kid)) {
+    throw new CodeApiJwtAuthError('config', `Duplicate CodeAPI JWT key ID: ${kid}`);
+  }
+  keys.set(kid, entry);
+}
+
 function loadJwks(keys: Map<string, PublicKeyEntry>, raw: string): void {
   let parsed: { keys?: Array<JsonWebKey & { kid?: string; alg?: string }> };
   try {
@@ -163,7 +219,7 @@ function loadJwks(keys: Map<string, PublicKeyEntry>, raw: string): void {
       continue;
     }
     try {
-      keys.set(jwk.kid, {
+      addKey(keys, jwk.kid, {
         alg: jwk.alg === 'EdDSA' || jwk.alg === 'RS256' ? jwk.alg : undefined,
         key: createPublicKey({ key: jwk, format: 'jwk' }),
       });
@@ -187,7 +243,7 @@ function loadPublicKeyDir(keys: Map<string, PublicKeyEntry>, dir: string): void 
       if (!kid) {
         continue;
       }
-      keys.set(kid, { key: publicKeyFromValue(readFileSync(fullPath, 'utf8')) });
+      addKey(keys, kid, { key: publicKeyFromValue(readFileSync(fullPath, 'utf8')) });
     }
   } catch (error) {
     if (error instanceof CodeApiJwtAuthError) {
@@ -215,13 +271,13 @@ function loadKeys(): Map<string, PublicKeyEntry> {
     if (!kid) {
       throw new CodeApiJwtAuthError('config', 'CODEAPI_JWT_KID is required with CODEAPI_JWT_PUBLIC_KEY');
     }
-    keys.set(kid, { key: publicKeyFromValue(publicKey) });
+    addKey(keys, kid, { key: publicKeyFromValue(publicKey) });
   }
 
   const hsSecret = process.env.CODEAPI_JWT_HS256_SECRET;
   if (hsSecret != null && hsSecret !== '') {
     const kid = process.env.CODEAPI_JWT_HS256_KID ?? process.env.CODEAPI_JWT_KID ?? 'hs256-dev';
-    keys.set(kid, { alg: 'HS256', key: Buffer.from(hsSecret) });
+    addKey(keys, kid, { alg: 'HS256', key: Buffer.from(hsSecret) });
   }
 
   if (keys.size === 0) {
@@ -230,11 +286,141 @@ function loadKeys(): Map<string, PublicKeyEntry> {
   return keys;
 }
 
+function keyAlgorithm(key: PublicKeyEntry): JwtAlg | undefined {
+  if (key.alg) {
+    return key.alg;
+  }
+  if (Buffer.isBuffer(key.key)) {
+    return 'HS256';
+  }
+  if (key.key.asymmetricKeyType === 'ed25519') {
+    return 'EdDSA';
+  }
+  if (key.key.asymmetricKeyType === 'rsa') {
+    return 'RS256';
+  }
+  return undefined;
+}
+
+function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string): Map<string, JwtTrustEntry> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new CodeApiJwtAuthError('config', 'CODEAPI_JWT_TRUST_ENTRIES_JSON is not valid JSON');
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new CodeApiJwtAuthError(
+      'config',
+      'CODEAPI_JWT_TRUST_ENTRIES_JSON must be a non-empty array',
+    );
+  }
+
+  for (const legacyName of [
+    'CODEAPI_JWT_ISSUER',
+    'CODEAPI_JWT_AUDIENCE',
+    'CODEAPI_JWT_ALLOWED_ALGS',
+  ]) {
+    if ((process.env[legacyName] ?? '').trim() !== '') {
+      throw new CodeApiJwtAuthError(
+        'config',
+        `${legacyName} cannot be combined with CODEAPI_JWT_TRUST_ENTRIES_JSON`,
+      );
+    }
+  }
+
+  const entries = new Map<string, JwtTrustEntry>();
+  const assignedKeyIds = new Set<string>();
+  for (const [index, value] of parsed.entries()) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} must be an object`);
+    }
+    const record = value as Record<string, unknown>;
+    assertNoUnknownFields(record, `JWT trust entry ${index}`);
+    const issuer = typeof record.issuer === 'string' ? record.issuer : '';
+    if (issuer === '' || issuer !== issuer.trim()) {
+      throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} issuer is invalid`);
+    }
+    if (entries.has(issuer)) {
+      throw new CodeApiJwtAuthError('config', `Duplicate JWT trust issuer: ${issuer}`);
+    }
+
+    const audiences = assertUniqueStrings(record.audiences, `JWT trust entry ${index} audiences`);
+    const keyIds = assertUniqueStrings(record.keyIds, `JWT trust entry ${index} keyIds`);
+    const algorithmValues = assertUniqueStrings(
+      record.allowedAlgorithms,
+      `JWT trust entry ${index} allowedAlgorithms`,
+    );
+    const sourceValues = assertUniqueStrings(
+      record.principalSources,
+      `JWT trust entry ${index} principalSources`,
+    );
+    if (!algorithmValues.every((value): value is JwtAlg => SUPPORTED_ALGORITHMS.has(value as JwtAlg))) {
+      throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} has an unsupported algorithm`);
+    }
+    if (!sourceValues.every((value): value is JwtPrincipalSource =>
+      SUPPORTED_PRINCIPAL_SOURCES.has(value as JwtPrincipalSource))) {
+      throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} has an unsupported principal source`);
+    }
+    const allowedAlgs = new Set<JwtAlg>(algorithmValues);
+    for (const keyId of keyIds) {
+      if (assignedKeyIds.has(keyId)) {
+        throw new CodeApiJwtAuthError('config', `JWT key ID is assigned to multiple trust entries: ${keyId}`);
+      }
+      const key = keys.get(keyId);
+      if (!key) {
+        throw new CodeApiJwtAuthError('config', `JWT trust entry references unknown key ID: ${keyId}`);
+      }
+      const algorithm = keyAlgorithm(key);
+      if (!algorithm || !allowedAlgs.has(algorithm)) {
+        throw new CodeApiJwtAuthError(
+          'config',
+          `JWT key ID ${keyId} is incompatible with its trust entry algorithms`,
+        );
+      }
+      assignedKeyIds.add(keyId);
+    }
+    entries.set(issuer, {
+      issuer,
+      audiences: new Set(audiences),
+      keyIds: new Set(keyIds),
+      allowedAlgs,
+      principalSources: new Set<JwtPrincipalSource>(sourceValues),
+    });
+  }
+
+  for (const keyId of keys.keys()) {
+    if (!assignedKeyIds.has(keyId)) {
+      throw new CodeApiJwtAuthError('config', `CodeAPI JWT key ID is not assigned to a trust entry: ${keyId}`);
+    }
+  }
+  return entries;
+}
+
+function buildTrustEntries(keys: Map<string, PublicKeyEntry>): Map<string, JwtTrustEntry> {
+  const modern = process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON;
+  if (modern !== undefined) {
+    return parseModernTrustEntries(keys, modern);
+  }
+  const issuer = process.env.CODEAPI_JWT_ISSUER ?? 'librechat';
+  const audience = process.env.CODEAPI_JWT_AUDIENCE ?? 'codeapi';
+  return new Map([
+    [issuer, {
+      issuer,
+      audiences: new Set([audience]),
+      keyIds: new Set(keys.keys()),
+      allowedAlgs: parseAllowedAlgs(),
+      principalSources: new Set<JwtPrincipalSource>(['librechat_jwt', 'openid_reuse']),
+    }],
+  ]);
+}
+
 function rawConfigFingerprint(): string {
   return JSON.stringify({
     issuer: process.env.CODEAPI_JWT_ISSUER,
     audience: process.env.CODEAPI_JWT_AUDIENCE,
     allowedAlgs: process.env.CODEAPI_JWT_ALLOWED_ALGS,
+    trustEntries: process.env.CODEAPI_JWT_TRUST_ENTRIES_JSON,
     skew: process.env.CODEAPI_JWT_CLOCK_SKEW_SECONDS,
     maxTokenLifetime: process.env.CODEAPI_JWT_MAX_TTL_SECONDS,
     keyCacheTtl: process.env.CODEAPI_JWT_KEY_CACHE_TTL_SECONDS,
@@ -259,19 +445,18 @@ function getConfig(): VerificationConfig {
     DEFAULT_KEY_CACHE_TTL_SECONDS,
     MAX_KEY_CACHE_TTL_SECONDS,
   );
+  const keys = loadKeys();
   configCache = {
     rawConfig,
     reloadAt: now + keyCacheTtlSeconds * 1000,
-    issuer: process.env.CODEAPI_JWT_ISSUER ?? 'librechat',
-    audience: process.env.CODEAPI_JWT_AUDIENCE ?? 'codeapi',
-    allowedAlgs: parseAllowedAlgs(),
+    trustEntries: buildTrustEntries(keys),
     clockSkewSeconds: parseClockSkew(),
     maxTokenLifetimeSeconds: parseCappedSeconds(
       process.env.CODEAPI_JWT_MAX_TTL_SECONDS,
       DEFAULT_MAX_TOKEN_LIFETIME_SECONDS,
       MAX_TOKEN_LIFETIME_SECONDS,
     ),
-    keys: loadKeys(),
+    keys,
   };
   return configCache;
 }
@@ -311,9 +496,9 @@ function assertString(value: unknown, name: string): string {
   return value;
 }
 
-function assertAudience(value: unknown, expected: string): void {
+function assertAudience(value: unknown, accepted: Set<string>): void {
   if (typeof value === 'string' && value.trim() !== '') {
-    if (value !== expected) {
+    if (!accepted.has(value)) {
       throw new CodeApiJwtAuthError('wrong_audience', 'JWT audience is not accepted');
     }
     return;
@@ -323,7 +508,7 @@ function assertAudience(value: unknown, expected: string): void {
     if (!value.every((audience) => typeof audience === 'string')) {
       throw new CodeApiJwtAuthError('malformed_claims', 'aud must contain only strings');
     }
-    if (value.includes(expected)) {
+    if (value.some((audience) => accepted.has(audience))) {
       return;
     }
     throw new CodeApiJwtAuthError('wrong_audience', 'JWT audience is not accepted');
@@ -372,19 +557,19 @@ function resolveTenantIdClaim(value: unknown): string {
   return resolveSingleTenantId();
 }
 
-function isTrustedPrincipalSource(value: string): value is LibreChatPrincipalSource {
-  return TRUSTED_PRINCIPAL_SOURCES.has(value as LibreChatPrincipalSource);
-}
-
-function assertPrincipalSource(value: unknown): LibreChatPrincipalSource {
+function assertPrincipalSource(value: unknown, accepted: Set<JwtPrincipalSource>): JwtPrincipalSource {
   const principalSource = assertString(value, 'principal_source');
-  if (isTrustedPrincipalSource(principalSource)) {
-    return principalSource;
+  if (accepted.has(principalSource as JwtPrincipalSource)) {
+    return principalSource as JwtPrincipalSource;
   }
   throw new CodeApiJwtAuthError('malformed_claims', 'principal_source is not accepted');
 }
 
-function validateClaims(claims: LibreChatJwtClaims, config: VerificationConfig): CodeApiPrincipal {
+function validateClaims(
+  claims: LibreChatJwtClaims,
+  config: VerificationConfig,
+  trustEntry: JwtTrustEntry,
+): CodeApiPrincipal {
   const now = Math.floor(Date.now() / 1000);
   const issuer = assertString(claims.iss, 'iss');
   const userId = assertString(claims.sub, 'sub');
@@ -394,16 +579,16 @@ function validateClaims(claims: LibreChatJwtClaims, config: VerificationConfig):
   const nbf = assertNumericDate(claims.nbf, 'nbf');
   const exp = assertNumericDate(claims.exp, 'exp');
   const planId = optionalString(claims.plan_id, 'plan_id');
-  const principalSource = assertPrincipalSource(claims.principal_source);
+  const principalSource = assertPrincipalSource(claims.principal_source, trustEntry.principalSources);
   const authContextHash = assertString(claims.auth_context_hash, 'auth_context_hash');
 
   if (jti.length > 256) {
     throw new CodeApiJwtAuthError('malformed_claims', 'jti is too long');
   }
-  if (issuer !== config.issuer) {
+  if (issuer !== trustEntry.issuer) {
     throw new CodeApiJwtAuthError('wrong_issuer', 'JWT issuer is not trusted');
   }
-  assertAudience(claims.aud, config.audience);
+  assertAudience(claims.aud, trustEntry.audiences);
   if (exp <= now - config.clockSkewSeconds) {
     throw new CodeApiJwtAuthError('expired', 'JWT is expired');
   }
@@ -449,17 +634,25 @@ export function verifyLibreChatJwt(token: string): CodeApiPrincipal {
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
   const header = parseJsonSegment<JwtHeader>(encodedHeader, 'JWT header');
   const claims = parseJsonSegment<LibreChatJwtClaims>(encodedPayload, 'JWT payload');
+  const issuer = assertString(claims.iss, 'iss');
+  const trustEntry = config.trustEntries.get(issuer);
+  if (!trustEntry) {
+    throw new CodeApiJwtAuthError('wrong_issuer', 'JWT issuer is not trusted');
+  }
   const alg = header.alg;
   if (alg !== 'EdDSA' && alg !== 'RS256' && alg !== 'HS256') {
     throw new CodeApiJwtAuthError('wrong_alg', 'JWT alg is not supported');
   }
-  if (!config.allowedAlgs.has(alg)) {
+  if (!trustEntry.allowedAlgs.has(alg)) {
     throw new CodeApiJwtAuthError('wrong_alg', 'JWT alg is not allowed');
   }
   if (header.typ !== undefined && header.typ !== 'JWT') {
     throw new CodeApiJwtAuthError('malformed', 'JWT typ must be JWT');
   }
   const kid = assertString(header.kid, 'kid');
+  if (!trustEntry.keyIds.has(kid)) {
+    throw new CodeApiJwtAuthError('unknown_kid', 'JWT kid is not configured for issuer');
+  }
   const key = config.keys.get(kid);
   if (!key) {
     throw new CodeApiJwtAuthError('unknown_kid', 'JWT kid is not configured');
@@ -472,7 +665,7 @@ export function verifyLibreChatJwt(token: string): CodeApiPrincipal {
   if (!verifySignature(alg, key, signingInput, signature)) {
     throw new CodeApiJwtAuthError('bad_signature', 'JWT signature is invalid');
   }
-  return validateClaims(claims, config);
+  return validateClaims(claims, config, trustEntry);
 }
 
 export class LibreChatJwtAuthProvider implements AuthProvider {
