@@ -20,6 +20,7 @@ import { checkpointObjectKey } from './checkpoint-store';
 import { microvmCheckpoints, microvmRestores, microvmCheckpointBytes } from '../metrics';
 import { CHECKPOINT_METADATA_TIMEOUT_CAP_MS } from '../config';
 import logger from '../logger';
+import { operationalErrorMeta } from '../operational-log';
 
 /** Reject if `promise` doesn't settle within `ms`, so a stalled metadata leg
  * cannot hold the session lock. The production S3-compatible store separately
@@ -301,8 +302,7 @@ export async function checkpointSession(args: {
       markerCommitted = true;
     }).catch(error => {
       logger.warn('Checkpoint commit marker failed; Redis pointer remains authoritative', {
-        runtimeSessionId: args.runtimeSessionId,
-        error: error instanceof Error ? error.message : String(error),
+        ...operationalErrorMeta(error),
       });
     });
     /* Never prune the previous durable recovery point unless the new marker
@@ -311,8 +311,7 @@ export async function checkpointSession(args: {
     if (markerCommitted) {
       void args.store.pruneOlderThan(args.runtimeSessionId, sequence).catch(error => {
         logger.warn('Checkpoint garbage collection failed', {
-          runtimeSessionId: args.runtimeSessionId,
-          error: error instanceof Error ? error.message : String(error),
+          ...operationalErrorMeta(error),
         });
       });
     }
@@ -322,8 +321,7 @@ export async function checkpointSession(args: {
   } catch (error) {
     microvmCheckpoints.inc({ outcome: 'failed' });
     logger.warn('Session checkpoint failed', {
-      runtimeSessionId: args.runtimeSessionId,
-      error: error instanceof Error ? error.message : String(error),
+      ...operationalErrorMeta(error),
     });
     return 'failed';
   } finally {
@@ -363,8 +361,7 @@ export async function restoreSession(args: {
      * this VM. */
     microvmRestores.inc({ outcome: 'failed' });
     logger.warn('Checkpoint fetch failed; refusing to run with an empty workspace', {
-      runtimeSessionId: args.runtimeSessionId,
-      error: error instanceof Error ? error.message : String(error),
+      ...operationalErrorMeta(error),
     });
     return 'fetch_failed';
   }
@@ -381,7 +378,6 @@ export async function restoreSession(args: {
     }, data, args.config);
     microvmRestores.inc({ outcome: 'restored' });
     logger.info('Session workspace restored from checkpoint', {
-      runtimeSessionId: args.runtimeSessionId,
       bytes: data.size,
     });
     return 'restored';
@@ -392,8 +388,7 @@ export async function restoreSession(args: {
      * execute against it. */
     microvmRestores.inc({ outcome: 'failed' });
     logger.warn('Checkpoint push-restore failed; the VM workspace may be partial', {
-      runtimeSessionId: args.runtimeSessionId,
-      error: error instanceof Error ? error.message : String(error),
+      ...operationalErrorMeta(error),
     });
     return 'push_failed';
   } finally {

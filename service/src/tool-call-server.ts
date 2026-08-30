@@ -15,6 +15,7 @@ import { isRegisteredToolName } from './tool-scope';
 import { normalizeTracePath, shutdownTelemetry, withSpan, withTraceContext } from './telemetry';
 import logger from './toolCallServerLogger';
 import { redisKeepAliveOptions } from './redis-options';
+import { operationalErrorMeta } from './operational-log';
 
 const INSTANCE_ID = process.env.INSTANCE_ID ?? nanoid();
 const PORT = Number(process.env.TOOL_CALL_SERVER_PORT) || 3033;
@@ -57,14 +58,11 @@ const redis = new IORedis({
 });
 
 redis.on('error', (err) => {
-  logger.error('Redis Client Error', { error: err });
+  logger.error('Redis client error', operationalErrorMeta(err));
 });
 
 redis.on('connect', () => {
-  logger.info('Redis Client Connected', {
-    host: process.env.REDIS_HOST,
-    port: process.env.REDIS_PORT
-  });
+  logger.info('Redis client connected');
 });
 
 redis.on('ready', () => {
@@ -156,7 +154,7 @@ async function handleCreateSession(req: Request): Promise<Response> {
     await setSession(session);
     toolCallActiveSessions.inc();
 
-    logger.info(`[${INSTANCE_ID}] Session created: ${execution_id}`);
+    logger.info('Tool-call session created', { toolCount: tools.length });
 
     return jsonResponse({
       success: true,
@@ -165,7 +163,7 @@ async function handleCreateSession(req: Request): Promise<Response> {
       callback_token
     });
   } catch (error) {
-    logger.error('Error creating session:', { error });
+    logger.error('Error creating tool-call session', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -188,7 +186,7 @@ async function handleGetPending(executionId: string): Promise<Response> {
       partial_stderr: ''
     });
   } catch (error) {
-    logger.error('Error getting pending calls:', { error });
+    logger.error('Error getting pending tool calls', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -246,7 +244,7 @@ async function handleSubmitResults(executionId: string, req: Request): Promise<R
 
       if (pendingToRemove != null && pendingToRemove !== '') {
         await redis.lrem(`tool_call:pending:${executionId}`, 1, pendingToRemove);
-        logger.info(`[${INSTANCE_ID}] Removed pending call ${result.call_id} from ${executionId}`);
+        logger.info('Pending tool call removed');
       }
 
       processed++;
@@ -260,11 +258,11 @@ async function handleSubmitResults(executionId: string, req: Request): Promise<R
       await setSession(session);
     }
 
-    logger.info(`[${INSTANCE_ID}] Results submitted for ${executionId}: ${processed} processed`);
+    logger.info('Tool-call results submitted', { processed, remainingPending });
 
     return jsonResponse({ success: true, processed });
   } catch (error) {
-    logger.error('Error submitting results:', { error });
+    logger.error('Error submitting tool-call results', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -284,7 +282,7 @@ async function handleGetStatus(executionId: string): Promise<Response> {
       updated_at: session.updated_at
     });
   } catch (error) {
-    logger.error('Error getting status:', { error });
+    logger.error('Error getting tool-call status', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -321,11 +319,11 @@ async function handleComplete(executionId: string, req: Request): Promise<Respon
       SESSION_EXPIRY
     );
 
-    logger.info(`[${INSTANCE_ID}] Execution completed: ${executionId}`);
+    logger.info('Tool-call execution completed');
 
     return jsonResponse({ success: true });
   } catch (error) {
-    logger.error('Error marking complete:', { error });
+    logger.error('Error marking tool-call execution complete', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -362,11 +360,11 @@ async function handleError(executionId: string, req: Request): Promise<Response>
       SESSION_EXPIRY
     );
 
-    logger.info(`[${INSTANCE_ID}] Execution error: ${executionId}`);
+    logger.info('Tool-call execution marked failed');
 
     return jsonResponse({ success: true });
   } catch (error) {
-    logger.error('Error marking error:', { error });
+    logger.error('Error marking tool-call execution failed', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -385,11 +383,11 @@ async function handleDeleteSession(executionId: string): Promise<Response> {
     if (wasActive) {
       toolCallActiveSessions.dec();
     }
-    logger.info(`[${INSTANCE_ID}] Session deleted: ${executionId}, cleaned ${keys.length} keys`);
+    logger.info('Tool-call session deleted', { cleanedKeys: keys.length });
 
     return jsonResponse({ success: true, cleaned_keys: keys.length });
   } catch (error) {
-    logger.error('Error deleting session:', { error });
+    logger.error('Error deleting tool-call session', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -423,7 +421,7 @@ async function handleToolCall(req: Request): Promise<Response> {
       return errorResponse('Invalid tool name', 400);
     }
     if (!isRegisteredToolName(tool_name, session.tools)) {
-      logger.warn(`[${INSTANCE_ID}] Rejected unregistered tool call: ${executionId}/${callId} - ${tool_name}`);
+      logger.warn('Rejected unregistered tool call');
       return errorResponse('Tool is not registered for this execution', 403);
     }
 
@@ -444,7 +442,7 @@ async function handleToolCall(req: Request): Promise<Response> {
     await setSession(session);
 
     toolCalls.inc();
-    logger.info(`[${INSTANCE_ID}] Tool call received: ${executionId}/${callId} - ${tool_name}`);
+    logger.info('Tool call received');
 
     // Wait for result (blocking)
     const result = await waitForResult(executionId, callId, session.timeout);
@@ -465,7 +463,7 @@ async function handleToolCall(req: Request): Promise<Response> {
       error_message: result.error_message
     });
   } catch (error) {
-    logger.error('Error handling tool call:', { error });
+    logger.error('Error handling tool call', operationalErrorMeta(error));
     return errorResponse('Internal server error', 500);
   }
 }
@@ -622,7 +620,7 @@ const server = Bun.serve({
   fetch: handleRequest,
 });
 
-logger.info(`[${INSTANCE_ID}] Tool Call Server running on port ${PORT}`);
+logger.info('Tool-call server started');
 
 // Graceful shutdown
 let shuttingDown = false;
@@ -630,22 +628,22 @@ let shuttingDown = false;
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.info(`[${INSTANCE_ID}] Shutting down...`);
+  logger.info('Shutting down tool-call server');
   try {
     server.stop();
     await redis.quit();
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn(`[${INSTANCE_ID}] OpenTelemetry shutdown failed`, { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(0);
   } catch (error) {
-    logger.error(`[${INSTANCE_ID}] Shutdown failed`, { error });
+    logger.error('Tool-call server shutdown failed', operationalErrorMeta(error));
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn(`[${INSTANCE_ID}] OpenTelemetry shutdown failed`, { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(1);
   }
@@ -655,11 +653,11 @@ process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
 
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', { error });
+  logger.error('Uncaught exception', operationalErrorMeta(error));
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason, promise });
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled rejection', operationalErrorMeta(reason));
 });
 
 export { server };

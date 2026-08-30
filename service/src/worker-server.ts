@@ -26,6 +26,7 @@ import { startWorkerServer, gracefulShutdown } from './lifecycle';
 import { httpLatencyElapsedSeconds, httpLatencyStartMs, metricsResponse, recordHttpRequest } from './metrics';
 import { env } from './config';
 import logger from './logger';
+import { operationalErrorMeta } from './operational-log';
 
 // Health check endpoint (optional, for K8s liveness probes)
 import http from 'http';
@@ -162,7 +163,7 @@ const healthServer = http.createServer(async (req, res) => {
 startWorkerServer(async () => {
   // Start health check server
   healthServer.listen(HEALTH_PORT, () => {
-    logger.info(`Worker health check server running on port ${HEALTH_PORT}`);
+    logger.info('Worker health check server started');
   });
 });
 
@@ -186,11 +187,11 @@ process.on('SIGUSR2', async () => {
 });
 
 process.on('uncaughtException', async (error) => {
-  logger.error('Uncaught Exception', error);
+  logger.error('Uncaught exception', operationalErrorMeta(error));
   healthServer.close();
   await gracefulShutdown();
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled Rejection', reason);
+  logger.error('Unhandled rejection', operationalErrorMeta(reason));
 });

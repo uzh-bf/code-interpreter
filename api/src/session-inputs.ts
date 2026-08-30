@@ -230,7 +230,7 @@ export async function openCachedInput(
     }
     const meta = raw === null ? null : parseCachedInputMeta(raw);
     if (!meta) {
-      logger.warn({ key }, 'Ignoring session input with missing or invalid metadata');
+      logger.warn('Ignoring session input with missing or invalid metadata');
       await handle.close();
       return null;
     }

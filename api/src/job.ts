@@ -42,6 +42,7 @@ import {
   isValidFilePath,
 } from './validation';
 import { cachedInputResponse, inputCacheKey, openCachedInput } from './session-inputs';
+import { operationalErrorMeta } from './operational-log';
 
 export {
   DIRKEEP,
@@ -740,7 +741,7 @@ export class Job {
     this.session = opts.session ?? undefined;
     this.uuid = opts.session_id ?? nanoid();
     this.outputSessionId = opts.output_session_id ?? this.uuid;
-    this.log = rootLogger.child({ job: this.uuid });
+    this.log = rootLogger;
     this.runtime = opts.runtime;
     this.files = opts.files.map((file, i) => ({
       id: file.id,
@@ -952,11 +953,9 @@ export class Job {
     if (!this.isSynthetic) {
       this.log.info(
         {
-          submissionDir: this.submissionDir,
-          workspaceId: this.workspaceLease.workspaceId,
-          uid: this.jobIdentity.uid,
-          gid: this.jobIdentity.gid,
-          session: this.session ? this.session.runtimeSessionId : undefined,
+          fileCount: this.files.length,
+          persistentSession: this.session != null,
+          perJobUid: this.jobIdentity.perJobUid,
         },
         'Priming job',
       );
@@ -1177,7 +1176,7 @@ export class Job {
       if (!Array.isArray(data)) return [];
       return data.filter(isNormalizedObjectForSession(sid));
     } catch (err) {
-      this.log.warn({ sessionId: sid, err }, 'Failed to auto-load .dirkeep markers');
+      this.log.warn(operationalErrorMeta(err), 'Failed to auto-load .dirkeep markers');
       return [];
     } finally {
       clearTimeout(timeout);
@@ -1199,14 +1198,14 @@ export class Job {
     if (existingNames.has(obj.name)) return false;
     if (!isValidFilePath(obj.name, this.submissionDir)) {
       this.log.warn(
-        { sessionId: obj.storage_session_id, name: obj.name },
+        { invalidPath: true },
         'autoLoadDirkeep: rejected marker with invalid or traversing path',
       );
       return false;
     }
     if (markerConflictsWithExplicitFile(obj.name, explicitFilePaths)) {
       this.log.debug(
-        { sessionId: obj.storage_session_id, name: obj.name },
+        { destinationConflict: true },
         'autoLoadDirkeep: skipping marker that conflicts with explicit request file',
       );
       return false;
@@ -1250,7 +1249,7 @@ export class Job {
         if (response.status === 404 && attempt < maxRetries) {
           await response.body?.cancel().catch(() => {});
           const delay = retryDelay * Math.pow(2, attempt - 1);
-          this.log.info({ fileId: file.id, attempt, maxRetries, delay }, 'File not found, retrying');
+          this.log.info({ attempt, maxRetries, delay }, 'File not found, retrying');
           await sleep(delay, operation.signal);
           continue;
         }
@@ -1311,7 +1310,7 @@ export class Job {
          * the file lives under originalName on disk. */
         if (originalName !== file.name) file.name = originalName;
 
-        this.log.info({ file: originalName, hash: hash.substring(0, 8) }, 'Downloaded file');
+        this.log.info('Downloaded file');
         return originalName;
       } catch (error: unknown) {
         if (response?.body && !response.bodyUsed) {
@@ -1332,13 +1331,19 @@ export class Job {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (attempt < maxRetries) {
           const delay = retryDelay * Math.pow(2, attempt - 1);
-          this.log.warn({ fileId: file.id, attempt, maxRetries, delay, err: lastError }, 'Download failed, retrying');
+          this.log.warn(
+            { attempt, maxRetries, delay, ...operationalErrorMeta(lastError) },
+            'Download failed, retrying',
+          );
           await sleep(delay, operation.signal);
         }
       }
     }
 
-    this.log.error({ fileId: file.id, maxRetries, err: lastError }, 'Failed to download file');
+    this.log.error(
+      { maxRetries, ...operationalErrorMeta(lastError) },
+      'Failed to download file',
+    );
     try { await fsp.unlink(tempPath); } catch { /* may not exist */ }
     throw lastError ?? new Error(`Failed to download input ${file.id}`);
   }
@@ -1363,7 +1368,7 @@ export class Job {
       throwIfAborted(signal);
     }
     if (cached) {
-      this.log.debug({ fileId: file.id }, 'Priming input from pushed cache');
+      this.log.debug('Priming input from pushed cache');
       return cachedInputResponse(cached);
     }
     if (!this.fileEgressBaseUrl()) {
@@ -1529,7 +1534,10 @@ export class Job {
 
   async execute(): Promise<ExecuteResult> {
     if (!this.isSynthetic) {
-      this.log.info({ runtime: this.runtime.language, version: this.runtime.version.raw }, 'Executing');
+      this.log.info(
+        { runtimeClass: this.runtime.language === 'python' ? 'python' : 'other' },
+        'Executing',
+      );
     }
 
     const codeFiles = this.files.filter(
@@ -1596,7 +1604,7 @@ export class Job {
     try {
       await this.walkDir(this.submissionDir, 0, inputByName);
     } catch (error) {
-      this.log.error({ err: error }, 'Error scanning submission directory');
+      this.log.error(operationalErrorMeta(error), 'Error scanning submission directory');
     }
 
     /* Generated files get priority in sessionFiles; fill remaining slots up
@@ -1630,7 +1638,7 @@ export class Job {
         isDir = st.isDirectory();
         isRegularFile = st.isFile();
       } catch (err) {
-        this.log.debug({ path: relativePath, err }, 'walkDir: failed to lstat entry');
+        this.log.debug(operationalErrorMeta(err), 'walkDir: failed to lstat entry');
         return 'skip';
       }
     }
@@ -1703,7 +1711,10 @@ export class Job {
       await fsp.access(keepFullPath);
       return false;
     } catch (err) {
-      this.log.debug({ keepPath, err }, 'walkDir: user .dirkeep no longer accessible');
+      this.log.debug(
+        operationalErrorMeta(err),
+        'walkDir: user .dirkeep no longer accessible',
+      );
       return true;
     }
   }
@@ -1759,7 +1770,10 @@ export class Job {
       const currentHash = await this.computeFileHash(keepFullPath, true);
       return currentHash !== keepInfo.hash;
     } catch (err) {
-      this.log.debug({ keepPath, err }, 'walkDir: failed to hash inherited .dirkeep');
+      this.log.debug(
+        operationalErrorMeta(err),
+        'walkDir: failed to hash inherited .dirkeep',
+      );
       return false;
     }
   }
@@ -1801,7 +1815,10 @@ export class Job {
       await fsp.writeFile(keepFullPath, '', { flag: 'wx' });
       await this.applySandboxFilePermissions(keepFullPath, true);
     } catch (err) {
-      this.log.debug({ keepPath, err }, 'walkDir: failed to write .dirkeep marker');
+      this.log.debug(
+        operationalErrorMeta(err),
+        'walkDir: failed to write .dirkeep marker',
+      );
       return { collected: false, truncated: false };
     }
     const id = nanoid();
@@ -1911,7 +1928,7 @@ export class Job {
       const st = await fsp.lstat(fullPath);
       size = st.size;
     } catch (err) {
-      this.log.debug({ path: relativePath, err }, 'walkDir: unable to stat file');
+      this.log.debug(operationalErrorMeta(err), 'walkDir: unable to stat file');
       return { collected: false, truncated: false, stopLoop: false };
     }
     if (size > this.runtime.max_file_size) {
@@ -1931,7 +1948,7 @@ export class Job {
       try {
         contentHash = await this.computeFileHash(fullPath, true);
       } catch (err) {
-        this.log.debug({ path: relativePath, err }, 'walkDir: failed to hash file');
+        this.log.debug(operationalErrorMeta(err), 'walkDir: failed to hash file');
       }
     }
 
@@ -1964,7 +1981,7 @@ export class Job {
     let wasModified = false;
     if (inputFileInfo && contentHash != null) {
       wasModified = contentHash !== inputFileInfo.hash;
-      if (wasModified) this.log.info({ file: relativePath }, 'Input file was modified');
+      if (wasModified) this.log.info('Input file was modified');
     }
 
     const echoed = this.tryEchoUnchangedInput({
@@ -2036,7 +2053,7 @@ export class Job {
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch (err) {
-      this.log.debug({ dir, err }, 'walkDir: unable to read directory');
+      this.log.debug(operationalErrorMeta(err), 'walkDir: unable to read directory');
       return 'skipped';
     }
 
@@ -2094,7 +2111,7 @@ export class Job {
          * "Generated files" pollutes the chip list and the next prime().
          * `.dirkeep` is a file, not a directory, so it's unaffected. */
         if (isHiddenDirectory(entry.name) && !inputsLiveUnder(inputByName, relativePath)) {
-          this.log.debug({ path: relativePath }, 'walkDir: skipping hidden directory');
+          this.log.debug('walkDir: skipping hidden directory');
           skippedHiddenDirs++;
           continue;
         }
@@ -2205,19 +2222,19 @@ export class Job {
     try {
       const lstat = await fsp.lstat(file.path);
       if (lstat.isSymbolicLink()) {
-        this.log.error({ file: file.name }, 'Refusing to upload a symlink');
+        this.log.error('Refusing to upload a symlink');
         return null;
       }
       if (!lstat.isFile()) {
-        this.log.error(
-          { file: file.name },
-          'Refusing to upload a non-regular file',
-        );
+        this.log.error('Refusing to upload a non-regular file');
         return null;
       }
       size = lstat.size;
     } catch (error) {
-      this.log.error({ file: file.name, err: error }, 'Error stat-ing file before upload');
+      this.log.error(
+        operationalErrorMeta(error),
+        'Error stat-ing file before upload',
+      );
       return null;
     }
 
@@ -2245,7 +2262,7 @@ export class Job {
       uploadHandle = await fsp.open(file.path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       stream = uploadHandle.createReadStream();
       stream.on('error', (error) => {
-        this.log.warn({ file: file.name, err: error }, 'Upload file stream error');
+        this.log.warn(operationalErrorMeta(error), 'Upload file stream error');
       });
       const controller = new AbortController();
       timeout = setTimeout(() => controller.abort(), 30000);
@@ -2265,10 +2282,10 @@ export class Job {
       if (!response.ok) {
         throw new Error(`Upload HTTP error: ${response.status}`);
       }
-      this.log.debug({ file: file.name, id: file.id, size }, 'Uploaded file');
+      this.log.debug({ bytes: size }, 'Uploaded file');
       return file.id;
     } catch (error) {
-      this.log.error({ file: file.name, err: error }, 'Error uploading file');
+      this.log.error(operationalErrorMeta(error), 'Error uploading file');
       return null;
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -2312,7 +2329,7 @@ export class Job {
         workspaceRemoved = await cleanupSandboxWorkspace(workspaceLease);
       } catch (error) {
         workspaceRemoved = false;
-        this.log.error({ submissionDir: this.submissionDir, err: error }, 'Failed to clean up');
+        this.log.error(operationalErrorMeta(error), 'Failed to clean up');
       } finally {
         this.workspaceLease = undefined;
         this.submissionDir = '';
@@ -2325,15 +2342,9 @@ export class Job {
       } else {
         retainWorkspaceCleanupUntilRemoved(workspaceLease, () => {
           releaseJobIdentity(jobIdentity);
-          this.log.info(
-            { uid: jobIdentity.uid, gid: jobIdentity.gid, slot: jobIdentity.slot },
-            'Released retained sandbox job UID slot after workspace cleanup',
-          );
+          this.log.info('Released retained sandbox job UID slot after workspace cleanup');
         });
-        this.log.error(
-          { uid: jobIdentity.uid, gid: jobIdentity.gid, slot: jobIdentity.slot },
-          'Retaining sandbox job UID slot after failed workspace cleanup',
-        );
+        this.log.error('Retaining sandbox job UID slot after failed workspace cleanup');
       }
       this.jobIdentity = undefined;
     }

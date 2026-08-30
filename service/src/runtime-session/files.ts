@@ -9,7 +9,7 @@ import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import type * as t from '../types';
 import { internalServiceHeaders } from '../internal-service-auth';
-import { getAxiosErrorDetails } from '../utils';
+import { operationalErrorMeta } from '../operational-log';
 import { env } from '../config';
 import logger from '../logger';
 
@@ -180,7 +180,7 @@ export async function buildInputBatch(
       );
     }
     if (error instanceof SessionFilesError) throw error;
-    logger.error('Failed to prepare session input batch:', getAxiosErrorDetails(error));
+    logger.error('Failed to prepare session input batch', operationalErrorMeta(error));
     throw new SessionFilesError(
       'SESSION_INPUT_PREPARATION_FAILED',
       'Failed to prepare session input batch',
@@ -242,9 +242,9 @@ async function fetchFileObjectToPath(
         'Session input delivery aborted',
       );
     }
-    /* Sanitized details only: a raw axios error carries the request config —
-     * including the internal service token header — straight into the logs. */
-    logger.error(`Failed to fetch session input ${ref.id}:`, getAxiosErrorDetails(error));
+    /* Keep the raw axios error out of logs: its request config includes the
+     * internal service token header and the file reference is linkable. */
+    logger.error('Failed to fetch session input', operationalErrorMeta(error));
     const status = axios.isAxiosError(error) ? error.response?.status : undefined;
     throw new SessionFilesError(
       status != null && status >= 400 && status < 500

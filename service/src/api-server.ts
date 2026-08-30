@@ -25,6 +25,7 @@ import { executionProfileMiddleware } from './middleware/execution-profile';
 import { traceHttpRequest } from './telemetry';
 import { env } from './config';
 import logger from './logger';
+import { operationalErrorMeta } from './operational-log';
 
 const { LOCAL_MODE: isLocalMode } = env;
 
@@ -46,7 +47,7 @@ app.get('/v1/health', async (_, res) => {
     await connection.ping();
     res.sendStatus(200);
   } catch (error) {
-    logger.error('Health check failed:', error);
+    logger.error('Health check failed', operationalErrorMeta(error));
     res.sendStatus(503);
   }
 });
@@ -69,10 +70,10 @@ process.on('SIGINT', gracefulShutdown);
 process.on('SIGUSR2', gracefulShutdown);
 
 process.on('uncaughtException', async (error) => {
-  logger.error('Uncaught Exception', error);
+  logger.error('Uncaught exception', operationalErrorMeta(error));
   await gracefulShutdown();
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled Rejection', reason);
+  logger.error('Unhandled rejection', operationalErrorMeta(reason));
 });

@@ -5,6 +5,7 @@ import * as path from 'path';
 import type { Dirent } from 'fs';
 import { config } from './config';
 import { logger } from './logger';
+import { operationalErrorMeta } from './operational-log';
 import { SANDBOX_DIR_MODE } from './validation';
 
 export const SANDBOX_WORKSPACE_ROOT = '/tmp/sandbox';
@@ -404,7 +405,7 @@ export async function resetSessionWorkspace(root = SANDBOX_WORKSPACE_ROOT): Prom
     await fsp.rm(dir, { recursive: true, force: true });
     return true;
   } catch (error) {
-    logger.error({ dir, err: error }, 'Failed to reset session workspace');
+    logger.error(operationalErrorMeta(error), 'Failed to reset session workspace');
     await quarantineWorkspace(dir);
     return false;
   } finally {
@@ -431,7 +432,7 @@ export async function cleanupSandboxWorkspace(lease: SandboxWorkspaceLease): Pro
     await fsp.rm(lease.dir, { recursive: true, force: true });
     return true;
   } catch (error) {
-    logger.error({ workspaceId: lease.workspaceId, dir: lease.dir, err: error }, 'Failed to remove sandbox workspace');
+    logger.error(operationalErrorMeta(error), 'Failed to remove sandbox workspace');
     await quarantineWorkspace(lease.dir);
     return false;
   } finally {
@@ -444,7 +445,7 @@ function scheduleRetainedWorkspaceRetry(): void {
   retainedWorkspaceRetryTimer = setTimeout(() => {
     retainedWorkspaceRetryTimer = undefined;
     retryRetainedWorkspaceCleanups().catch(err => {
-      logger.error({ err }, 'Retained sandbox workspace cleanup retry failed');
+      logger.error(operationalErrorMeta(err), 'Retained sandbox workspace cleanup retry failed');
     });
   }, RETAINED_WORKSPACE_RETRY_MS);
   retainedWorkspaceRetryTimer.unref?.();
@@ -480,7 +481,7 @@ export async function retryRetainedWorkspaceCleanups(
       removed = await cleanup(retained.lease);
     } catch (error) {
       logger.error(
-        { workspaceId, attempts: retained.attempts, err: error },
+        { attempts: retained.attempts, ...operationalErrorMeta(error) },
         'Retained sandbox workspace cleanup failed',
       );
     }
@@ -555,7 +556,7 @@ export async function initializeSandboxWorkspaceIsolation(): Promise<void> {
   await assertNsJailConfigHasNoStaticUidMaps(config.nsjail_config);
   await prepareWorkspaceRoot();
   const removed = await reapStaleWorkspaces({ removeAll: true });
-  logger.info({ root: SANDBOX_WORKSPACE_ROOT, removed }, 'Sandbox workspace isolation initialized');
+  logger.info({ removed }, 'Sandbox workspace isolation initialized');
 }
 
 export function startWorkspaceReaper(): () => void {
@@ -568,7 +569,9 @@ export function startWorkspaceReaper(): () => void {
       .then(removed => {
         if (removed > 0) logger.info({ removed }, 'Removed stale sandbox workspaces');
       })
-      .catch(err => logger.error({ err }, 'Sandbox workspace reaper failed'));
+      .catch(err => {
+        logger.error(operationalErrorMeta(err), 'Sandbox workspace reaper failed');
+      });
   }, 300_000);
   interval.unref?.();
   return () => clearInterval(interval);

@@ -15,10 +15,9 @@ import { httpMetricsMiddleware } from './middleware/httpMetrics';
 import { internalServiceAuthEnabled, requireInternalServiceAuth } from './internal-service-auth';
 import { shutdownTelemetry, traceHttpRequest } from './telemetry';
 import logger from './fileServerLogger';
+import { operationalErrorClass, operationalErrorMeta } from './operational-log';
 import { env } from './config';
 import { redisKeepAliveOptions } from './redis-options';
-
-const { INSTANCE_ID } = env;
 
 const app = express();
 app.disable('x-powered-by');
@@ -42,11 +41,7 @@ async function createMinioClient(): Promise<Client> {
   };
 
   if (useIrsa) {
-    logger.info('Using IRSA (IamAwsProvider) for S3 authentication', {
-      tokenFile: process.env.AWS_WEB_IDENTITY_TOKEN_FILE,
-      roleArn: process.env.AWS_ROLE_ARN,
-      region: baseConfig.region,
-    });
+    logger.info('Using IRSA for S3 authentication');
 
     /** IamAwsProvider exists in minio 8.0.6+ but isn't exported from main module
      * Try multiple import paths for compatibility with different runtimes (bun, ts-node, node)
@@ -68,7 +63,10 @@ async function createMinioClient(): Promise<Client> {
         const mod = await import(`${resolvePath}dist/main/IamAwsProvider.js`) as IamProviderModule;
         IamAwsProviderClass = (mod.IamAwsProvider ?? mod.default)!;
       } catch (fallbackError) {
-        logger.error('Failed to load IamAwsProvider', { primaryError, fallbackError });
+        logger.error('Failed to load IamAwsProvider', {
+          primaryErrorClass: operationalErrorClass(primaryError),
+          fallbackErrorClass: operationalErrorClass(fallbackError),
+        });
         throw new Error('Could not load IamAwsProvider for IRSA authentication. Ensure minio >= 8.0.6 is installed.');
       }
     }
@@ -125,14 +123,11 @@ const redisClient = new IORedis({
 });
 
 redisClient.on('error', (err) => {
-  logger.error('Redis Client Error', { error: err });
+  logger.error('Redis client error', operationalErrorMeta(err));
 });
 
 redisClient.on('connect', () => {
-  logger.info('Redis Client Connected', {
-    host: process.env.REDIS_HOST,
-    port: process.env.REDIS_PORT
-  });
+  logger.info('Redis client connected');
 });
 
 redisClient.on('ready', () => {
@@ -161,10 +156,18 @@ async function ensureBucketExists(retries = 10, delay = 1000): Promise<void> {
 
       if (attempt < retries) {
         const backoff = delay * Math.pow(2, attempt - 1);
-        logger.warn(`MinIO not ready, retrying in ${backoff}ms (attempt ${attempt}/${retries})`, { error: error.message });
+        logger.warn('Object storage is not ready; retrying', {
+          attempt,
+          maxAttempts: retries,
+          retryAfterMs: backoff,
+          ...operationalErrorMeta(err),
+        });
         await new Promise(resolve => setTimeout(resolve, backoff));
       } else {
-        logger.error('Failed to ensure bucket exists after all retries', { error });
+        logger.error(
+          'Failed to ensure object storage bucket exists after all retries',
+          { attempts: retries, ...operationalErrorMeta(err) },
+        );
         throw err;
       }
     }
@@ -262,7 +265,7 @@ async function uploadFile(
   } else {
     await minioClient.putObject(bucketName, objectName, peeked.body, undefined, metaData);
   }
-  logger.info(`[${INSTANCE_ID}] File ID: ${fileId} | Filename: ${filename} | Session key: ${sessionKey}`);
+  logger.info('File stored', { empty: peeked.empty, readOnly });
   await redisClient.set(`upload:${sessionKey}${session_id}${fileId}`, 'true', 'EX', env.SESSION_CACHE_TTL);
   fileUploads.inc();
 
@@ -291,7 +294,7 @@ app.get('/ready', async (_req: express.Request, res: express.Response) => {
     await redisClient.ping();
     checks.redis = 'ok';
   } catch (error) {
-    logger.error('Readiness check failed - Redis:', { error });
+    logger.error('Readiness check failed for Redis', operationalErrorMeta(error));
     checks.redis = 'error';
     healthy = false;
   }
@@ -301,7 +304,7 @@ app.get('/ready', async (_req: express.Request, res: express.Response) => {
       await minioClient.bucketExists(bucketName);
       checks.s3 = 'ok';
     } catch (error) {
-      logger.error('Readiness check failed - S3:', { error });
+      logger.error('Readiness check failed for object storage', operationalErrorMeta(error));
       checks.s3 = 'error';
       healthy = false;
     }
@@ -348,17 +351,17 @@ app.post('/sessions/:session_id/objects', async (req: express.Request, res: expr
       decodedFilename = decodeURIComponent(combinedFilename);
     } catch (err) {
       // If decoding fails, use the original filename
-      logger.warn(`Failed to decode filename, using original: ${combinedFilename}`, { error: err });
+      logger.warn('Failed to decode filename; using original', operationalErrorMeta(err));
       decodedFilename = combinedFilename;
     }
 
     const [fileId, ...filenameParts] = decodedFilename.split('___');
     const filename = filenameParts.join('___');
 
-    logger.info(`[${INSTANCE_ID}] Processing file: ${filename} with ID: ${fileId}`);
+    logger.info('Processing uploaded file');
 
     const uploadPromise = uploadFile(session_id, file, filename, mimeType, fileId, readOnly).catch(err => {
-      logger.error(`[${INSTANCE_ID}] Error uploading file ${filename}:`, { error: err });
+      logger.error('Error uploading file', operationalErrorMeta(err));
       return null;
     });
     uploadPromises.push(uploadPromise);
@@ -369,7 +372,7 @@ app.post('/sessions/:session_id/objects', async (req: express.Request, res: expr
       const results = await Promise.all(uploadPromises);
       const successfulUploads = results.filter((result): result is t.UploadResult => result !== null);
 
-      logger.info(`[${INSTANCE_ID}] Successfully uploaded ${successfulUploads.length} files for session ${session_id}`);
+      logger.info('Upload batch completed', { uploadedFiles: successfulUploads.length });
 
       return res.status(200).json({
         message: 'success',
@@ -377,13 +380,13 @@ app.post('/sessions/:session_id/objects', async (req: express.Request, res: expr
         files: successfulUploads
       });
     } catch (err) {
-      logger.error('Error processing uploads:', { error: err });
+      logger.error('Error processing uploads', operationalErrorMeta(err));
       return res.status(500).send('Error uploading files.');
     }
   });
 
   busboy.on('error', (error) => {
-    logger.error(`[${INSTANCE_ID}] Busboy error for session_id ${session_id}:`, error);
+    logger.error('Multipart upload parser failed', operationalErrorMeta(error));
     res.status(500).json({ error: 'Error processing upload' });
   });
 
@@ -401,7 +404,7 @@ app.put('/sessions/:session_id/objects/:fileId', async (req: express.Request, re
       decodedFilename = decodeURIComponent(originalFilename);
     } catch (err) {
       // If decoding fails, use the original filename
-      logger.warn(`Failed to decode filename header, using original: ${originalFilename}`, { error: err });
+      logger.warn('Failed to decode filename header; using original', operationalErrorMeta(err));
       decodedFilename = originalFilename;
     }
   }
@@ -416,10 +419,10 @@ app.put('/sessions/:session_id/objects/:fileId', async (req: express.Request, re
 
   try {
     const result = await uploadFile(session_id, req, decodedFilename, mimeType, fileId, readOnly);
-    logger.info(`[${INSTANCE_ID}] File uploaded successfully: ${result.filename}`);
+    logger.info('File upload completed');
     return res.status(200).json(result);
   } catch (err) {
-    logger.error(`[${INSTANCE_ID}] Error uploading file ${decodedFilename}:`, { error: err });
+    logger.error('Error uploading file', operationalErrorMeta(err));
     return res.status(500).json({ error: 'Error uploading file.' });
   }
 });
@@ -470,7 +473,7 @@ app.get('/sessions/:session_id/objects/:objectId/metadata', async (req, res) => 
       readOnly: stat.metaData?.['read-only'] === 'true',
     });
   } catch (err) {
-    logger.error('Error fetching object metadata:', { error: err, session_id, objectId, bucketName });
+    logger.error('Error fetching object metadata', operationalErrorMeta(err));
     return res.status(500).json({
       error: 'Error fetching object metadata',
       details: (err as Error | undefined)?.message,
@@ -494,7 +497,7 @@ app.get('/sessions/:session_id/objects/:objectId', async (req, res) => {
     }
 
     if (!objectName) {
-      logger.warn('File not found', { session_id, objectId, bucketName });
+      logger.warn('File not found');
       return res.status(404).json({
         error: 'File not found',
         details: 'No matching file found',
@@ -504,7 +507,7 @@ app.get('/sessions/:session_id/objects/:objectId', async (req, res) => {
       });
     }
 
-    logger.info(`[${INSTANCE_ID}] Attempting to download: ${objectName}`);
+    logger.info('File download started');
 
     const stat: Partial<BucketItemStat> = await minioClient.statObject(bucketName, objectName);
 
@@ -513,14 +516,17 @@ app.get('/sessions/:session_id/objects/:objectId', async (req, res) => {
       try {
         originalFilename = Buffer.from(stat.metaData['original-filename'], 'base64').toString('utf8');
       } catch (err) {
-        logger.warn('Failed to decode filename from metadata, using fallback', { error: err });
+        logger.warn(
+          'Failed to decode filename from metadata; using fallback',
+          operationalErrorMeta(err),
+        );
         originalFilename = stat.metaData['original-filename'] ?? path.basename(objectName);
       }
     } else if (stat.metaData?.['original-filename'] != null) {
       originalFilename = stat.metaData['original-filename'];
     }
 
-    logger.info(`[${INSTANCE_ID}] File found: ${objectName}`);
+    logger.info('File download source found');
 
     // Explicitly remove problematic headers that might be duplicated
     res.removeHeader('Transfer-Encoding');
@@ -550,7 +556,7 @@ app.get('/sessions/:session_id/objects/:objectId', async (req, res) => {
     });
 
     dataStream.on('error', (err) => {
-      logger.error('Error streaming file:', { error: err, session_id, objectId, bucketName });
+      logger.error('Error streaming file', operationalErrorMeta(err));
       // Only send error if headers haven't been sent yet
       if (!res.headersSent) {
         res.status(500).json({
@@ -562,7 +568,7 @@ app.get('/sessions/:session_id/objects/:objectId', async (req, res) => {
       }
     });
   } catch (err) {
-    logger.error('Error downloading file:', { error: err, session_id, objectId, bucketName });
+    logger.error('Error downloading file', operationalErrorMeta(err));
     return res.status(500).json({
       error: 'Error downloading file',
       details: (err as Error | undefined)?.message,
@@ -673,7 +679,7 @@ app.get('/sessions/:session_id/objects', async (req, res) => {
 
     res.json(objects);
   } catch (err) {
-    logger.error('Error listing objects:', { error: err, session_id });
+    logger.error('Error listing objects', operationalErrorMeta(err));
     return res.status(500).send('Error listing objects');
   }
 });
@@ -693,7 +699,7 @@ app.delete('/sessions/:session_id/objects/:fileId', async (req, res) => {
     }
 
     if (!objectName) {
-      logger.warn('File not found for deletion', { session_id, fileId, bucketName });
+      logger.warn('File not found for deletion');
       return res.status(404).json({
         error: 'File not found',
         details: 'No matching file found for deletion',
@@ -704,7 +710,7 @@ app.delete('/sessions/:session_id/objects/:fileId', async (req, res) => {
     }
 
     await minioClient.removeObject(bucketName, objectName);
-    logger.info(`[${INSTANCE_ID}] File deleted successfully: ${objectName}`);
+    logger.info('File deleted successfully');
     return res.status(200).json({
       message: 'File deleted successfully',
       session_id,
@@ -712,7 +718,7 @@ app.delete('/sessions/:session_id/objects/:fileId', async (req, res) => {
     });
 
   } catch (err) {
-    logger.error('Error deleting file:', err);
+    logger.error('Error deleting file', operationalErrorMeta(err));
     return res.status(500).json({
       error: 'Error deleting file',
     });
@@ -732,11 +738,11 @@ async function startServer(): Promise<void> {
   try {
     await initializeStorage();
     const onListen = () => {
-      logger.info(`[${INSTANCE_ID}] Server running on ${host ?? '*'}:${port}`);
+      logger.info('File server started');
     };
     server = host ? app.listen(port, host, onListen) : app.listen(port, onListen);
   } catch (err) {
-    logger.error('Critical: Could not initialize storage', { error: err });
+    logger.error('Could not initialize storage', operationalErrorMeta(err));
     process.exit(1);
   }
 }
@@ -754,22 +760,22 @@ function closeHttpServer(): Promise<void> {
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.info(`[${INSTANCE_ID}] Shutting down file server...`);
+  logger.info('Shutting down file server');
   try {
     await closeHttpServer();
     await redisClient.quit();
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn(`[${INSTANCE_ID}] OpenTelemetry shutdown failed`, { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(0);
   } catch (error) {
-    logger.error(`[${INSTANCE_ID}] File server shutdown failed`, { error });
+    logger.error('File server shutdown failed', operationalErrorMeta(error));
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn(`[${INSTANCE_ID}] OpenTelemetry shutdown failed`, { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(1);
   }
@@ -781,9 +787,9 @@ process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
 
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', { error });
+  logger.error('Uncaught exception', operationalErrorMeta(error));
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason, promise });
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled rejection', operationalErrorMeta(reason));
 });

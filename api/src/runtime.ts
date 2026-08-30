@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as semver from 'semver';
 import { config } from './config';
 import { logger } from './logger';
+import { operationalErrorMeta } from './operational-log';
 
 interface RuntimeLimits {
   timeouts: { compile: number; run: number };
@@ -82,7 +83,7 @@ function loadEnvVars(packageDir: string): Record<string, string> {
 export function loadPackage(packageDir: string): void {
   const infoPath = path.join(packageDir, 'pkg-info.json');
   if (!fs.existsSync(infoPath)) {
-    logger.warn({ packageDir }, 'Missing pkg-info.json');
+    logger.warn('Missing pkg-info.json');
     return;
   }
 
@@ -91,13 +92,13 @@ export function loadPackage(packageDir: string): void {
   try {
     info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
   } catch (err) {
-    logger.warn({ packageDir, err }, 'Failed to parse pkg-info.json');
+    logger.warn(operationalErrorMeta(err), 'Failed to parse pkg-info.json');
     return;
   }
   const { language, version, aliases, provides, limit_overrides } = info;
   const parsedVersion = semver.parse(version);
   if (!parsedVersion) {
-    logger.warn({ version, packageDir }, 'Failed to parse version');
+    logger.warn('Failed to parse package version');
     return;
   }
 
@@ -154,7 +155,7 @@ const INSTALLED_MARKER = '.package-installed';
 export function loadPackages(packagesDirectory: string): void {
   const pkgdir = packagesDirectory;
   if (!fs.existsSync(pkgdir)) {
-    logger.warn({ pkgdir }, 'Package directory does not exist');
+    logger.warn('Package directory does not exist');
     return;
   }
 

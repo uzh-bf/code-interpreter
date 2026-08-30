@@ -12,21 +12,22 @@ import logger from './logger';
 import { redisKeepAliveOptions } from './redis-options';
 import { bullmqQueueJobs, registerBullmqQueueMetricsCollector } from './metrics';
 import { waitForJobFinished } from './queue-wait';
+import { operationalErrorMeta } from './operational-log';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 2000;
 
 const retryStrategy: CommonRedisOptions['retryStrategy'] = (times) => {
   if (times > MAX_RECONNECT_ATTEMPTS) {
-    logger.error(`Failed to connect to Redis after ${times} attempts`);
+    logger.error('Failed to connect to Redis', { attempts: times });
     return null;
   }
-  logger.warn(`Retrying Redis connection attempt ${times}`);
+  logger.warn('Retrying Redis connection', { attempt: times });
   return RECONNECT_DELAY;
 };
 
 const reconnectOnError: CommonRedisOptions['reconnectOnError'] = (err) => {
-  logger.error('Redis connection error:', err);
+  logger.error('Redis connection error', operationalErrorMeta(err));
   const targetError = 'READONLY';
   if (err.message.includes(targetError)) {
     return true;
@@ -70,8 +71,8 @@ const otherQueueEvents = new QueueEvents(queueNames.other, { connection });
 
 const queueMetricStates = ['waiting', 'active', 'delayed'] as const;
 const queueMetricSources = [
-  { name: queueNames.python, queue: pyQueue },
-  { name: queueNames.other, queue: otherQueue },
+  { name: queueNames.python, queue: pyQueue, queueClass: 'python' },
+  { name: queueNames.other, queue: otherQueue, queueClass: 'other' },
 ] as const;
 const QUEUE_METRICS_TIMEOUT_MS = 1000;
 
@@ -91,7 +92,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 }
 
 registerBullmqQueueMetricsCollector(async () => {
-  await Promise.all(queueMetricSources.map(async ({ name, queue }) => {
+  await Promise.all(queueMetricSources.map(async ({ name, queue, queueClass }) => {
     try {
       const counts = await withTimeout(
         queue.getJobCounts(...queueMetricStates),
@@ -102,7 +103,10 @@ registerBullmqQueueMetricsCollector(async () => {
         bullmqQueueJobs.set({ queue: name, state }, counts[state] ?? 0);
       }
     } catch (error) {
-      logger.warn('Failed to collect BullMQ queue metrics', { queue: name, error });
+      logger.warn('Failed to collect BullMQ queue metrics', {
+        queueClass,
+        ...operationalErrorMeta(error),
+      });
       for (const state of queueMetricStates) {
         bullmqQueueJobs.remove({ queue: name, state });
       }

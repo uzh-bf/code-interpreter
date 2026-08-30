@@ -8,6 +8,7 @@ import programmaticRouter from './service/programmatic-router';
 import { connection } from './queue';
 import { env } from './config';
 import logger from './logger';
+import { operationalErrorMeta } from './operational-log';
 
 const app = express();
 app.disable('x-powered-by');
@@ -23,7 +24,7 @@ app.get('/v1/health', async (_, res) => {
     await connection.ping();
     res.sendStatus(200);
   } catch (error) {
-    logger.error('Health check failed:', error);
+    logger.error('Health check failed', operationalErrorMeta(error));
     res.sendStatus(503);
   }
 });
@@ -46,10 +47,10 @@ process.on('SIGUSR2', gracefulShutdown); // For nodemon restarts
 
 // Improve your existing handlers
 process.on('uncaughtException', async (error) => {
-  logger.error('Uncaught Exception', error);
+  logger.error('Uncaught exception', operationalErrorMeta(error));
   await gracefulShutdown();
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled Rejection', reason);
+  logger.error('Unhandled rejection', operationalErrorMeta(reason));
 });

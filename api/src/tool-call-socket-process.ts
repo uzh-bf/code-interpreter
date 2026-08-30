@@ -3,6 +3,7 @@ import * as net from 'net';
 import * as path from 'path';
 import { logger } from './logger';
 import { config } from './config';
+import { operationalErrorMeta } from './operational-log';
 
 const START_TIMEOUT_MS = 10_000;
 const STOP_TIMEOUT_MS = 3_000;
@@ -94,14 +95,14 @@ async function launch(): Promise<void> {
       `tool-call socket proxy failed to spawn: ${error.message}`,
       { cause: error },
     );
-    logger.error({ error }, 'tool-call socket proxy spawn failed');
+    logger.error(operationalErrorMeta(error), 'tool-call socket proxy spawn failed');
     rejectSpawnFailure(launchError);
   });
   started.stdout?.on('data', (chunk: Buffer) => {
-    logger.debug({ proxy: chunk.toString().trim() }, 'tool-call socket proxy');
+    logger.debug({ outputBytes: chunk.length }, 'tool-call socket proxy emitted output');
   });
   started.stderr?.on('data', (chunk: Buffer) => {
-    logger.warn({ proxy: chunk.toString().trim() }, 'tool-call socket proxy stderr');
+    logger.warn({ outputBytes: chunk.length }, 'tool-call socket proxy emitted error output');
   });
   started.once('exit', (code, signal) => {
     if (child === started) {
@@ -117,10 +118,7 @@ async function launch(): Promise<void> {
       waitUntilReady(started, socketPath, START_TIMEOUT_MS),
       spawnFailure,
     ]);
-    logger.info(
-      { socketPath, target: rawTarget },
-      'Tool-call socket proxy started after MicroVM restore',
-    );
+    logger.info('Tool-call socket proxy started after MicroVM restore');
   } catch (error) {
     started.kill('SIGKILL');
     if (child === started) child = undefined;

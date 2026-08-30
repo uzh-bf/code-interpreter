@@ -10,6 +10,7 @@ import { startWarmupCommand } from './warmup';
 import { stopToolCallSocketProxy } from './tool-call-socket-process';
 import v2Router from './api/v2';
 import lifecycleRouter, { LIFECYCLE_HOOK_BASE_PATH } from './api/lifecycle';
+import { operationalErrorMeta } from './operational-log';
 
 const app = express();
 
@@ -60,7 +61,7 @@ interface HttpError extends Error {
   statusCode?: number;
 }
 app.use((err: HttpError, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error({ err }, 'Unhandled error');
+  logger.error(operationalErrorMeta(err), 'Unhandled error');
   const status = err.status ?? err.statusCode ?? 400;
   return res.status(status).json({ message: err.message || 'Bad request' });
 });
@@ -73,7 +74,7 @@ async function main(): Promise<void> {
   const [address, port] = config.bind_address.split(':');
   const stopWorkspaceReaper = startWorkspaceReaper();
   const server = app.listen(Number(port), address, () => {
-    logger.info({ address: config.bind_address }, 'Sandbox API started');
+    logger.info('Sandbox API started');
   });
   let shuttingDown = false;
   const closeHttpServer = (): Promise<void> => new Promise((resolve, reject) => {
@@ -89,7 +90,7 @@ async function main(): Promise<void> {
   ): Promise<void> => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const closePromise = closeHttpServer().catch((err) => {
-      logger.warn({ err }, 'Sandbox HTTP server close failed');
+      logger.warn(operationalErrorMeta(err), 'Sandbox HTTP server close failed');
     });
     const timeoutPromise = new Promise<void>((resolve) => {
       timeout = setTimeout(() => {
@@ -112,12 +113,12 @@ async function main(): Promise<void> {
     stopWorkspaceReaper();
     await closeHttpServerWithTimeout();
     await stopToolCallSocketProxy().catch((err) => {
-      logger.warn({ err }, 'Tool-call socket proxy shutdown failed');
+      logger.warn(operationalErrorMeta(err), 'Tool-call socket proxy shutdown failed');
     });
     try {
       await shutdownTelemetry();
     } catch (err) {
-      logger.warn({ err }, 'OpenTelemetry shutdown failed');
+      logger.warn(operationalErrorMeta(err), 'OpenTelemetry shutdown failed');
     }
     process.exit(0);
   };
@@ -127,6 +128,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'Sandbox API startup failed');
+  logger.error(operationalErrorMeta(err), 'Sandbox API startup failed');
   process.exit(1);
 });

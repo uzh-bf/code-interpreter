@@ -205,7 +205,7 @@ export class SessionWorkspace {
   markDirty(reason: string): void {
     this.dirty = reason;
     logger.error(
-      { runtimeSessionId: this.runtimeSessionId, reason },
+      { reasonClass: operationalWorkspaceDirtyReason(reason) },
       'Session workspace marked dirty',
     );
   }
@@ -258,10 +258,7 @@ export class SessionWorkspace {
     this.dirty = undefined;
     this.lease = undefined;
     if (!wiped) {
-      logger.error(
-        { runtimeSessionId: this.runtimeSessionId },
-        'Session workspace wipe failed; retaining pinned UID for the quarantined directory',
-      );
+      logger.error('Session workspace wipe failed; retaining pinned UID for the quarantined directory');
       return;
     }
     if (this.identity) {
@@ -288,7 +285,7 @@ export function bindSessionWorkspace(binding: SessionBinding | undefined): Sessi
   }
   if (boundSession) {
     logger.error(
-      { bound: boundSession.runtimeSessionId, requested: binding.runtimeSessionId },
+      { identityConflict: true },
       'Refusing to rebind runner to a different runtime session',
     );
     return undefined;
@@ -310,4 +307,15 @@ export async function unbindSessionWorkspace(): Promise<void> {
 
 export function resetSessionWorkspaceStateForTests(): void {
   boundSession = undefined;
+}
+
+function operationalWorkspaceDirtyReason(reason: string): string {
+  switch (reason) {
+    case 'checkpoint restore rollback failed':
+      return 'checkpoint_rollback';
+    case 'execution failed after input priming':
+      return 'execution_after_priming';
+    default:
+      return 'other';
+  }
 }

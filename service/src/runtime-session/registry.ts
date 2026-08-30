@@ -6,6 +6,7 @@ import {
   RUNTIME_SESSION_REDIS_COMMAND_TIMEOUT_MS,
 } from '../config';
 import logger from '../logger';
+import { operationalErrorMeta } from '../operational-log';
 
 export { RUNTIME_SESSION_REDIS_COMMAND_TIMEOUT_MS } from '../config';
 
@@ -421,8 +422,7 @@ export async function releaseRuntimeSessionLock(
    * the token-guarded lease must age out. The Lua release is idempotent, so a
    * retry is safe even if Redis deleted the key but lost the first response. */
   logger.warn('Failed to release runtime session lock after retries', {
-    runtimeSessionId,
-    err: lastError,
+    ...operationalErrorMeta(lastError),
   });
 }
 
@@ -459,7 +459,7 @@ export async function renewRuntimeSessionLock(
     );
     return result === 1 ? 'held' : 'lost';
   } catch (err) {
-    logger.warn('Failed to renew runtime session lock', { runtimeSessionId, err });
+    logger.warn('Failed to renew runtime session lock', operationalErrorMeta(err));
     return 'error';
   }
 }
@@ -479,7 +479,7 @@ export async function readRuntimeSessionRecord(
   try {
     return JSON.parse(data) as RuntimeSessionRecord;
   } catch (err) {
-    logger.warn('Discarding malformed runtime session record', { runtimeSessionId, err });
+    logger.warn('Discarding malformed runtime session record', operationalErrorMeta(err));
     return null;
   }
 }

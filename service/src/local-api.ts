@@ -22,6 +22,7 @@ import logger from './logger';
 import { shutdownTelemetry, traceHttpRequest } from './telemetry';
 import { validateExecutionProfilePolicy } from './secure-startup';
 import { configureExecutionProfileMetrics } from './metrics';
+import { operationalErrorMeta } from './operational-log';
 
 const app = express();
 app.disable('x-powered-by');
@@ -40,7 +41,7 @@ app.get('/v1/health', async (_, res) => {
     await connection.ping();
     res.sendStatus(200);
   } catch (error) {
-    logger.error('Health check failed:', error);
+    logger.error('Health check failed', operationalErrorMeta(error));
     res.sendStatus(503);
   }
 });
@@ -80,7 +81,7 @@ async function localStartup(): Promise<void> {
     setStartupComplete();
     logger.info('Local startup complete');
   } catch (error) {
-    logger.error('Error during local startup:', error);
+    logger.error('Error during local startup', operationalErrorMeta(error));
     throw error;
   }
 }
@@ -99,16 +100,16 @@ async function localShutdown(): Promise<void> {
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn('OpenTelemetry shutdown failed', { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     logger.info('Local shutdown complete');
     process.exit(0);
   } catch (error) {
-    logger.error('Error during shutdown:', error);
+    logger.error('Error during shutdown', operationalErrorMeta(error));
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn('OpenTelemetry shutdown failed', { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(1);
   }
@@ -117,11 +118,10 @@ async function localShutdown(): Promise<void> {
 // Start server
 localStartup().then(() => {
   app.listen(env.PORT, () => {
-    logger.info(`[LOCAL] Server running on port ${env.PORT}`);
-    logger.info(`[LOCAL] PYTHON_CONCURRENCY: ${env.PYTHON_CONCURRENCY} | OTHER_CONCURRENCY: ${env.OTHER_CONCURRENCY}`);
+    logger.info('Local server started');
   });
 }).catch((error) => {
-  logger.error('Failed to start local server:', error);
+  logger.error('Failed to start local server', operationalErrorMeta(error));
   process.exit(1);
 });
 
@@ -130,10 +130,10 @@ process.on('SIGINT', localShutdown);
 process.on('SIGUSR2', localShutdown);
 
 process.on('uncaughtException', async (error) => {
-  logger.error('Uncaught Exception', error);
+  logger.error('Uncaught exception', operationalErrorMeta(error));
   await localShutdown();
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled Rejection', reason);
+  logger.error('Unhandled rejection', operationalErrorMeta(reason));
 });

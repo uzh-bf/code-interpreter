@@ -4,6 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import { config } from './config';
 import { logger } from './logger';
+import { operationalErrorClass, operationalErrorMeta } from './operational-log';
 import { defaultNsJailSetupGate, type NsJailSetupGate } from './nsjail-setup-gate';
 import { nsjailSetupGateWatchdogFires } from './metrics';
 import { SANDBOX_INSIDE_GID, SANDBOX_INSIDE_UID, type SandboxJobIdentity } from './workspace-isolation';
@@ -400,7 +401,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
         const errno = err as NodeJS.ErrnoException;
         if (spawnError === null) spawnError = errno;
         logger.warn(
-          { logId, err: { code: errno.code, message: errno.message } },
+          operationalErrorMeta(errno),
           'nsjail child process error',
         );
         childDiedSignal.abort();
@@ -420,7 +421,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
       child.stdin.on('error', err => {
         const errno = err as NodeJS.ErrnoException;
         logger.warn(
-          { logId, err: { code: errno.code, message: errno.message } },
+          operationalErrorMeta(errno),
           'nsjail stdin pipe error (child likely exited mid-write)',
         );
       });
@@ -450,7 +451,10 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
      * log was unreadable (EACCES on a chmod race, EISDIR if the path got
      * replaced, EIO, ...) which is far more diagnostic than a bare timeout. */
     logger.warn(
-      { logId, pollError: pollError && { code: pollError.code, message: pollError.message } },
+      {
+        setupMarkerSeen: false,
+        pollErrorClass: pollError == null ? 'none' : operationalErrorClass(pollError),
+      },
       'nsjail setup gate watchdog fired before "Executing" marker',
     );
     nsjailSetupGateWatchdogFires.inc();
@@ -558,7 +562,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
       const logContent = fs.readFileSync(logPath, 'utf8');
 
       if (exitCode === 255) {
-        logger.error({ logContent }, 'nsjail exit 255');
+        logger.error({ exitCode, logBytes: Buffer.byteLength(logContent) }, 'nsjail exit 255');
       }
 
       for (const line of logContent.split('\n')) {
@@ -577,7 +581,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
         }
       }
     } else if (exitCode === 255) {
-      logger.error({ logPath }, 'nsjail exit 255 - no log file found');
+      logger.error({ exitCode, logAvailable: false }, 'nsjail exit 255 - no log file found');
     }
   } catch { /* log file may not exist */ } finally {
     try { fs.unlinkSync(logPath); } catch { /* ignore */ }

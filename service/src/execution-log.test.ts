@@ -33,8 +33,10 @@ describe('execution log summaries', () => {
     expect(JSON.stringify(summary)).not.toContain('top secret stdout');
     expect(JSON.stringify(summary)).not.toContain('sensitive stderr');
     expect(JSON.stringify(summary)).not.toContain('combined output');
+    expect(JSON.stringify(summary)).not.toContain('sess_123');
+    expect(JSON.stringify(summary)).not.toContain('5.2.0');
     expect(summary).toMatchObject({
-      session_id: 'sess_123',
+      languageClass: 'other',
       files: { count: 2, inheritedCount: 1, modifiedCount: 1 },
       run: {
         stdout: { length: 17, present: true },
@@ -56,4 +58,3 @@ describe('execution log summaries', () => {
     expect(summary).toEqual({ count: 3, skillCount: 1, agentCount: 1, userCount: 1 });
   });
 });
-

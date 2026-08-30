@@ -40,6 +40,23 @@ import { SandboxBackendError } from './types';
 import { Jobs } from '../enum';
 import { checkpointPipelineBudgetMs } from '../config';
 import logger from '../logger';
+import { operationalErrorMeta } from '../operational-log';
+
+function operationalMicrovmReason(reason: string): string {
+  switch (reason) {
+    case 'error':
+    case 'fenced':
+    case 'result_finalization_failed':
+    case 'session_binding_conflict':
+    case 'stateless':
+    case 'superseded':
+    case 'timeout':
+    case 'workspace_dirty':
+      return reason;
+    default:
+      return 'other';
+  }
+}
 
 /** Header that opts a proxied /execute into the runner's persistent session
  *  workspace (see api/src/session-workspace.ts). Session mode is delivered
@@ -612,9 +629,7 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
         );
         if (!quarantined) {
           logger.warn('Lost session lock while quarantining a mutated MicroVM', {
-            runtimeSessionId,
-            microvmId: vm.microvmId,
-            reason,
+            reason: operationalMicrovmReason(reason),
           });
         }
       }
@@ -625,10 +640,8 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
        * fenced write skip teardown of a VM whose uncommitted workspace was
        * already mutated. */
       logger.error('Failed to quarantine a mutated MicroVM in the session registry', {
-        runtimeSessionId,
-        microvmId: vm.microvmId,
-        reason,
-        error,
+        reason: operationalMicrovmReason(reason),
+        ...operationalErrorMeta(error),
       });
     }
 
@@ -651,9 +664,7 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
       );
       if (!terminal) {
         logger.warn('Lost session lock after recycling a mutated MicroVM', {
-          runtimeSessionId,
-          microvmId: vm.microvmId,
-          reason,
+          reason: operationalMicrovmReason(reason),
         });
       }
     } catch (error) {
@@ -661,10 +672,8 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
        * record remains non-reusable with its prior checkpoint pointer intact.
        * Preserve the primary execution/finalization error. */
       logger.error('Failed to mark a recycled MicroVM terminal in the session registry', {
-        runtimeSessionId,
-        microvmId: vm.microvmId,
-        reason,
-        error,
+        reason: operationalMicrovmReason(reason),
+        ...operationalErrorMeta(error),
       });
     }
   }
@@ -707,14 +716,11 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
         timeoutMs: RUNTIME_SESSION_REDIS_CLEANUP_TIMEOUT_MS,
       });
       if (!retired) {
-        logger.warn('Lost session lock while retiring an exhausted launch intent', {
-          runtimeSessionId: launchIntent.runtime_session_id,
-        });
+        logger.warn('Lost session lock while retiring an exhausted launch intent');
       }
     } catch (cleanupError) {
       logger.warn('Failed to retire an exhausted launch intent', {
-        runtimeSessionId: launchIntent.runtime_session_id,
-        error: cleanupError,
+        ...operationalErrorMeta(cleanupError),
       });
     }
   }
@@ -1205,7 +1211,6 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
       );
     }
     logger.info('Session input delivery', {
-      microvmId: vm.microvmId,
       refs: refs.length,
       missing: missing.length,
     });
@@ -1438,7 +1443,8 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
        * original would hand back the same dead VM. The retry consumes only the
        * first attempt's remaining launch budget. */
       logger.warn(
-        `[${ctx.executionId}] MicroVM died during boot (${retryableError.message}); retrying launch once`,
+        'MicroVM died during boot; retrying launch once',
+        operationalErrorMeta(retryableError),
       );
       microvmLaunches.inc({ outcome: 'retried' });
       try {
@@ -1630,7 +1636,10 @@ export class LambdaMicrovmSandboxBackend implements SandboxBackend {
         microvmTerminations.inc({ reason });
         return true;
       }
-      logger.error('Failed to terminate MicroVM', { microvmId, reason, error });
+      logger.error('Failed to terminate MicroVM', {
+        reason: operationalMicrovmReason(reason),
+        ...operationalErrorMeta(error),
+      });
       return false;
     }
   }

@@ -501,9 +501,9 @@ export async function startToolCallSocketProxy(
         upstream?.destroy(new Error('tool-call upstream timeout'));
       });
 
-      upstream.on('error', error => {
+      upstream.on('error', () => {
         if (rejected) return;
-        log.error('tool-call socket proxy upstream error', error);
+        log.error('tool-call socket proxy upstream error');
         if (!res.headersSent) {
           res.writeHead(502, { 'Content-Type': 'text/plain', Connection: 'close' });
         }
@@ -585,7 +585,7 @@ export async function startToolCallSocketProxy(
         fs.chownSync(socketPath, opts.socketUid, opts.socketGid);
       }
       fs.chmodSync(socketPath, socketMode);
-      log.log(`tool-call socket proxy listening on ${socketPath}`);
+      log.log('tool-call socket proxy started');
       resolve();
     };
     server.once('error', onError);
@@ -662,8 +662,8 @@ if (require.main === module) {
     .then(started => {
       handle = started;
     })
-    .catch(error => {
-      console.error('tool-call socket proxy failed to start', error);
+    .catch(() => {
+      console.error('tool-call socket proxy failed to start');
       process.exit(1);
     });
 }

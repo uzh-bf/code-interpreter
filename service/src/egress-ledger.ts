@@ -6,6 +6,7 @@ import type { EgressGrantClaims } from './egress-grant';
 import { EgressGrantError } from './egress-grant';
 import logger from './logger';
 import { redisKeepAliveOptions } from './redis-options';
+import { operationalErrorMeta } from './operational-log';
 
 type LedgerStatus = 'active' | 'revoked';
 
@@ -81,7 +82,9 @@ function redisConnection(): IORedis {
       ? { dnsLookup: (address: string, callback: (err: Error | null, addr: string) => void): void => callback(null, address) }
       : {}),
   });
-  redis.on('error', error => logger.error('Egress ledger Redis error', { error }));
+  redis.on('error', error => {
+    logger.error('Egress ledger Redis error', operationalErrorMeta(error));
+  });
   return redis;
 }
 
@@ -119,7 +122,9 @@ async function dedicatedMutationConnection(): Promise<IORedis> {
 function createMutationConnection(): IORedis {
   const client = redisConnection().duplicate();
   mutationConnections.add(client);
-  client.on('error', error => logger.error('Egress ledger mutation Redis error', { error }));
+  client.on('error', error => {
+    logger.error('Egress ledger mutation Redis error', operationalErrorMeta(error));
+  });
   return client;
 }
 
@@ -249,7 +254,10 @@ async function mutateRecord(
         }
       } catch (error) {
         await client.unwatch().catch(unwatchError => {
-          logger.warn('Failed to clear egress ledger WATCH after rejected mutation', { error: unwatchError });
+          logger.warn(
+            'Failed to clear egress ledger WATCH after rejected mutation',
+            operationalErrorMeta(unwatchError),
+          );
         });
         throw error;
       }
@@ -263,7 +271,10 @@ async function mutateRecord(
     }
   } finally {
     await client.unwatch().catch(error => {
-      logger.warn('Failed to clear egress ledger WATCH before returning mutation connection', { error });
+      logger.warn(
+        'Failed to clear egress ledger WATCH before returning mutation connection',
+        operationalErrorMeta(error),
+      );
     });
     releaseMutationConnection(client);
   }

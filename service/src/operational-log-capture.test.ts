@@ -6,6 +6,7 @@ import { createLogger, format, transports } from 'winston';
 import { buildAuthLogMeta } from './middleware/auth-log';
 import { buildRequestErrorLogMeta } from './middleware/request-error-logger';
 import { operationalErrorMeta } from './operational-log';
+import { summarizeSandboxResponse } from './execution-log';
 
 const SENTINEL = 'PRIVATE_capture_9dQm2V7x';
 const originalProvider = process.env.CODEAPI_AUTH_PROVIDER;
@@ -70,6 +71,9 @@ describe('Winston operational log capture', () => {
       name: 'AxiosError',
       message: `failed for ${SENTINEL}`,
       stack: `Error: ${SENTINEL}`,
+      code: SENTINEL,
+      filename: `${SENTINEL}.csv`,
+      output: SENTINEL,
       nested: { response: { data: SENTINEL } },
     };
     const req = sentinelRequest();
@@ -95,6 +99,23 @@ describe('Winston operational log capture', () => {
       bytes: 128,
       ...operationalErrorMeta(error),
     });
+    captureLogger.info(
+      'Synthetic sandbox response',
+      summarizeSandboxResponse({
+        session_id: SENTINEL,
+        language: SENTINEL,
+        version: SENTINEL,
+        files: [{ id: SENTINEL, name: `${SENTINEL}.csv` }],
+        run: {
+          code: 0,
+          message: SENTINEL,
+          stdout: SENTINEL,
+          stderr: SENTINEL,
+          output: SENTINEL,
+          wall_time: 12,
+        },
+      }),
+    );
     captureLogger.end();
     await new Promise<void>(resolve => captureLogger.on('finish', resolve));
 
@@ -102,6 +123,8 @@ describe('Winston operational log capture', () => {
     expect(captured).toContain('v1.exec.programmatic');
     expect(captured).toContain('durationMs');
     expect(captured).toContain('fileCount');
+    expect(captured).toContain('languageClass');
+    expect(captured).toContain('stdout');
     expect(captured).toContain('upstream_http');
     for (const variant of [
       SENTINEL,

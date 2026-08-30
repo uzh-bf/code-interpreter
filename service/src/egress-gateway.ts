@@ -42,6 +42,11 @@ import { isValidId } from './utils';
 import logger from './logger';
 import { parseBoundedContentLength } from './http-limits';
 import { validateEgressGatewayHardenedConfig } from './secure-startup';
+import {
+  operationalErrorMeta,
+  operationalMethod,
+  operationalPrincipalSource,
+} from './operational-log';
 
 export const app: Express = express();
 app.disable('x-powered-by');
@@ -73,11 +78,6 @@ const SUPPORTED_OUTPUT_EXTENSIONS = new Set([
 ]);
 
 type EgressAuditFields = {
-  execHash?: string;
-  requestExecHash?: string;
-  tenantHash?: string;
-  userHash?: string;
-  authContextHash?: string;
   principalSource?: string;
 };
 
@@ -94,15 +94,6 @@ function routeFamily(req: Request): string {
   return 'unknown';
 }
 
-function requestId(res: Response): string | undefined {
-  return res.locals.egressRequestId as string | undefined;
-}
-
-function hashLabel(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  return crypto.createHash('sha256').update(value, 'utf8').digest('base64url').slice(0, 16);
-}
-
 function auditFields(res: Response): EgressAuditFields {
   return (res.locals.egressAuditFields as EgressAuditFields | undefined) ?? {};
 }
@@ -114,18 +105,9 @@ function isSyntheticEgressRequest(res: Response): boolean {
 
 function setGrantAudit(res: Response, grant: EgressGrantClaims): void {
   res.locals.egressAuditFields = {
-    execHash: hashLabel(grant.exec_id),
-    tenantHash: hashLabel(grant.tenant_id),
-    userHash: hashLabel(grant.user_id),
-    authContextHash: hashLabel(grant.auth_context_hash),
-    ...(grant.principal_source ? { principalSource: grant.principal_source } : {}),
-  };
-}
-
-function setPtcAudit(res: Response, args: { callbackExecId: string; requestExecId: string }): void {
-  res.locals.egressAuditFields = {
-    execHash: hashLabel(args.callbackExecId),
-    requestExecHash: hashLabel(args.requestExecId),
+    ...(grant.principal_source
+      ? { principalSource: operationalPrincipalSource(grant.principal_source) }
+      : {}),
   };
 }
 
@@ -134,19 +116,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const id = req.header('x-request-id') ?? crypto.randomUUID();
   res.locals.syntheticInternalRequest = req.path.startsWith('/internal/')
     && isSyntheticInternalRequestHeader(req.header(CODEAPI_SYNTHETIC_INTERNAL_REQUEST_HEADER));
-  res.locals.egressRequestId = id;
   res.setHeader('X-Request-ID', id);
 
   res.on('finish', () => {
     if (req.path === '/live' || req.path === '/health' || req.path === '/ready' || req.path === '/metrics') return;
     if (res.statusCode < 400 && isSyntheticEgressRequest(res)) return;
     logger.info('Egress gateway request completed', {
-      requestId: id,
-      method: req.method,
+      method: operationalMethod(req.method),
       route: routeFamily(req),
       statusCode: res.statusCode,
       durationMs: Date.now() - started,
-      contentLength: req.header('content-length'),
+      contentLengthPresent: req.header('content-length') != null,
       ...auditFields(res),
     });
   });
@@ -165,9 +145,8 @@ function sendEgressError(req: Request, res: Response, error: unknown): Response 
   if (error instanceof EgressGrantError) {
     const statusCode = errorStatus(error);
     logger.warn('Rejected egress gateway request', {
-      requestId: requestId(res),
       reason: error.reason,
-      method: req.method,
+      method: operationalMethod(req.method),
       route: routeFamily(req),
       statusCode,
       ...auditFields(res),
@@ -175,10 +154,9 @@ function sendEgressError(req: Request, res: Response, error: unknown): Response 
     return res.status(statusCode).json({ error: error.message });
   }
   logger.error('Egress gateway request failed', {
-    requestId: requestId(res),
-    method: req.method,
+    method: operationalMethod(req.method),
     route: routeFamily(req),
-    error,
+    ...operationalErrorMeta(error),
     ...auditFields(res),
   });
   return res.status(500).json({ error: 'Internal server error' });
@@ -374,7 +352,7 @@ async function readiness(_req: Request, res: Response): Promise<void> {
     await pingEgressLedger();
     res.sendStatus(200);
   } catch (error) {
-    logger.error('Egress gateway readiness failed', { error });
+    logger.error('Egress gateway readiness failed', operationalErrorMeta(error));
     res.sendStatus(503);
   }
 }
@@ -403,10 +381,7 @@ app.post('/internal/egress-grants', express.json({ limit: env.HTTP_JSON_LIMIT })
     await createEgressLedger(grant);
     if (!isSyntheticPrincipalSource(grant.principal_source)) {
       logger.info('Egress grant created', {
-        grantHash: hashLabel(grant.grant_id),
-        execHash: hashLabel(grant.exec_id),
-        tenantHash: hashLabel(grant.tenant_id),
-        userHash: hashLabel(grant.user_id),
+        principalSource: operationalPrincipalSource(grant.principal_source),
       });
     }
     return res.status(201).json({ grant_id: grantId, ...prepared });
@@ -695,9 +670,7 @@ app.put('/sessions/:sessionHandle/objects/:fileId', async (req, res) => {
     if (reservedUpload) {
       await releaseEgressUpload(reservedUpload).catch(releaseError => {
         logger.error('Failed to release egress upload reservation after upstream failure', {
-          error: releaseError,
-          grantHash: hashLabel(reservedUpload?.grant.grant_id),
-          fileId: reservedUpload?.fileId,
+          ...operationalErrorMeta(releaseError),
         });
       });
     }
@@ -723,7 +696,6 @@ app.post('/tool-call', async (req, res) => {
           executionIdPresent: !!executionId,
           callIdPresent: !!callId,
           callbackTokenPresent: !!opaqueCallbackToken,
-          remoteAddress: req.socket.remoteAddress,
         },
       );
       res.setHeader('Connection', 'close');
@@ -739,7 +711,6 @@ app.post('/tool-call', async (req, res) => {
     }
     const length = parsedLength.length;
     const callback = openPtcCallbackToken(opaqueCallbackToken, env.EGRESS_GRANT_SECRET);
-    setPtcAudit(res, { callbackExecId: callback.exec_id, requestExecId: executionId });
     if (callback.exec_id !== executionId) {
       throw new EgressGrantError('scope_mismatch', 'PTC callback token execution does not match request');
     }
@@ -818,15 +789,15 @@ async function shutdown(): Promise<void> {
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn('OpenTelemetry shutdown failed', { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(0);
   } catch (error) {
-    logger.error('Egress gateway shutdown failed', { error });
+    logger.error('Egress gateway shutdown failed', operationalErrorMeta(error));
     try {
       await shutdownTelemetry();
     } catch (telemetryError) {
-      logger.warn('OpenTelemetry shutdown failed', { error: telemetryError });
+      logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(telemetryError));
     }
     process.exit(1);
   }
@@ -834,7 +805,7 @@ async function shutdown(): Promise<void> {
 
 if (process.env.CODEAPI_EGRESS_GATEWAY_AUTOSTART !== 'false') {
   server = app.listen(env.EGRESS_GATEWAY_PORT, () => {
-    logger.info(`Egress gateway listening on port ${env.EGRESS_GATEWAY_PORT}`);
+    logger.info('Egress gateway started');
   });
 
   process.on('SIGTERM', () => void shutdown());

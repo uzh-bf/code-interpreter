@@ -258,8 +258,26 @@ and review.
   corrections were incorporated.
 - 2026-08-30: User approval is recorded for local execution through
   `local_review_complete`; external delivery remains withheld.
-- Current slice: plan commit.
+- 2026-08-30: S1 committed at `d5f1ea0` with a follow-up test simplification at
+  `e860e58`; focused trust, migration, startup, and build checks passed, and
+  the required simplifier and security/architecture review were resolved.
+- 2026-08-30: S2 committed at `ce11d7f` with a follow-up contract-test
+  simplification at `8eba719`; parsed OpenAPI, type, focused behavior, and
+  package build checks passed, and the required simplifier and public-contract
+  review were resolved.
+- 2026-08-30: S3 committed at `7d0546f`; service-edge Winston captures and
+  focused auth, request, router, programmatic, rate-limit, and telemetry checks
+  passed. The privacy/security reviewer found no issue. Two simplifier ideas
+  targeted unrelated pre-existing CI and router structure and were rejected as
+  outside the logging slice.
+- 2026-08-30: S4 completed a source-wide operational-log and telemetry audit.
+  Pino and Winston sentinel captures, the complete API suite, the
+  repository-defined service suite (`569` tests), and both package builds
+  passed. Existing Rollup export, circular-dependency, and two TS2352 warnings
+  remain unchanged.
+- Current slice: S4 commit and immutable-slice reviews.
 - Required delivery layer: `pr_ready`.
-- Achieved delivery layer: planning complete.
-- Delivery status: local execution authorized; push and PR are
+- Achieved delivery layer: S4 locally verified; reviews and exact-head proof
+  remain.
+- Delivery status: local execution continues; push and PR are
   `delivery_pending`.

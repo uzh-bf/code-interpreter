@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Worker } from 'bullmq';
 import type * as t from './types';
-import { filterSystemLogs, applySystemReplacements, getAxiosErrorDetails, sandboxErrorMessageFromAxios } from './utils';
+import { filterSystemLogs, applySystemReplacements, sandboxErrorMessageFromAxios } from './utils';
 import { jobProcessingDuration, jobsCompleted, jobsFailed, activeJobs, workerRunning } from './metrics';
 import { connection, queueNames } from './queue';
 import { env, jobDeadlineAtMs } from './config';
@@ -18,9 +18,7 @@ import { withSpan, withTraceContext } from './telemetry';
 import { workerDeadlineFailure } from './worker-error';
 import logger from './logger';
 import { validateQueuedExecutionProfile } from './execution-profile';
-
-const { INSTANCE_ID } = env;
-const WORKER_ID = `${INSTANCE_ID}-${process.pid}`;
+import { operationalErrorMeta } from './operational-log';
 
 function isAbortError(error: unknown): boolean {
   return axios.isAxiosError(error) && (error.name === 'AbortError' || error.code === 'ERR_CANCELED');
@@ -30,8 +28,7 @@ async function processJob(job: t.ExecuteJob): Promise<t.ExecuteResult> {
   return withTraceContext(job.data._otel, () => withSpan('codeapi.job.process', {
     'messaging.system': 'bullmq',
     'messaging.operation.name': 'process',
-    'messaging.message.id': typeof job.id === 'string' ? job.id : String(job.id ?? ''),
-    'codeapi.language': job.data.payload?.language ?? 'unknown',
+    'codeapi.language': job.data.payload?.language === 'python' ? 'python' : 'other',
     'codeapi.execution_profile': job.data.executionProfile ?? 'legacy',
     'codeapi.worker_execution_profile': env.EXECUTION_PROFILE,
   }, () => processJobInner(job), 'CONSUMER'));
@@ -183,7 +180,6 @@ async function processJobInner(job: t.ExecuteJob): Promise<t.ExecuteResult> {
 
     if (result.message || result.signal) {
       logger.warn('Sandbox execution error metadata', {
-        session_id: responseData.session_id,
         code: result.code,
         signal: result.signal,
         message: summarizeText(result.message),
@@ -195,8 +191,7 @@ async function processJobInner(job: t.ExecuteJob): Promise<t.ExecuteResult> {
     return result;
   } catch (error) {
     revokeReason = controller.signal.aborted || isAbortError(error) ? 'timeout' : 'failed';
-    const errorDetails = getAxiosErrorDetails(error);
-    logger.error('Error processing job', errorDetails);
+    logger.error('Error processing job', operationalErrorMeta(error));
 
     const deadlineFailure = workerDeadlineFailure(
       error,
@@ -229,7 +224,7 @@ async function processJobInner(job: t.ExecuteJob): Promise<t.ExecuteResult> {
         reason: revokeReason,
         timeoutMs: env.EGRESS_GATEWAY_REVOKE_TIMEOUT_MS,
       }).catch(error => {
-        logger.error('Failed to revoke egress grant', { grantId: egressGrantId, error: getAxiosErrorDetails(error) });
+        logger.error('Failed to revoke egress grant', operationalErrorMeta(error));
       });
     }
     if (timer) clearTimeout(timer);
@@ -264,35 +259,47 @@ workerRunning.set({ worker_type: 'other' }, 1);
 
 pyWorker.on('completed', job => {
   if (job.data.isSynthetic !== true) {
-    logger.info(`[${WORKER_ID}] Python job completed ${job.id}`);
+    logger.info('Worker job completed', { workerClass: 'python' });
   }
   jobsCompleted.inc({ language: 'python' });
 });
 
 otherWorker.on('completed', job => {
   if (job.data.isSynthetic !== true) {
-    logger.info(`[${WORKER_ID}] Other job completed ${job.id}`);
+    logger.info('Worker job completed', { workerClass: 'other' });
   }
   jobsCompleted.inc({ language: 'other' });
 });
 
-pyWorker.on('failed', (job, err) => {
-  logger.error(`[${WORKER_ID}] Python job ${job?.id} failed`, err);
+pyWorker.on('failed', (_job, err) => {
+  logger.error('Worker job failed', {
+    workerClass: 'python',
+    ...operationalErrorMeta(err),
+  });
   jobsFailed.inc({ language: 'python' });
 });
 
-otherWorker.on('failed', (job, err) => {
-  logger.error(`[${WORKER_ID}] Other job ${job?.id} failed`, err);
+otherWorker.on('failed', (_job, err) => {
+  logger.error('Worker job failed', {
+    workerClass: 'other',
+    ...operationalErrorMeta(err),
+  });
   jobsFailed.inc({ language: 'other' });
 });
 
 pyWorker.on('error', (err) => {
-  logger.error(`[${WORKER_ID}] Python worker error`, err);
+  logger.error('Worker error', {
+    workerClass: 'python',
+    ...operationalErrorMeta(err),
+  });
   workerRunning.set({ worker_type: 'python' }, 0);
 });
 
 otherWorker.on('error', (err) => {
-  logger.error(`[${WORKER_ID}] Other worker error`, err);
+  logger.error('Worker error', {
+    workerClass: 'other',
+    ...operationalErrorMeta(err),
+  });
   workerRunning.set({ worker_type: 'other' }, 0);
 });
 

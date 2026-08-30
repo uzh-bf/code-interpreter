@@ -8,6 +8,7 @@ import { pipeline } from 'stream/promises';
 import { createGunzip, createGzip } from 'zlib';
 import { config } from './config';
 import { logger } from './logger';
+import { operationalErrorClass, operationalErrorMeta } from './operational-log';
 import { SANDBOX_WORKSPACE_ROOT, SESSION_WORKSPACE_ID } from './workspace-isolation';
 import type { SessionMetaSnapshot, SessionWorkspace } from './session-workspace';
 import { SESSION_META_FILE, SESSION_META_MARKER, getBoundSessionWorkspace } from './session-workspace';
@@ -133,7 +134,9 @@ export async function streamSessionCheckpoint(
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, COPYFILE_DISABLE: '1' },
     });
-    tar.stderr.on('data', (chunk: Buffer) => logger.debug({ tar: chunk.toString() }, 'checkpoint tar'));
+    tar.stderr.on('data', (chunk: Buffer) => {
+      logger.debug({ outputBytes: chunk.length }, 'Checkpoint archive process emitted error output');
+    });
     /* Register the 'close' listener BEFORE awaiting the pipeline: for a small
      * workspace tar can exit and emit 'close' before pipeline resolves, and a
      * listener attached only afterward would miss it and hang here forever.
@@ -175,7 +178,7 @@ export async function streamSessionCheckpoint(
       throw error;
     }
   } catch (error) {
-    logger.error({ err: error }, 'Failed to stream session checkpoint');
+    logger.error(operationalErrorMeta(error), 'Failed to stream session checkpoint');
     if (!res.headersSent) res.status(500).json({ message: 'checkpoint failed' });
     else res.destroy();
   } finally {
@@ -265,7 +268,9 @@ export async function restoreSessionCheckpoint(
       stdio: ['pipe', 'ignore', 'pipe'],
       env: { ...process.env, COPYFILE_DISABLE: '1' },
     });
-    tar.stderr.on('data', (chunk: Buffer) => logger.debug({ tar: chunk.toString() }, 'restore tar'));
+    tar.stderr.on('data', (chunk: Buffer) => {
+      logger.debug({ outputBytes: chunk.length }, 'Checkpoint restore process emitted error output');
+    });
     const closed: Promise<number> = new Promise((resolve, reject) => {
       tar.on('close', resolve);
       tar.on('error', reject);
@@ -345,12 +350,18 @@ export async function restoreSessionCheckpoint(
      * A socket/serialization error now causes the control plane to recycle this
      * VM, but must never roll the successfully restored workspace backward. */
     await fsp.rm(liveBackup, { recursive: true, force: true }).catch(error => {
-      logger.warn({ err: error, liveBackup }, 'Failed to remove replaced checkpoint workspace');
+      logger.warn(
+        operationalErrorMeta(error),
+        'Failed to remove replaced checkpoint workspace',
+      );
     });
     res.status(200).json({ status: 'restored', dir: path.basename(dir) });
   } catch (error) {
     if (committed) {
-      logger.error({ err: error }, 'Checkpoint restored but response delivery failed');
+      logger.error(
+        operationalErrorMeta(error),
+        'Checkpoint restored but response delivery failed',
+      );
       throw error;
     }
 
@@ -362,12 +373,15 @@ export async function restoreSessionCheckpoint(
         retainStageForRecovery = true;
         session.markDirty('checkpoint restore rollback failed');
         logger.error(
-          { err: error, rollbackErr: rollbackError, recoveryPath: liveBackup },
+          {
+            errorClass: operationalErrorClass(error),
+            rollbackErrorClass: operationalErrorClass(rollbackError),
+          },
           'Failed to roll back checkpoint workspace replacement',
         );
       }
     }
-    logger.error({ err: error }, 'Failed to restore session checkpoint');
+    logger.error(operationalErrorMeta(error), 'Failed to restore session checkpoint');
     /* Extraction, validation, and ownership happen only in restoreStage.
      * Ordinary pre-commit failures therefore leave both the live workspace and
      * its matching metadata/dirty state untouched. Only an unsuccessful
@@ -463,13 +477,13 @@ async function readRestoredMeta(
        * it in the workspace to be surfaced as a generated artifact. Rollouts
        * that change this marker must drain/recycle old development sessions. */
       logger.warn(
-        { marker: (parsed as { marker: string }).marker, expected: SESSION_META_MARKER },
+        { metadataVersion: 'incompatible' },
         'Ignoring incompatible session checkpoint metadata',
       );
       await fsp.rm(metaPath, { force: true }).catch(() => {});
     }
   } catch (error) {
-    logger.debug({ err: error }, 'No session meta sidecar to restore');
+    logger.debug(operationalErrorMeta(error), 'No session meta sidecar to restore');
   }
   return empty;
 }

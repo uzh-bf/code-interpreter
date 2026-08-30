@@ -12,8 +12,8 @@ import {
 import logger from './logger';
 import { shutdownTelemetry } from './telemetry';
 import { configureExecutionProfileMetrics } from './metrics';
+import { operationalErrorMeta } from './operational-log';
 
-const { INSTANCE_ID } = env;
 let isShuttingDown = false;
 let isStartingUp = true;
 
@@ -30,7 +30,7 @@ async function shutdownTracing(): Promise<void> {
     await shutdownTelemetry();
     logger.info('OpenTelemetry shutdown completed');
   } catch (error) {
-    logger.warn('OpenTelemetry shutdown failed', { error });
+    logger.warn('OpenTelemetry shutdown failed', operationalErrorMeta(error));
   }
 }
 
@@ -52,33 +52,33 @@ export function registerWorkers(): void {
 /**
  * Set up queue event listeners for monitoring
  */
-function setupQueueListeners(queue: Queue, name: string): void {
+function setupQueueListeners(queue: Queue, queueClass: 'python' | 'other'): void {
   queue.on('error', (error: Error) => {
-    logger.error(`${name} queue error:`, error);
+    logger.error('Queue error', { queueClass, ...operationalErrorMeta(error) });
   });
 
-  queue.on('waiting', (job) => {
-    logger.debug(`${name} job ${job.id} waiting`);
+  queue.on('waiting', () => {
+    logger.debug('Queue job waiting', { queueClass });
   });
 
-  queue.on('progress', (job, progress) => {
-    logger.debug(`${name} job progress:`, { job, progress });
+  queue.on('progress', () => {
+    logger.debug('Queue job progressed', { queueClass });
   });
 
   queue.on('paused', () => {
-    logger.info(`${name} queue paused`);
+    logger.info('Queue paused', { queueClass });
   });
 
   queue.on('resumed', () => {
-    logger.info(`${name} queue resumed`);
+    logger.info('Queue resumed', { queueClass });
   });
 
-  queue.on('removed', (jobId) => {
-    logger.debug(`${name} job ${jobId} removed`);
+  queue.on('removed', () => {
+    logger.debug('Queue job removed', { queueClass });
   });
 
-  queue.on('cleaned', (jobs, type) => {
-    logger.info(`${name} queue cleaned ${jobs.length} ${type} jobs`);
+  queue.on('cleaned', (jobs) => {
+    logger.info('Queue jobs cleaned', { queueClass, jobCount: jobs.length });
   });
 }
 
@@ -99,8 +99,8 @@ export async function startupApiOnly(): Promise<void> {
   configureProfileMetrics();
 
   // Set up queue listeners for monitoring (optional, for observability)
-  setupQueueListeners(pyQueue, 'Python');
-  setupQueueListeners(otherQueue, 'Other');
+  setupQueueListeners(pyQueue, 'python');
+  setupQueueListeners(otherQueue, 'other');
 
   isStartingUp = false;
   logger.info('API service startup complete');
@@ -163,8 +163,8 @@ async function gracefulStartup(): Promise<void> {
     registerWorkers();
 
     // Set up queue event listeners
-    setupQueueListeners(pyQueue, 'Python');
-    setupQueueListeners(otherQueue, 'Other');
+    setupQueueListeners(pyQueue, 'python');
+    setupQueueListeners(otherQueue, 'other');
 
     // Verify workers are running
     const checkWorkers = (): void => {
@@ -191,7 +191,7 @@ async function gracefulStartup(): Promise<void> {
     isStartingUp = false;
     logger.info('Service startup complete');
   } catch (error) {
-    logger.error('Error during startup:', error);
+    logger.error('Error during startup', operationalErrorMeta(error));
     throw error;
   }
 }
@@ -224,20 +224,26 @@ export async function gracefulShutdown(): Promise<void> {
       // Note: We pause workers, NOT queues (queues are shared)
       // pause(false) = wait for active jobs to finish before resolving (doNotWaitActive=false)
       // pause(true) = return immediately without waiting for active jobs
-      const pauseAndDrain = async (worker: typeof pyWorker, name: string): Promise<void> => {
-        logger.info(`Pausing ${name} worker and waiting for active jobs to drain...`);
+      const pauseAndDrain = async (
+        worker: typeof pyWorker,
+        workerClass: 'python' | 'other',
+      ): Promise<void> => {
+        logger.info('Pausing worker and waiting for active jobs to drain', { workerClass });
         try {
           // doNotWaitActive=false means wait for active jobs to complete
           await worker.pause(false);
-          logger.info(`${name} worker drained successfully`);
+          logger.info('Worker drained successfully', { workerClass });
         } catch (error) {
-          logger.warn(`${name} worker pause failed`, { error });
+          logger.warn('Worker pause failed', {
+            workerClass,
+            ...operationalErrorMeta(error),
+          });
         }
       };
 
       await Promise.all([
-        pauseAndDrain(pyWorker, 'Python'),
-        pauseAndDrain(otherWorker, 'Other')
+        pauseAndDrain(pyWorker, 'python'),
+        pauseAndDrain(otherWorker, 'other')
       ]);
 
       // Close workers
@@ -269,7 +275,7 @@ export async function gracefulShutdown(): Promise<void> {
     logger.info('Graceful shutdown completed');
     process.exit(0);
   } catch (error) {
-    logger.error('Error during shutdown:', error);
+    logger.error('Error during shutdown', operationalErrorMeta(error));
     await shutdownTracing();
     clearTimeout(shutdownTimeout);
     process.exit(1);
@@ -295,15 +301,14 @@ export async function startServer(app: Express, callback?: () => Promise<void>):
   try {
     await gracefulStartup();
     app.listen(env.PORT, () => {
-      logger.info(`[${INSTANCE_ID}] Server is running on port ${env.PORT}`);
-      logger.info(`[${INSTANCE_ID}] PYTHON_CONCURRENCY: ${env.PYTHON_CONCURRENCY} | OTHER_CONCURRENCY: ${env.OTHER_CONCURRENCY} | JOB_WINDOW: ${env.JOB_WINDOW}`);
+      logger.info('Combined API and worker service started');
     });
 
     if (callback != null) {
       await callback();
     }
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    logger.error('Failed to start server', operationalErrorMeta(error));
     process.exit(1);
   }
 }
@@ -315,15 +320,14 @@ export async function startApiServer(app: Express, callback?: () => Promise<void
   try {
     await startupApiOnly();
     app.listen(env.PORT, () => {
-      logger.info(`[${INSTANCE_ID}] API Server is running on port ${env.PORT}`);
-      logger.info(`[${INSTANCE_ID}] Mode: API-only (no workers)`);
+      logger.info('API service started');
     });
 
     if (callback != null) {
       await callback();
     }
   } catch (error) {
-    logger.error('Failed to start API server:', error);
+    logger.error('Failed to start API server', operationalErrorMeta(error));
     process.exit(1);
   }
 }
@@ -334,14 +338,13 @@ export async function startApiServer(app: Express, callback?: () => Promise<void
 export async function startWorkerServer(callback?: () => Promise<void>): Promise<void> {
   try {
     await startupWorkerOnly();
-    logger.info(`[${INSTANCE_ID}] Worker Server started`);
-    logger.info(`[${INSTANCE_ID}] PYTHON_CONCURRENCY: ${env.PYTHON_CONCURRENCY} | OTHER_CONCURRENCY: ${env.OTHER_CONCURRENCY} | JOB_WINDOW: ${env.JOB_WINDOW}`);
+    logger.info('Worker service started');
 
     if (callback != null) {
       await callback();
     }
   } catch (error) {
-    logger.error('Failed to start worker server:', error);
+    logger.error('Failed to start worker server', operationalErrorMeta(error));
     process.exit(1);
   }
 }

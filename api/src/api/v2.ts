@@ -3,6 +3,7 @@ import type { Runtime } from '../runtime';
 import type { TFile } from '../job';
 import { getLatestRuntimeMatchingLanguageVersion, getRuntimes } from '../runtime';
 import { logger } from '../logger';
+import { operationalErrorMeta } from '../operational-log';
 import { config } from '../config';
 import {
   Job,
@@ -441,7 +442,7 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
           logger.warn({ reason: error.reason, status }, 'Rejected sandbox request by execution manifest');
           return res.status(status).json({ message: error.message });
         }
-        logger.error({ err: error }, 'Execution manifest validation failed unexpectedly');
+        logger.error(operationalErrorMeta(error), 'Execution manifest validation failed unexpectedly');
         return res.status(500).json({ message: 'Execution manifest validation failed' });
       }
     }
@@ -526,7 +527,7 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
           'codeapi.language': job.runtime.language,
         }, () => job!.uploadGeneratedFiles())
           .catch((err) => {
-            logger.error({ job: job!.uuid, err }, 'File upload failed');
+            logger.error(operationalErrorMeta(err), 'File upload failed');
             return new Set<string>();
           });
 
@@ -538,7 +539,7 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
         const dropped = before - result.files.length;
         if (dropped > 0) {
           logger.warn(
-            { job: job.uuid, dropped, kept: result.files.length },
+            { dropped, kept: result.files.length },
             'Pruned files from response because upload did not reach file_server',
           );
         }
@@ -555,7 +556,10 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
        * means files really were primed and dirty is the honest answer. */
       if (primeCompleted && job?.markSessionDirty('execution failed after input priming')) {
         metricsOutcome = 'execution_error';
-        logger.error({ job: job.uuid, err: error }, 'Session execution left workspace state unknown');
+        logger.error(
+          operationalErrorMeta(error),
+          'Session execution left workspace state unknown',
+        );
         return res.status(409).json({
           error: 'session_workspace_dirty',
           message: 'Session workspace must be restored before another execute',
@@ -563,7 +567,10 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
       }
       if (error instanceof SessionWorkspaceDirtyError) {
         metricsOutcome = 'execution_error';
-        logger.error({ job: job?.uuid, err: error }, 'Session input priming left a partial workspace');
+        logger.error(
+          operationalErrorMeta(error),
+          'Session input priming left a partial workspace',
+        );
         return res.status(409).json({
           error: error.code,
           message: error.message,
@@ -576,11 +583,14 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
       const safeError = classifySandboxSafeError(error);
       if (safeError) {
         metricsOutcome = 'execution_error';
-        logger.error({ job: job?.uuid, err: error, safeError: safeError.body.error }, 'Sandbox setup failed');
+        logger.error(
+          { status: safeError.status, ...operationalErrorMeta(error) },
+          'Sandbox setup failed',
+        );
         return res.status(safeError.status).json(safeError.body);
       }
       metricsOutcome = 'execution_error';
-      logger.error({ job: job?.uuid, err: error }, 'Error executing job');
+      logger.error(operationalErrorMeta(error), 'Error executing job');
       return res.status(500).json({
         error: 'sandbox_execution_failed',
         message: 'Sandbox execution failed',
@@ -604,7 +614,7 @@ router.get('/health', async (_req: Request, res: Response) => {
   try {
     return res.status(200).json(await checkSandboxWorkspaceHealth());
   } catch (error) {
-    logger.error({ err: error }, 'Sandbox workspace health check failed');
+    logger.error(operationalErrorMeta(error), 'Sandbox workspace health check failed');
     return res.status(503).json({
       status: 'unhealthy',
       error: 'workspace_unavailable',
@@ -771,11 +781,11 @@ router.post(
         expectedBytes,
       );
       await pruneInputCache(config.input_cache_max_bytes).catch((err) => {
-        logger.warn({ err }, 'Failed to prune session input cache');
+        logger.warn(operationalErrorMeta(err), 'Failed to prune session input cache');
       });
       return res.status(200).json({ stored });
     } catch (error) {
-      logger.error({ err: error }, 'Failed to store session inputs');
+      logger.error(operationalErrorMeta(error), 'Failed to store session inputs');
       return res.status(500).json({ message: 'session input delivery failed' });
     }
   },

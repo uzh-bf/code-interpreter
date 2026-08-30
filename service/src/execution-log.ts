@@ -63,9 +63,7 @@ export function summarizeRequestedFiles(files: unknown): {
 export function summarizeSandboxResponse(data: SandboxResponseLike): Record<string, unknown> {
   const run = data.run;
   return {
-    session_id: data.session_id,
-    language: data.language,
-    version: data.version,
+    languageClass: data.language === 'python' ? 'python' : 'other',
     files: summarizeFiles(data.files),
     run: run == null
       ? undefined
@@ -83,4 +81,3 @@ export function summarizeSandboxResponse(data: SandboxResponseLike): Record<stri
       },
   };
 }
-

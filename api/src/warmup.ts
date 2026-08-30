@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { logger } from './logger';
+import { operationalErrorMeta } from './operational-log';
 
 export type WarmupOutcome = 'skipped' | 'completed' | 'failed' | 'timed_out';
 
@@ -85,9 +86,14 @@ export async function startWarmupCommand(
       if (settled) return;
       settled = true;
       clearTimers();
-      const details = { command, code, elapsedMs: Date.now() - startedAt, err };
+      const details = {
+        outcome,
+        code,
+        elapsedMs: Date.now() - startedAt,
+        ...(err == null ? {} : operationalErrorMeta(err)),
+      };
       if (outcome === 'completed') logger.info(details, 'Sandbox warmup command finished');
-      else logger.warn(details, `Sandbox warmup command ${outcome.replace('_', ' ')}`);
+      else logger.warn(details, 'Sandbox warmup command did not complete');
       resolve(outcome);
     };
     const failStartup = (err: unknown): void => {
@@ -95,7 +101,7 @@ export async function startWarmupCommand(
       settled = true;
       clearTimers();
       logger.error(
-        { command, elapsedMs: Date.now() - startedAt, err },
+        { elapsedMs: Date.now() - startedAt, ...operationalErrorMeta(err) },
         'Sandbox warmup process group could not be reaped',
       );
       reject(err);
@@ -154,6 +160,6 @@ export async function startWarmupCommand(
         failStartup,
       );
     }, boundedTimeoutMs);
-    logger.info({ command, timeoutMs: boundedTimeoutMs }, 'Sandbox warmup command started');
+    logger.info({ timeoutMs: boundedTimeoutMs }, 'Sandbox warmup command started');
   });
 }
