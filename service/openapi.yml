@@ -44,6 +44,28 @@ components:
       required: true
       schema:
         type: string
+    SessionKind:
+      name: kind
+      in: query
+      required: true
+      description: Storage owner kind used when the session was created.
+      schema:
+        type: string
+        enum: [user, skill, agent]
+    SessionScopeId:
+      name: id
+      in: query
+      required: false
+      description: Required for skill and agent sessions; omitted user IDs use the authenticated user.
+      schema:
+        type: string
+    SessionVersion:
+      name: version
+      in: query
+      required: false
+      description: Required for skill sessions and rejected for other kinds.
+      schema:
+        type: number
 
   headers:
     ExecutionProfile:
@@ -86,6 +108,12 @@ components:
               - $ref: '#/components/schemas/ExecutionProfileError'
     Unauthorized:
       description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: The authenticated principal does not own the requested session or file
       content:
         application/json:
           schema:
@@ -422,7 +450,7 @@ components:
         read_only:
           type: boolean
     FileListItem:
-      oneOf:
+      anyOf:
         - type: string
         - $ref: '#/components/schemas/SummaryFileObject'
         - $ref: '#/components/schemas/FullFileObject'
@@ -484,6 +512,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '413':
@@ -531,6 +561,9 @@ paths:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/SessionKind'
+        - $ref: '#/components/parameters/SessionScopeId'
+        - $ref: '#/components/parameters/SessionVersion'
       responses:
         '200':
           description: File content
@@ -546,6 +579,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           description: File not found
           content:
@@ -650,6 +685,9 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
         - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/SessionKind'
+        - $ref: '#/components/parameters/SessionScopeId'
+        - $ref: '#/components/parameters/SessionVersion'
         - name: detail
           in: query
           required: false
@@ -673,6 +711,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '429':
@@ -688,6 +728,9 @@ paths:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/SessionKind'
+        - $ref: '#/components/parameters/SessionScopeId'
+        - $ref: '#/components/parameters/SessionVersion'
       responses:
         '200':
           description: File metadata
@@ -702,6 +745,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           description: File not found
           content:
@@ -723,6 +768,9 @@ paths:
         - $ref: '#/components/parameters/ExpectedExecutionProfile'
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/SessionKind'
+        - $ref: '#/components/parameters/SessionScopeId'
+        - $ref: '#/components/parameters/SessionVersion'
       responses:
         '200':
           description: File deleted
@@ -737,6 +785,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '429':
