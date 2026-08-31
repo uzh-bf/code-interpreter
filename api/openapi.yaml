@@ -58,7 +58,7 @@ components:
       properties:
         message:
           type: string
-        code:
+        error:
           type: string
 
     ExecuteRequest:
@@ -124,7 +124,8 @@ components:
           description: Storage session for a by-reference input.
         input_cache_key:
           type: string
-          description: Stable opaque runner-local cache identity.
+          pattern: '^[0-9a-f]{64}$'
+          description: Stable SHA-256 runner-local cache identity.
         name:
           type: string
           description: Optional destination path; the runner supplies a default when omitted.

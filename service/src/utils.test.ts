@@ -3,13 +3,13 @@ import type { AxiosError } from 'axios';
 import {
   isValidId,
   isValidResourceId,
-  publicDownloadFailure,
+  PUBLIC_DOWNLOAD_FAILURE,
   publicExecutionFailure,
   sandboxErrorMessageFromAxios,
 } from './utils';
 
 test('download failures return a generic 500 without internal details', () => {
-  const failure = publicDownloadFailure(new Error('private-file.internal/object-123'));
+  const failure = PUBLIC_DOWNLOAD_FAILURE;
 
   expect(failure).toEqual({
     status: 500,

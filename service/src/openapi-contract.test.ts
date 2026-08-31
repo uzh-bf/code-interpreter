@@ -217,11 +217,19 @@ describe('OpenAPI contract boundaries', () => {
       'language',
       'version',
     ]);
+    expect(Object.keys(schemas.Error.properties ?? {}).sort()).toEqual([
+      'error',
+      'message',
+    ]);
     expect(schemas.InputFile.required).toBeUndefined();
     expect(schemas.InputFile.oneOf?.map((shape) => shape.required)).toEqual([
       ['content'],
       ['id', 'storage_session_id'],
     ]);
+    expect(
+      (schemas.InputFile.properties?.input_cache_key as Record<string, unknown>)
+        .pattern,
+    ).toBe('^[0-9a-f]{64}$');
     expect(Object.keys(schemas.ExecuteResponse.properties ?? {}).sort()).toEqual([
       'compile',
       'files',
