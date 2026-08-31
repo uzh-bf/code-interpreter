@@ -68,7 +68,6 @@ const NUMBER_KEYS = new Set([
   'memoryBytes',
   'modifiedCount',
   'outputBytes',
-  'port',
   'processed',
   'released',
   'removed',
@@ -135,15 +134,6 @@ const STAGES = new Set([
   'startup',
   'upload',
   'warmup',
-]);
-
-const OUTCOMES = new Set([
-  'completed',
-  'failed',
-  'ignored',
-  'rejected',
-  'retried',
-  'timed_out',
 ]);
 
 const METHODS = new Set([
@@ -262,11 +252,13 @@ function classifiedString(key: string, value: unknown): [string, string] | undef
   if (key === 'route') return ROUTES.has(value) ? [key, value] : undefined;
   if (key === 'reason') return REASONS.has(value) ? [key, value] : undefined;
   if (key === 'stage') return STAGES.has(value) ? [key, value] : undefined;
-  if (key === 'outcome') return OUTCOMES.has(value) ? [key, value] : undefined;
   if (key === 'hook') return HOOKS.has(value) ? [key, value] : undefined;
   if (key === 'signal') return SIGNALS.has(value) ? [key, value] : undefined;
   if (key === 'errorCategory') {
-    return (ERROR_CATEGORIES as readonly string[]).includes(value) ? [key, value] : undefined;
+    const safe = (ERROR_CATEGORIES as readonly string[]).includes(value)
+      ? value
+      : 'internal';
+    return [key, safe];
   }
   if (key === 'language' || key === 'languageClass') {
     const safe = LANGUAGE_CLASSES.get(value.toLowerCase());
@@ -327,6 +319,7 @@ function sanitizeObject(
 export function sanitizeOperationalMetadata(value: unknown): Record<string, unknown> {
   try {
     if (value == null || typeof value !== 'object') return {};
+    if (value instanceof Error) return { errorCategory: errorCategory(value) };
     if (Buffer.isBuffer(value)) return { bytes: value.byteLength };
     if (Array.isArray(value)) return { count: value.length };
     return sanitizeObject(value, new Set());

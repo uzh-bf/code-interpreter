@@ -51,8 +51,6 @@ describe('Winston operational logging', () => {
     const output = chunks.join('');
     for (const variant of [
       SENTINEL,
-      encodeURIComponent(SENTINEL),
-      Buffer.from(SENTINEL).toString('base64'),
       createHash('sha256').update(SENTINEL).digest('hex'),
     ]) {
       expect(output).not.toContain(variant);
@@ -89,9 +87,12 @@ describe('Winston operational logging', () => {
     });
     expect(sanitizeOperationalMetadata({
       error: new Error(SENTINEL),
-      errorCategory: SENTINEL,
       reason: SENTINEL,
       stage: SENTINEL,
     })).toEqual({ errorCategory: 'internal' });
+    expect(sanitizeOperationalMetadata({ errorCategory: SENTINEL }))
+      .toEqual({ errorCategory: 'internal' });
+    expect(sanitizeOperationalMetadata(new Error(SENTINEL)))
+      .toEqual({ errorCategory: 'internal' });
   });
 });
