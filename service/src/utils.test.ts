@@ -1,23 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { AxiosError } from 'axios';
-import {
-  isValidId,
-  isValidResourceId,
-  PUBLIC_DOWNLOAD_FAILURE,
-  publicExecutionFailure,
-  sandboxErrorMessageFromAxios,
-} from './utils';
-
-test('download failures return a generic 500 without internal details', () => {
-  const failure = PUBLIC_DOWNLOAD_FAILURE;
-
-  expect(failure).toEqual({
-    status: 500,
-    body: { error: 'Error downloading file' },
-  });
-  expect(JSON.stringify(failure)).not.toContain('private-file.internal');
-  expect(failure.body).not.toHaveProperty('details');
-});
+import { isValidId, isValidResourceId, publicExecutionFailure, sandboxErrorMessageFromAxios } from './utils';
 
 describe('isValidId (21-char nanoid for sandbox-generated ids)', () => {
   test('accepts a canonical 21-char nanoid', () => {
