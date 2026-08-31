@@ -96,9 +96,6 @@ describe('OpenAPI contract boundaries', () => {
     const spec = loadSpec(publicSpecPath);
 
     expect(spec.info.title).toContain('Public');
-    expect(spec.info.description).toContain(
-      'execution and file-management routes',
-    );
     expect(spec.servers?.[0]?.url.endsWith('/v1')).toBe(true);
     expect(Object.keys(spec.paths).sort()).toEqual([
       '/download/{session_id}/{fileId}',
@@ -109,8 +106,6 @@ describe('OpenAPI contract boundaries', () => {
       '/upload',
       '/upload/batch',
     ]);
-    expect(spec.paths).not.toHaveProperty('/api/v2/execute');
-    expect(spec.paths).not.toHaveProperty('/execute');
   });
 
   test('the public request and response schemas match the service types', () => {

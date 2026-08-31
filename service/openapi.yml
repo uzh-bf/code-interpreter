@@ -81,7 +81,7 @@ components:
       content:
         application/json:
           schema:
-            oneOf:
+            anyOf:
               - $ref: '#/components/schemas/Error'
               - $ref: '#/components/schemas/ExecutionProfileError'
     Unauthorized:
@@ -98,7 +98,7 @@ components:
       content:
         application/json:
           schema:
-            oneOf:
+            anyOf:
               - $ref: '#/components/schemas/Error'
               - $ref: '#/components/schemas/ExecutionProfileError'
     GenericRateLimited:
@@ -513,7 +513,7 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
+                anyOf:
                   - $ref: '#/components/schemas/Error'
                   - $ref: '#/components/schemas/PublicExecutionError'
         '504':
