@@ -29,6 +29,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
+| Keep operational logs values-free | Active | `c87a14d` | Winston and Pino logging sinks |
 
 ## Publish exact-SHA UZH images
 
@@ -280,6 +281,55 @@ Replay and drop condition:
   recreates the Redis client after terminal disconnect, with a readiness
   recovery test covering an outage longer than five attempts.
 
+## Keep operational logs values-free
+
+Required behavior:
+
+- Normalize runtime log messages to fixed event text and retain only
+  code-declared operational metadata from an explicit allowlist.
+- Remove identifiers, filenames, payloads, arbitrary errors and stacks, child
+  process output, network details, credentials, and caller-provided values
+  before Winston or Pino serializes them.
+- Keep reason, stage, route, method, component, language, worker, and error
+  categories closed; unknown errors become `internal`.
+- Sanitize without mutating caller-owned values or throwing on nested,
+  circular, repeated, buffered, array, error, or throwing-getter inputs.
+
+Owned paths:
+
+- `api/src/logger.test.ts`
+- `api/src/logger.ts`
+- `service/src/logger.test.ts`
+- `service/src/logger.ts`
+- `shared/operational-log.ts`
+
+Shared paths:
+
+- `api/src/job.ts` — removes the identifier-bearing Pino child binding.
+- `api/src/tool-call-socket-proxy.ts` — keeps its standalone console failure
+  message fixed and removes the raw startup error.
+- `service/src/fileServerLogger.ts` and
+  `service/src/toolCallServerLogger.ts` — apply the shared policy to their
+  separately constructed Winston sinks.
+- `service/rollup.config.js`, `service/tsconfig.esm.json`, and
+  `service/tsconfig.json` — include the shared policy in service builds.
+
+Source and current-upstream evidence:
+
+- Commit `c87a14d755a406f50333bf6f8fd782ebd315ddec` defines the central policy,
+  sink integrations, bypass corrections, and capture tests.
+- Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
+  baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` serialize runtime messages,
+  identifiers, child output, and arbitrary error details without this policy.
+
+Replay and drop condition:
+
+- Reapply the shared allowlist at every enabled Winston and Pino constructor,
+  then re-inventory direct console, raw stream, child binding, serializer,
+  transport, and child-process forwarding bypasses.
+- Drop only when upstream provides an equivalent values-free sink policy with
+  capture tests and a current enabled-path inventory containing no unknowns.
+
 ## Retired debris
 
 - Merge commit `356123a` is history-only transport for the package-init fix;
@@ -295,6 +345,8 @@ Replay and drop condition:
 - Every one of the 23 paths in the active merge-base-to-fork final-tree diff is
   assigned above. The chart values, package resources, worker deployment, queue
   module, and two routers are named shared seams in every contributing patch.
-- Fork-authored non-merge commits were collapsed into the seven logical final
-  behaviors above. The only fork merge commit is classified as history-only;
-  no fork-authored final-tree path is left unowned.
+- Fork-authored non-merge commits were collapsed into the eight logical final
+  behaviors above. The values-free logging package adds twelve owned or shared
+  paths outside the original 23-path audit. The only fork merge commit is
+  classified as history-only; no fork-authored final-tree path is left
+  unowned.
