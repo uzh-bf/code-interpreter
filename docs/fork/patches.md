@@ -290,7 +290,8 @@ Required behavior:
 - Preserve the legacy single-issuer environment contract when no modern trust
   table is configured.
 - Support reusable external principal sources through the bounded lowercase
-  `external:<slug>` namespace without embedding a consumer-specific source.
+  `external:<slug>` namespace without embedding a consumer-specific source,
+  and isolate their tenant storage namespaces by that validated source.
 
 Owned paths:
 
@@ -333,6 +334,8 @@ Replay and drop condition:
 - Every one of the 23 paths in the active merge-base-to-fork final-tree diff is
   assigned above. The chart values, package resources, worker deployment, queue
   module, and two routers are named shared seams in every contributing patch.
-- Fork-authored non-merge commits were collapsed into the seven logical final
-  behaviors above. The only fork merge commit is classified as history-only;
-  no fork-authored final-tree path is left unowned.
+- Fork-authored non-merge commits were collapsed into the eight logical final
+  behaviors above. The issuer-trust package adds three owned paths outside the
+  original 23-path audit and shares the existing Helm README path. The only
+  fork merge commit is classified as history-only; no fork-authored final-tree
+  path is left unowned.

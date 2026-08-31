@@ -263,11 +263,11 @@ describe('LibreChat JWT auth provider', () => {
       aud: 'partner-codeapi',
       principal_source: 'external:partner',
     });
-    expect(
-      verifyLibreChatJwt(
-        signJwt(partnerClaims, { kid: 'partner-kid' }, partner.privateKey),
-      ).principalSource,
-    ).toBe('external:partner');
+    const partnerPrincipal = verifyLibreChatJwt(
+      signJwt(partnerClaims, { kid: 'partner-kid' }, partner.privateKey),
+    );
+    expect(partnerPrincipal.principalSource).toBe('external:partner');
+    expect(partnerPrincipal.tenantId).toBe('external:partner:tenant_abc');
 
     expectJwtReason(signJwt(partnerClaims), 'unknown_kid');
     expectJwtReason(
@@ -335,6 +335,17 @@ describe('LibreChat JWT auth provider', () => {
     setModernTrustEntries([
       trustEntry(),
       trustEntry({ issuer: 'second', keyIds: ['test-kid'] }),
+    ]);
+    expectJwtReason(signJwt(baseClaims()), 'config');
+
+    setModernTrustEntries([
+      trustEntry({ principalSources: ['external:shared'] }),
+      trustEntry({
+        issuer: 'second',
+        audiences: ['second-codeapi'],
+        keyIds: ['second-kid'],
+        principalSources: ['external:shared'],
+      }),
     ]);
     expectJwtReason(signJwt(baseClaims()), 'config');
   });

@@ -126,7 +126,9 @@ Each modern trust entry binds one exact issuer to accepted audiences, key IDs,
 algorithms, and principal sources. Key IDs must be globally unique across
 entries, and every loaded key must belong to exactly one entry. External
 issuers use a lowercase `external:<slug>` principal source configured for that
-entry.
+entry. Each external source may belong to only one trust entry and prefixes the
+verified tenant namespace, preventing identities from different issuers from
+sharing storage or session keys.
 
 When `CODEAPI_JWT_TRUST_ENTRIES_JSON` is absent, the verifier preserves the
 legacy single-LibreChat behavior from `CODEAPI_JWT_ISSUER`,

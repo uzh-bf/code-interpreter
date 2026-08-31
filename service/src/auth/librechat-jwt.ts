@@ -341,6 +341,7 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
 
   const entries = new Map<string, JwtTrustEntry>();
   const assignedKeyIds = new Set<string>();
+  const assignedExternalSources = new Set<string>();
   for (const [index, value] of parsed.entries()) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} must be an object`);
@@ -370,6 +371,18 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
     }
     if (!sourceValues.every(isSupportedPrincipalSource)) {
       throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} has an unsupported principal source`);
+    }
+    for (const source of sourceValues) {
+      if (!source.startsWith('external:')) {
+        continue;
+      }
+      if (assignedExternalSources.has(source)) {
+        throw new CodeApiJwtAuthError(
+          'config',
+          `External principal source is assigned to multiple trust entries: ${source}`,
+        );
+      }
+      assignedExternalSources.add(source);
     }
     const allowedAlgs = new Set<JwtAlg>(algorithmValues);
     for (const keyId of keyIds) {
@@ -574,6 +587,12 @@ function assertPrincipalSource(value: unknown, accepted: Set<JwtPrincipalSource>
   throw new CodeApiJwtAuthError('malformed_claims', 'principal_source is not accepted');
 }
 
+function tenantNamespace(tenantId: string, principalSource: JwtPrincipalSource): string {
+  return principalSource.startsWith('external:')
+    ? `${principalSource}:${tenantId}`
+    : tenantId;
+}
+
 function validateClaims(
   claims: LibreChatJwtClaims,
   config: VerificationConfig,
@@ -581,13 +600,13 @@ function validateClaims(
 ): CodeApiPrincipal {
   const now = Math.floor(Date.now() / 1000);
   const userId = assertString(claims.sub, 'sub');
-  const tenantId = resolveTenantIdClaim(claims.tenant_id);
   const jti = assertString(claims.jti, 'jti');
   const iat = assertNumericDate(claims.iat, 'iat');
   const nbf = assertNumericDate(claims.nbf, 'nbf');
   const exp = assertNumericDate(claims.exp, 'exp');
   const planId = optionalString(claims.plan_id, 'plan_id');
   const principalSource = assertPrincipalSource(claims.principal_source, trustEntry.principalSources);
+  const tenantId = tenantNamespace(resolveTenantIdClaim(claims.tenant_id), principalSource);
   const authContextHash = assertString(claims.auth_context_hash, 'auth_context_hash');
 
   if (jti.length > 256) {
