@@ -29,6 +29,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
+| Keep public and sandbox wire contracts distinct | Active | `0b66a3a` | Public service and internal sandbox APIs |
 
 ## Publish exact-SHA UZH images
 
@@ -280,6 +281,63 @@ Replay and drop condition:
   recreates the Redis client after terminal disconnect, with a readiness
   recovery test covering an outage longer than five attempts.
 
+## Keep public and sandbox wire contracts distinct
+
+Required behavior:
+
+- Preserve the established exported `ExecuteResponse` sandbox transport while
+  naming the flat `/v1/exec` result `PublicExecuteResponse` for service-owned
+  producers and consumers.
+- Describe the public execution, upload, batch-upload, listing, metadata,
+  deletion, and download wire shapes separately from the internal
+  `/api/v2/execute` contract.
+- Keep the internal input filename optional and distinguish inline inputs from
+  stored-file references in the schema.
+- Return a fixed download failure body with HTTP 500 and never include the
+  upstream error message or a `details` field.
+
+Owned paths:
+
+- `api/openapi.yaml`
+- `service/openapi.yml`
+- `service/src/openapi-contract.test.ts`
+- `service/src/utils.test.ts`
+- `service/src/utils.ts`
+
+Shared paths:
+
+- `service/src/service/programmatic-router.ts`
+- `service/src/service/replay-state.ts`
+- `service/src/service/router.ts`
+- `service/src/types/service.ts`
+- `service/src/workers.ts`
+
+Source and current-upstream evidence:
+
+- Commit `0b66a3a722bdafbcb48b8a32f91bb2ae0997a685` defines the separate public
+  type, corrected OpenAPI documents, contract tests, and generic download 500.
+- The root, API, and service manifests at baseline
+  `83c4f7b105b6b3e69eda12701ad4ec437acba08f` have no package exports or
+  `publishConfig`; these are deployed applications, not published libraries.
+- Complete-tree searches at the UZH baseline and upstream
+  `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` found `ExecuteResponse` only in
+  its definition, OpenAPI names, and the internal sandbox backend adapter.
+- GitHub searches across `uzh-bf` found no external `ExecuteResponse` or direct
+  source import. The upstream fork network search found the same type
+  definition in eight indexed forks and no separate consumer contract.
+- GitLab searches of `ai-infrastructure/deployment` and local AI and Klicker
+  source-checkout searches found no `ExecuteResponse` or direct import from the
+  CodeAPI source tree. The legacy export remains unchanged regardless.
+
+Replay and drop condition:
+
+- Reapply the public schemas around the current service routes and the internal
+  schema around the current sandbox request validator; do not rename the
+  established sandbox transport for source consumers.
+- Drop when upstream publishes equivalent public and internal schemas, a
+  separately named flat public type, and a generic download failure contract
+  with matching executable tests.
+
 ## Retired debris
 
 - Merge commit `356123a` is history-only transport for the package-init fix;
@@ -295,6 +353,7 @@ Replay and drop condition:
 - Every one of the 23 paths in the active merge-base-to-fork final-tree diff is
   assigned above. The chart values, package resources, worker deployment, queue
   module, and two routers are named shared seams in every contributing patch.
-- Fork-authored non-merge commits were collapsed into the seven logical final
-  behaviors above. The only fork merge commit is classified as history-only;
-  no fork-authored final-tree path is left unowned.
+- Fork-authored non-merge commits were collapsed into the seven historical
+  logical behaviors above. This branch adds one public-contract behavior with
+  ten owned or shared paths. The only fork merge commit is classified as
+  history-only; no fork-authored final-tree path is left unowned.
