@@ -29,7 +29,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
-| Keep operational logs values-free | Active | `c87a14d`, `bf83dbe` | Winston and Pino logging sinks |
+| Keep operational logs values-free | Active | `c87a14d`, `bf83dbe`, `689be7d` | Winston and Pino logging sinks and public failures |
 
 ## Publish exact-SHA UZH images
 
@@ -294,6 +294,8 @@ Required behavior:
   categories closed; unknown errors become `internal`.
 - Sanitize without mutating caller-owned values or throwing on nested,
   circular, repeated, buffered, array, error, or throwing-getter inputs.
+- Return a fixed download failure body with HTTP 500 and never include the
+  upstream error message or a `details` field.
 
 Owned paths:
 
@@ -301,6 +303,8 @@ Owned paths:
 - `api/src/logger.ts`
 - `service/src/logger.test.ts`
 - `service/src/logger.ts`
+- `service/src/utils.test.ts`
+- `service/src/utils.ts`
 - `shared/operational-log.ts`
 
 Shared paths:
@@ -311,6 +315,8 @@ Shared paths:
 - `service/src/fileServerLogger.ts` and
   `service/src/toolCallServerLogger.ts` — apply the shared policy to their
   separately constructed Winston sinks.
+- `service/src/service/router.ts` — logs download failures through the
+  values-free sink and returns only the fixed public body.
 - `service/rollup.config.js`, `service/tsconfig.esm.json`, and
   `service/tsconfig.json` — include the shared policy in service builds.
 
@@ -319,6 +325,8 @@ Source and current-upstream evidence:
 - Commits `c87a14d755a406f50333bf6f8fd782ebd315ddec` and
   `bf83dbe26a82cbdde97a377e5b416a5cc17729ec` define the central policy, sink
   integrations, strict allowlist, bypass corrections, and capture tests.
+- Commit `689be7da1f948c8dae036a92a356ed80ae32e71e` defines the generic public
+  download failure while retaining detailed diagnostics in sanitized logs.
 - Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
   baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` serialize runtime messages,
   identifiers, child output, and arbitrary error details without this policy.
@@ -329,7 +337,8 @@ Replay and drop condition:
   then re-inventory direct console, raw stream, child binding, serializer,
   transport, and child-process forwarding bypasses.
 - Drop only when upstream provides an equivalent values-free sink policy with
-  capture tests and a current enabled-path inventory containing no unknowns.
+  capture tests, a generic public download failure, and a current enabled-path
+  inventory containing no unknowns.
 
 ## Retired debris
 
@@ -347,7 +356,7 @@ Replay and drop condition:
   assigned above. The chart values, package resources, worker deployment, queue
   module, and two routers are named shared seams in every contributing patch.
 - Fork-authored non-merge commits were collapsed into the eight logical final
-  behaviors above. The values-free logging package adds twelve owned or shared
+  behaviors above. The values-free logging package adds fifteen owned or shared
   paths outside the original 23-path audit. The only fork merge commit is
   classified as history-only; no fork-authored final-tree path is left
   unowned.
