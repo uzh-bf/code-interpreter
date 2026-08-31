@@ -311,8 +311,9 @@ describe('LibreChat JWT auth provider', () => {
     setModernTrustEntries([valid]);
     process.env.CODEAPI_JWT_ISSUER = 'stale-issuer';
     expectJwtReason(signJwt(baseClaims()), 'config');
+  });
 
-    delete process.env.CODEAPI_JWT_ISSUER;
+  test('rejects duplicate key IDs across verification key sources', () => {
     process.env.CODEAPI_JWT_PUBLIC_KEY = JSON.stringify(publicJwk);
     process.env.CODEAPI_JWT_KID = 'test-kid';
     expectJwtReason(signJwt(baseClaims()), 'config');
