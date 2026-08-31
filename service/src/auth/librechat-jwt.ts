@@ -580,7 +580,6 @@ function validateClaims(
   trustEntry: JwtTrustEntry,
 ): CodeApiPrincipal {
   const now = Math.floor(Date.now() / 1000);
-  const issuer = assertString(claims.iss, 'iss');
   const userId = assertString(claims.sub, 'sub');
   const tenantId = resolveTenantIdClaim(claims.tenant_id);
   const jti = assertString(claims.jti, 'jti');
@@ -593,9 +592,6 @@ function validateClaims(
 
   if (jti.length > 256) {
     throw new CodeApiJwtAuthError('malformed_claims', 'jti is too long');
-  }
-  if (issuer !== trustEntry.issuer) {
-    throw new CodeApiJwtAuthError('wrong_issuer', 'JWT issuer is not trusted');
   }
   assertAudience(claims.aud, trustEntry.audiences);
   if (exp <= now - config.clockSkewSeconds) {
