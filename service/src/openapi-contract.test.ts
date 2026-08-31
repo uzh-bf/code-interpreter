@@ -96,6 +96,9 @@ describe('OpenAPI contract boundaries', () => {
     const spec = loadSpec(publicSpecPath);
 
     expect(spec.info.title).toContain('Public');
+    expect(spec.info.description).toContain(
+      'execution and file-management routes',
+    );
     expect(spec.servers?.[0]?.url.endsWith('/v1')).toBe(true);
     expect(Object.keys(spec.paths).sort()).toEqual([
       '/download/{session_id}/{fileId}',
@@ -193,6 +196,9 @@ describe('OpenAPI contract boundaries', () => {
     expect(spec['x-internal']).toBe(true);
     expect(spec.info.title).toContain('Internal');
     expect(Object.keys(spec.paths)).toEqual(['/api/v2/execute']);
+    expect(
+      Object.keys(spec.paths['/api/v2/execute'].post.responses).sort(),
+    ).toEqual(['200', '400', '401', '403', '409', '413', '415', '500']);
     expect(Object.keys(schemas.ExecuteRequest.properties ?? {}).sort()).toEqual([
       'args',
       'compile_cpu_time',

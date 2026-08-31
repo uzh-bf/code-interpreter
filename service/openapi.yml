@@ -4,8 +4,9 @@ info:
   version: 1.0.0
   description: >-
     Public authenticated API for sandboxed code execution and file management.
-    This contract describes the service gateway mounted at /v1. It does not
-    describe the internal sandbox-runner API.
+    This contract describes the stable execution and file-management routes
+    mounted at /v1. It does not describe other authenticated service routes or
+    the internal sandbox-runner API.
 servers:
   - url: https://api.librechat.ai/v1
     description: Public CodeAPI service
