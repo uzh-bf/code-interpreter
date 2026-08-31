@@ -29,7 +29,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
-| Keep public and sandbox wire contracts distinct | Active | `0b66a3a` | Public service and internal sandbox APIs |
+| Keep public and sandbox wire contracts distinct | Draft | `0b66a3a`, `3ac5e8f` | Optional upstream contract maintenance |
 
 ## Publish exact-SHA UZH images
 
@@ -285,6 +285,8 @@ Replay and drop condition:
 
 Required behavior:
 
+- Keep this package optional and runtime-neutral. No UZH feature, source gate,
+  image, or deployment depends on it.
 - Preserve the established exported `ExecuteResponse` sandbox transport while
   naming the flat `/v1/exec` result `PublicExecuteResponse` for service-owned
   producers and consumers.
@@ -293,29 +295,26 @@ Required behavior:
   `/api/v2/execute` contract.
 - Keep the internal input filename optional and distinguish inline inputs from
   stored-file references in the schema.
-- Return a fixed download failure body with HTTP 500 and never include the
-  upstream error message or a `details` field.
 
 Owned paths:
 
 - `api/openapi.yaml`
 - `service/openapi.yml`
 - `service/src/openapi-contract.test.ts`
-- `service/src/utils.test.ts`
-- `service/src/utils.ts`
 
 Shared paths:
 
 - `service/src/service/programmatic-router.ts`
 - `service/src/service/replay-state.ts`
-- `service/src/service/router.ts`
 - `service/src/types/service.ts`
 - `service/src/workers.ts`
 
 Source and current-upstream evidence:
 
 - Commit `0b66a3a722bdafbcb48b8a32f91bb2ae0997a685` defines the separate public
-  type, corrected OpenAPI documents, contract tests, and generic download 500.
+  type, corrected OpenAPI documents, and contract tests. Commit
+  `3ac5e8fec1fb7d551ca903aab259be9c983bdd69` removes the runtime response
+  change so this package remains contract maintenance only.
 - The root, API, and service manifests at baseline
   `83c4f7b105b6b3e69eda12701ad4ec437acba08f` have no package exports or
   `publishConfig`; these are deployed applications, not published libraries.
@@ -335,8 +334,7 @@ Replay and drop condition:
   schema around the current sandbox request validator; do not rename the
   established sandbox transport for source consumers.
 - Drop when upstream publishes equivalent public and internal schemas, a
-  separately named flat public type, and a generic download failure contract
-  with matching executable tests.
+  separately named flat public type, and matching executable contract tests.
 
 ## Retired debris
 
@@ -355,5 +353,5 @@ Replay and drop condition:
   module, and two routers are named shared seams in every contributing patch.
 - Fork-authored non-merge commits were collapsed into the seven historical
   logical behaviors above. This branch adds one public-contract behavior with
-  ten owned or shared paths. The only fork merge commit is classified as
+  eight owned or shared paths. The only fork merge commit is classified as
   history-only; no fork-authored final-tree path is left unowned.
