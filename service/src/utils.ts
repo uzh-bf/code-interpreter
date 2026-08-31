@@ -106,6 +106,16 @@ export function sandboxErrorMessageFromAxios(error: AxiosError): string {
   return errorCode ? `[${errorCode}] ${message}` : message;
 }
 
+export function publicDownloadFailure(_error: unknown): {
+  status: 500;
+  body: { error: 'Error downloading file' };
+} {
+  return {
+    status: 500,
+    body: { error: 'Error downloading file' },
+  };
+}
+
 export function publicExecutionFailure(error: unknown): { status: number; body: { error: string; message: string } } | null {
   const message = error instanceof Error ? error.message : '';
 

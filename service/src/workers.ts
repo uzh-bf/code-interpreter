@@ -26,7 +26,7 @@ function isAbortError(error: unknown): boolean {
   return axios.isAxiosError(error) && (error.name === 'AbortError' || error.code === 'ERR_CANCELED');
 }
 
-async function processJob(job: t.ExecuteJob): Promise<t.ExecuteResult> {
+async function processJob(job: t.ExecuteJob): Promise<t.PublicExecuteResponse> {
   return withTraceContext(job.data._otel, () => withSpan('codeapi.job.process', {
     'messaging.system': 'bullmq',
     'messaging.operation.name': 'process',
@@ -37,7 +37,7 @@ async function processJob(job: t.ExecuteJob): Promise<t.ExecuteResult> {
   }, () => processJobInner(job), 'CONSUMER'));
 }
 
-async function processJobInner(job: t.ExecuteJob): Promise<t.ExecuteResult> {
+async function processJobInner(job: t.ExecuteJob): Promise<t.PublicExecuteResponse> {
   const { code, payload, isPyPlot } = job.data;
   const isSyntheticJob = job.data.isSynthetic === true || isSyntheticPrincipalSource(job.data.principalSource);
   const language = payload?.language ?? 'unknown';
@@ -161,10 +161,10 @@ async function processJobInner(job: t.ExecuteJob): Promise<t.ExecuteResult> {
     const stdout = applySystemReplacements(run?.stdout ?? '');
     const stderr = filterSystemLogs(run?.stderr ?? '', isPyPlot);
 
-    const result: t.ExecuteResult = {
+    const result: t.PublicExecuteResponse = {
       session_id: responseData.session_id,
       /* `files` is optional on the sandbox response (e.g. dry-run
-       * execute with no outputs); the public `ExecuteResult.files` is
+       * execute with no outputs); the public response's `files` field is
        * required and downstream callers always iterate it. Default to
        * `[]` so the strictened response type from Phase B doesn't
        * surface a regression that wasn't there before. */

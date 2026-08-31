@@ -11,7 +11,7 @@ import { executionLimiter, uploadLimiter, downloadLimiter, fetchLimiter } from '
 import { internalServiceHeaders } from '../internal-service-auth';
 import { resolveSessionKey, resolveOutputBucketSessionKey, SessionKeyResolutionError, parseUploadSessionKeyInput, type SessionKeyInput } from '../session-key';
 import { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, queueNames, connection, waitForJobFinished } from '../queue';
-import { sleep, getAxiosErrorDetails, publicExecutionFailure } from '../utils';
+import { sleep, getAxiosErrorDetails, publicDownloadFailure, publicExecutionFailure } from '../utils';
 import { env, jobCompletionWaitTimeoutMs, planLimits, resolveLanguage } from '../config';
 import { createPayload } from '../payload';
 import { summarizeRequestedFiles } from '../execution-log';
@@ -333,10 +333,8 @@ router.get('/download/:session_id/:fileId', downloadLimiter, sessionAuth, async 
     const errorDetails = getAxiosErrorDetails(error);
     logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | File ID: ${fileId} | Error downloading file:`, errorDetails);
 
-    return res.status(500).json({
-      error: 'Error downloading file',
-      details: (error as Error).message
-    });
+    const failure = publicDownloadFailure(error);
+    return res.status(failure.status).json(failure.body);
   }
 });
 

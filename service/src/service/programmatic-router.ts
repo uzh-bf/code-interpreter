@@ -365,7 +365,7 @@ async function runReplayIteration(
   state: ExecutionState,
   apiKeyId: string,
   userId: string,
-): Promise<t.ExecuteResult> {
+): Promise<t.PublicExecuteResponse> {
   const history = await loadToolHistory(state.execution_id);
   const rawPayload = buildReplayPayload(req, state, history);
   const sessionKey = state.sessionKey ?? state.userId;
@@ -423,7 +423,7 @@ async function runReplayIteration(
   return waitForJobFinished(job, queue, events, JOB_COMPLETION_WAIT_TIMEOUT_MS);
 }
 
-function isSandboxRunSuccess(result: t.ExecuteResult): boolean {
+function isSandboxRunSuccess(result: t.PublicExecuteResponse): boolean {
   if (result.code != null && result.code !== 0) return false;
   if (result.signal != null && result.signal !== '') return false;
   return true;
@@ -825,7 +825,7 @@ async function runAndRespond(
     if (!res.writableEnded) disconnected = true;
   });
 
-  let result: t.ExecuteResult;
+  let result: t.PublicExecuteResponse;
   try {
     result = await runReplayIteration(req, state, apiKeyId, userId);
   } catch (err) {
