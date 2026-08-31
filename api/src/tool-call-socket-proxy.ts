@@ -662,8 +662,8 @@ if (require.main === module) {
     .then(started => {
       handle = started;
     })
-    .catch(error => {
-      console.error('tool-call socket proxy failed to start', error);
+    .catch(() => {
+      console.error('tool-call socket proxy failed to start');
       process.exit(1);
     });
 }

@@ -1,11 +1,12 @@
 import { format, transports, createLogger } from 'winston';
+import { sanitizeOperationalLogInfo } from '../../shared/operational-log';
 
 const logger = createLogger({
   level: process.env.LOG_LEVEL ?? 'info',
   defaultMeta: { service: 'tool-call-server' },
   format: format.combine(
+    format(sanitizeOperationalLogInfo)(),
     format.timestamp(),
-    format.errors({ stack: true }),
     format.json(),
   ),
   transports: [new transports.Console()],
