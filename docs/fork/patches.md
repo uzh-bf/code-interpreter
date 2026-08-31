@@ -29,7 +29,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
-| Keep operational logs values-free | Active | `c87a14d` | Winston and Pino logging sinks |
+| Keep operational logs values-free | Active | `c87a14d`, `bf83dbe` | Winston and Pino logging sinks |
 
 ## Publish exact-SHA UZH images
 
@@ -316,8 +316,9 @@ Shared paths:
 
 Source and current-upstream evidence:
 
-- Commit `c87a14d755a406f50333bf6f8fd782ebd315ddec` defines the central policy,
-  sink integrations, bypass corrections, and capture tests.
+- Commits `c87a14d755a406f50333bf6f8fd782ebd315ddec` and
+  `bf83dbe26a82cbdde97a377e5b416a5cc17729ec` define the central policy, sink
+  integrations, strict allowlist, bypass corrections, and capture tests.
 - Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
   baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` serialize runtime messages,
   identifiers, child output, and arbitrary error details without this policy.
