@@ -740,7 +740,9 @@ export class Job {
     this.session = opts.session ?? undefined;
     this.uuid = opts.session_id ?? nanoid();
     this.outputSessionId = opts.output_session_id ?? this.uuid;
-    this.log = rootLogger.child({ job: this.uuid });
+    // Pino serializes child bindings outside the log-method sanitizer, so this
+    // binding must stay fixed and values-free.
+    this.log = rootLogger.child({ component: 'job' });
     this.runtime = opts.runtime;
     this.files = opts.files.map((file, i) => ({
       id: file.id,

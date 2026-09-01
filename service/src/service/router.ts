@@ -333,10 +333,7 @@ router.get('/download/:session_id/:fileId', downloadLimiter, sessionAuth, async 
     const errorDetails = getAxiosErrorDetails(error);
     logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | File ID: ${fileId} | Error downloading file:`, errorDetails);
 
-    return res.status(500).json({
-      error: 'Error downloading file',
-      details: (error as Error).message
-    });
+    return res.status(500).json({ error: 'Error downloading file' });
   }
 });
 

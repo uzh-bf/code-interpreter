@@ -30,6 +30,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
 | Bind JWT trust to verified issuers | Active | `f68acf0` | JWT verification keys and issuer configuration |
+| Keep operational logs values-free | Active | `c87a14d`, `bf83dbe`, `689be7d`, `42a9743` | Winston and Pino logging sinks and public failures |
 
 ## Publish exact-SHA UZH images
 
@@ -278,6 +279,65 @@ Replay and drop condition:
   recreates the Redis client after terminal disconnect, with a readiness
   recovery test covering an outage longer than five attempts.
 
+## Keep operational logs values-free
+
+Required behavior:
+
+- Normalize runtime log messages to fixed event text and retain only
+  code-declared operational metadata from an explicit allowlist.
+- Remove identifiers, filenames, payloads, arbitrary errors and stacks, child
+  process output, network details, credentials, and caller-provided values
+  before Winston or Pino serializes them.
+- Keep reason, stage, route, method, component, language, worker, and error
+  categories closed; unknown errors become `internal`.
+- Sanitize without mutating caller-owned values or throwing on nested,
+  circular, repeated, buffered, array, error, or throwing-getter inputs.
+- Return a fixed download failure body with HTTP 500 and never include the
+  upstream error message or a `details` field.
+
+Owned paths:
+
+- `api/src/logger.test.ts`
+- `api/src/logger.ts`
+- `service/src/logger.test.ts`
+- `service/src/logger.ts`
+- `shared/operational-log.ts`
+
+Shared paths:
+
+- `api/src/job.ts` — removes the identifier-bearing Pino child binding.
+- `api/src/tool-call-socket-proxy.ts` — keeps its standalone console failure
+  message fixed and removes the raw startup error.
+- `service/src/fileServerLogger.ts` and
+  `service/src/toolCallServerLogger.ts` — apply the shared policy to their
+  separately constructed Winston sinks.
+- `service/src/service/router.ts` — logs download failures through the
+  values-free sink and returns only the fixed public body.
+- `service/rollup.config.js`, `service/tsconfig.esm.json`, and
+  `service/tsconfig.json` — include the shared policy in service builds.
+
+Source and current-upstream evidence:
+
+- Commits `c87a14d755a406f50333bf6f8fd782ebd315ddec` and
+  `bf83dbe26a82cbdde97a377e5b416a5cc17729ec` define the central policy, sink
+  integrations, strict allowlist, bypass corrections, and capture tests.
+- Commits `689be7da1f948c8dae036a92a356ed80ae32e71e` and
+  `42a97437fc7ef783d35b29cbd1b93b9d762c8afa` define the final inline generic
+  public download failure while retaining detailed diagnostics in sanitized
+  logs.
+- Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
+  baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` serialize runtime messages,
+  identifiers, child output, and arbitrary error details without this policy.
+
+Replay and drop condition:
+
+- Reapply the shared allowlist at every enabled Winston and Pino constructor,
+  then re-inventory direct console, raw stream, child binding, serializer,
+  transport, and child-process forwarding bypasses.
+- Drop only when upstream provides an equivalent values-free sink policy with
+  capture tests, a generic public download failure, and a current enabled-path
+  inventory containing no unknowns.
+
 ## Bind JWT trust to verified issuers
 
 Required behavior:
@@ -334,8 +394,9 @@ Replay and drop condition:
 - Every one of the 23 paths in the active merge-base-to-fork final-tree diff is
   assigned above. The chart values, package resources, worker deployment, queue
   module, and two routers are named shared seams in every contributing patch.
-- Fork-authored non-merge commits were collapsed into the eight logical final
-  behaviors above. The issuer-trust package adds three owned paths outside the
-  original 23-path audit and shares the existing Helm README path. The only
-  fork merge commit is classified as history-only; no fork-authored final-tree
-  path is left unowned.
+- Fork-authored non-merge commits were collapsed into the nine logical final
+  behaviors above. The values-free logging package adds thirteen owned or shared
+  paths outside the original 23-path audit. The issuer-trust package adds three
+  owned paths outside that audit and shares the existing Helm README path. The
+  only fork merge commit is classified as history-only; no fork-authored
+  final-tree path is left unowned.

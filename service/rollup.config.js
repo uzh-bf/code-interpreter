@@ -38,7 +38,7 @@ export default {
     commonjs(),
     typescript({
       tsconfig: './tsconfig.esm.json',
-      include: ['src/**/*.ts', '../shared/telemetry-core.ts'],
+      include: ['src/**/*.ts', '../shared/operational-log.ts', '../shared/telemetry-core.ts'],
       sourceMap: true,
       declaration: false,
       declarationMap: false,
