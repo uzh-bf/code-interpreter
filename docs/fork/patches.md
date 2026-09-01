@@ -29,6 +29,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
+| Bind JWT trust to verified issuers | Active | `f68acf0` | JWT verification keys and issuer configuration |
 
 ## Publish exact-SHA UZH images
 
@@ -186,12 +187,9 @@ Required behavior:
   scale-to-zero sandbox pool on every sync.
 - Keep upstream's baked-image package source as the default.
 
-Owned paths:
-
-- `helm/codeapi/README.md`
-
 Shared paths:
 
+- `helm/codeapi/README.md` — also documents issuer-scoped JWT trust.
 - `helm/codeapi/templates/package-init-job.yaml` — also supports the split
   sandbox namespace.
 - `helm/codeapi/templates/pvc.yaml` — also supports the split sandbox
@@ -280,6 +278,47 @@ Replay and drop condition:
   recreates the Redis client after terminal disconnect, with a readiness
   recovery test covering an outage longer than five attempts.
 
+## Bind JWT trust to verified issuers
+
+Required behavior:
+
+- Select a trust entry by unverified issuer only to locate policy, then verify
+  its key, algorithm, issuer, audience, and principal source before accepting a
+  principal.
+- Fail startup for malformed or ambiguous modern trust configuration and keep
+  each loaded key assigned to exactly one issuer entry.
+- Preserve the legacy single-issuer environment contract when no modern trust
+  table is configured.
+- Support reusable external principal sources through the bounded lowercase
+  `external:<slug>` namespace without embedding a consumer-specific source,
+  and isolate their tenant storage namespaces by that validated source.
+
+Owned paths:
+
+- `docker-compose.yaml`
+- `service/src/auth/librechat-jwt.test.ts`
+- `service/src/auth/librechat-jwt.ts`
+
+Shared paths:
+
+- `helm/codeapi/README.md` — also documents the retained PVC package mode.
+
+Source and current-upstream evidence:
+
+- Commit `f68acf095486d3692f2b972103e1de0c5dc8190d` defines the issuer-scoped
+  trust behavior and its negative tests.
+- Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
+  baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` retain only one effective
+  issuer policy.
+
+Replay and drop condition:
+
+- Reapply the trust-table seam around the current upstream verifier rather than
+  replacing later claim, key-loading, or cache behavior.
+- Drop when upstream supports equivalent issuer-keyed trust, exact key
+  assignment, fail-closed configuration, bounded external sources, and legacy
+  fallback with matching positive and cross-entry negative tests.
+
 ## Retired debris
 
 - Merge commit `356123a` is history-only transport for the package-init fix;
@@ -295,6 +334,8 @@ Replay and drop condition:
 - Every one of the 23 paths in the active merge-base-to-fork final-tree diff is
   assigned above. The chart values, package resources, worker deployment, queue
   module, and two routers are named shared seams in every contributing patch.
-- Fork-authored non-merge commits were collapsed into the seven logical final
-  behaviors above. The only fork merge commit is classified as history-only;
-  no fork-authored final-tree path is left unowned.
+- Fork-authored non-merge commits were collapsed into the eight logical final
+  behaviors above. The issuer-trust package adds three owned paths outside the
+  original 23-path audit and shares the existing Helm README path. The only
+  fork merge commit is classified as history-only; no fork-authored final-tree
+  path is left unowned.
