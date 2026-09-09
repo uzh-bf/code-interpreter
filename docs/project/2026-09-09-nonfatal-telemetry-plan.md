@@ -52,4 +52,16 @@ instrumentation, with no new product primitive, trust boundary or forward-lookin
 
 ## Progress
 
-Ownership and target confirmed; source unchanged. Dependencies absent in this new worktree.
+Ownership and target confirmed. Main implemented four scoped files after the planner pass.
+Sixteen initial enabled fault scenarios failed before the guards. Expanded focused coverage now
+has 52 passing tests across both package entrypoints, including successful telemetry and processor/
+resource failures. Full API suite386 and service suite577 passed before the final fixture-only
+scenario additions; their affected suite was rerun. Both package builds pass. Service build emits
+an existing replay-state type-cast warning outside this scope. Bun1.3.14 dependencies installed
+from unchanged lockfiles. Source is awaiting committed slice reviews and final review.
+
+The source guards configuration, one-shot initialization, propagation and facade callbacks.
+Middleware preparation is separate from next; finish/close end once, failed listener setup ends
+best effort. Explicit missing-dependency configuration remains an invariant. No shutdown change.
+Substantive diff188 additions/66 deletions across four source/test paths before final review.
+Generated api/.build is untracked and excluded from publication; service build output is ignored.
