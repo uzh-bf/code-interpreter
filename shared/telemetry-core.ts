@@ -75,7 +75,15 @@ export function configureTelemetry(config: TelemetryConfig): void {
     resolveServiceName: config.resolveServiceName,
   };
   otelDependencies = config.otel;
-  tracer = config.otel.trace.getTracer('codeapi.manual.telemetry');
+  tracer = optionalTelemetry(() => config.otel.trace.getTracer('codeapi.manual.telemetry'));
+}
+
+function optionalTelemetry<T>(operation: () => T): T | undefined {
+  try {
+    return operation();
+  } catch {
+    return undefined;
+  }
 }
 
 function otel(): OtelDependencies {
@@ -138,22 +146,24 @@ function ensureTelemetryInitialized(): void {
   if (initialized) return;
   initialized = true;
   const deps = otel();
-  deps.propagation.setGlobalPropagator(new deps.W3CTraceContextPropagator());
+  optionalTelemetry(() => deps.propagation.setGlobalPropagator(new deps.W3CTraceContextPropagator()));
 
   if (!tracingEnabled()) return;
 
-  const exporter = new deps.OTLPTraceExporter();
-  const processor = new deps.BatchSpanProcessor(exporter);
-  telemetryProvider = new deps.BasicTracerProvider({
-    resource: telemetryResource(),
-    spanLimits: {
-      attributeValueLengthLimit: MAX_ATTRIBUTE_LENGTH,
-    },
-    spanProcessors: [processor],
+  optionalTelemetry(() => {
+    const exporter = new deps.OTLPTraceExporter();
+    const processor = new deps.BatchSpanProcessor(exporter);
+    telemetryProvider = new deps.BasicTracerProvider({
+      resource: telemetryResource(),
+      spanLimits: {
+        attributeValueLengthLimit: MAX_ATTRIBUTE_LENGTH,
+      },
+      spanProcessors: [processor],
+    });
+    deps.trace.setGlobalTracerProvider(telemetryProvider);
+    tracer = deps.trace.getTracer('codeapi.manual.telemetry');
+    tracingInitialized = true;
   });
-  deps.trace.setGlobalTracerProvider(telemetryProvider);
-  tracer = deps.trace.getTracer('codeapi.manual.telemetry');
-  tracingInitialized = true;
 }
 
 export async function shutdownTelemetry(
@@ -203,10 +213,10 @@ function sanitizedCarrier(carrier: TraceCarrier | undefined): TraceCarrier {
 export function extractTraceContext(carrier: TraceCarrier | undefined): ContextLike {
   ensureTelemetryInitialized();
   const deps = otel();
-  return deps.propagation.extract(deps.ROOT_CONTEXT, sanitizedCarrier(carrier), {
+  return optionalTelemetry(() => deps.propagation.extract(deps.ROOT_CONTEXT, sanitizedCarrier(carrier), {
     get: carrierGetter,
     keys: (c: TraceCarrier) => Object.keys(c),
-  });
+  })) ?? deps.ROOT_CONTEXT;
 }
 
 export function withTraceContext<T>(carrier: TraceCarrier | undefined, fn: () => T): T {
@@ -216,9 +226,11 @@ export function withTraceContext<T>(carrier: TraceCarrier | undefined, fn: () =>
 export function captureTraceCarrier(): Record<string, string> {
   ensureTelemetryInitialized();
   const deps = otel();
-  const carrier: Record<string, string> = {};
-  deps.propagation.inject(store.getStore() ?? deps.ROOT_CONTEXT, carrier);
-  return carrier;
+  return optionalTelemetry(() => {
+    const carrier: Record<string, string> = {};
+    deps.propagation.inject(store.getStore() ?? deps.ROOT_CONTEXT, carrier);
+    return carrier;
+  }) ?? {};
 }
 
 export function injectTraceHeaders<T extends Record<string, string>>(headers?: T): T & Record<string, string> {
@@ -276,26 +288,26 @@ function createSpanFacade(span: SpanLike): TelemetrySpan {
   let errorStatusSet = false;
   return {
     setAttribute: (key, value) => {
-      setCleanAttribute(span, key, value);
+      optionalTelemetry(() => setCleanAttribute(span, key, value));
     },
     setStatus: status => {
       if (status.code === 'ERROR') {
         errorStatusSet = true;
-        span.setStatus({ code: SpanStatusCode.ERROR, message: safeStatusMessage(status.message) });
+        optionalTelemetry(() => span.setStatus({ code: SpanStatusCode.ERROR, message: safeStatusMessage(status.message) }));
         return;
       }
-      if (!errorStatusSet) span.setStatus({ code: SpanStatusCode.OK });
+      if (!errorStatusSet) optionalTelemetry(() => span.setStatus({ code: SpanStatusCode.OK }));
     },
     recordException: error => {
       errorStatusSet = true;
-      span.recordException?.(error instanceof Error ? error : String(error));
-      span.setAttribute('exception.type', exceptionType(error));
-      span.setStatus({ code: SpanStatusCode.ERROR });
+      optionalTelemetry(() => span.recordException?.(error instanceof Error ? error : String(error)));
+      optionalTelemetry(() => span.setAttribute('exception.type', exceptionType(error)));
+      optionalTelemetry(() => span.setStatus({ code: SpanStatusCode.ERROR }));
     },
     end: () => {
       if (ended) return;
       ended = true;
-      span.end();
+      optionalTelemetry(() => span.end());
     },
   };
 }
@@ -347,15 +359,22 @@ export async function withSpan<T>(
   ensureTelemetryInitialized();
   if (!tracingInitialized) return fn(noopSpan());
 
-  const deps = otel();
-  const activeTracer = tracer ?? deps.trace.getTracer('codeapi.manual.telemetry');
-  const parentContext = store.getStore() ?? deps.otelContext.active();
-  const span = activeTracer.startSpan(name, {
-    attributes: cleanAttributes(attributes),
-    kind: otelSpanKind(kind),
-  }, parentContext);
-  const spanContext = deps.trace.setSpan(parentContext, span);
-  const telemetrySpan = createSpanFacade(span);
+  let span: SpanLike;
+  const prepared = optionalTelemetry(() => {
+    const deps = otel();
+    const activeTracer = tracer ?? deps.trace.getTracer('codeapi.manual.telemetry');
+    const parentContext = store.getStore() ?? deps.otelContext.active();
+    span = activeTracer.startSpan(name, {
+      attributes: cleanAttributes(attributes),
+      kind: otelSpanKind(kind),
+    }, parentContext);
+    return { context: deps.trace.setSpan(parentContext, span), facade: createSpanFacade(span) };
+  });
+  if (!prepared) {
+    optionalTelemetry(() => span?.end());
+    return fn(noopSpan());
+  }
+  const { context: spanContext, facade: telemetrySpan } = prepared;
 
   return store.run(spanContext, async () => {
     try {
@@ -382,27 +401,23 @@ export function traceHttpRequest(name = 'codeapi.http.request') {
     statusCode?: number;
   }, next: () => void): void => {
     const parentContext = extractTraceContext(req.headers);
-    const deps = otel();
-    const route = normalizeTracePath(req.path ?? req.originalUrl ?? req.url ?? '/');
-    if (!tracingInitialized) {
-      store.run(parentContext, () => {
-        bindEmitterToTraceContext(req, parentContext);
-        bindEmitterToTraceContext(res, parentContext);
-        next();
-      });
-      return;
-    }
-
-    const activeTracer = tracer ?? deps.trace.getTracer('codeapi.manual.telemetry');
-    const span = activeTracer.startSpan(name, {
-      attributes: cleanAttributes({
-        'http.request.method': req.method ?? 'UNKNOWN',
-        'url.path': route,
-      }),
-      kind: deps.OtelSpanKind.SERVER,
-    }, parentContext);
-    const context = deps.trace.setSpan(parentContext, span);
-    const telemetrySpan = createSpanFacade(span);
+    let span: SpanLike;
+    const prepared = tracingInitialized ? optionalTelemetry(() => {
+      const deps = otel();
+      const route = normalizeTracePath(req.path ?? req.originalUrl ?? req.url ?? '/');
+      const activeTracer = tracer ?? deps.trace.getTracer('codeapi.manual.telemetry');
+      span = activeTracer.startSpan(name, {
+        attributes: cleanAttributes({
+          'http.request.method': req.method ?? 'UNKNOWN',
+          'url.path': route,
+        }),
+        kind: deps.OtelSpanKind.SERVER,
+      }, parentContext);
+      return { context: deps.trace.setSpan(parentContext, span), facade: createSpanFacade(span) };
+    }) : undefined;
+    if (!prepared) optionalTelemetry(() => span?.end());
+    const context = prepared?.context ?? parentContext;
+    const telemetrySpan = prepared?.facade ?? noopSpan();
     let finished = false;
     const finish = (): void => {
       if (finished) return;
@@ -415,15 +430,19 @@ export function traceHttpRequest(name = 'codeapi.http.request') {
     };
 
     store.run(context, () => {
-      bindEmitterToTraceContext(req, context);
-      bindEmitterToTraceContext(res, context);
-      if (res.once) {
-        res.once('finish', finish);
-        res.once('close', finish);
-      } else {
-        res.on?.('finish', finish);
-        res.on?.('close', finish);
-      }
+      optionalTelemetry(() => bindEmitterToTraceContext(req, context));
+      optionalTelemetry(() => bindEmitterToTraceContext(res, context));
+      const registered = optionalTelemetry(() => {
+        if (res.once) {
+          res.once('finish', finish);
+          res.once('close', finish);
+        } else {
+          res.on?.('finish', finish);
+          res.on?.('close', finish);
+        }
+        return true;
+      });
+      if (!registered) telemetrySpan.end();
       next();
     });
   };

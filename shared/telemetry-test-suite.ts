@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'events';
+import { spawnSync } from 'node:child_process';
 
 type TraceMiddleware = (
   req: EventEmitter & {
@@ -113,4 +114,102 @@ export function runTelemetryPrivacyGuardTests(telemetry: TelemetryTestSubject): 
       expect(carrier.traceparent).toStartWith(`00-${TRACE_ID}-`);
     });
   });
+}
+
+
+export function runTelemetryFailureTests(): void {
+  const faults = ['healthy', 'getTracer', 'propagator', 'exporter', 'processor', 'resource', 'provider', 'registration',
+    'extract', 'inject', 'active', 'startSpan', 'setSpan', 'sanitize',
+    'setAttribute', 'setStatus', 'recordException', 'end', 'listener'];
+  for (const fault of faults) {
+    test(`optional telemetry ${fault} failure preserves domain outcomes`, () => {
+      const script = `
+        import assert from 'node:assert/strict';
+        import { EventEmitter } from 'node:events';
+        import * as telemetry from ${JSON.stringify(import.meta.resolve('./telemetry-core'))};
+        const fault = ${JSON.stringify(fault)};
+        const sentinel = new Error('synthetic domain failure');
+        const result = { ok: true };
+        const root = {};
+        const fail = name => { if (name === fault) throw new Error('synthetic telemetry fault'); };
+        let endCalls = 0;
+        const span = {
+          setAttribute() { fail('setAttribute'); },
+          setStatus() { fail('setStatus'); },
+          recordException() { fail('recordException'); },
+          end() { endCalls++; fail('end'); },
+        };
+        const tracer = { startSpan() { fail('startSpan'); return span; } };
+        const resource = { merge() { return resource; } };
+        telemetry.configureTelemetry({ defaultServiceName: 'synthetic', otel: {
+          ROOT_CONTEXT: root, OtelSpanKind: { INTERNAL: 0, SERVER: 1 },
+          SpanStatusCode: { OK: 1, ERROR: 2 },
+          otelContext: { active() { fail('active'); return root; } },
+          propagation: {
+            setGlobalPropagator() { fail('propagator'); },
+            extract() { fail('extract'); return root; },
+            inject(context, carrier) { carrier.traceparent = 'partial'; fail('inject'); },
+          },
+          trace: {
+            getTracer() { fail('getTracer'); return tracer; },
+            setGlobalTracerProvider() { fail('registration'); },
+            setSpan(context) { fail('setSpan'); return context; },
+          },
+          W3CTraceContextPropagator: class {},
+          OTLPTraceExporter: class { constructor() { fail('exporter'); } },
+          BatchSpanProcessor: class { constructor() { fail('processor'); } },
+          BasicTracerProvider: class { constructor() { fail('provider'); } async shutdown() {} },
+          defaultResource: () => resource, detectResources() { fail('resource'); return resource; },
+          envDetector: {}, resourceFromAttributes: () => resource,
+          sanitizeAttributes(attrs) { fail('sanitize'); return attrs; },
+        }});
+        let calls = 0;
+        const actual = await telemetry.withSpan('synthetic', {}, facade => {
+          calls++;
+          facade.setAttribute('synthetic', true);
+          facade.setStatus({ code: 'ERROR' });
+          facade.recordException(sentinel);
+          return result;
+        });
+        assert.equal(actual, result); assert.equal(calls, 1);
+        for (const asyncFailure of [false, true]) {
+          calls = 0;
+          try {
+            await telemetry.withSpan('synthetic', {}, () => {
+              calls++;
+              if (asyncFailure) return Promise.reject(sentinel);
+              throw sentinel;
+            });
+            assert.fail('domain error was suppressed');
+          } catch (error) { assert.equal(error, sentinel); }
+          assert.equal(calls, 1);
+        }
+        calls = 0;
+        assert.equal(telemetry.withTraceContext({}, () => { calls++; return result; }), result);
+        assert.equal(calls, 1);
+        const headers = telemetry.injectTraceHeaders({ 'x-synthetic': 'preserved' });
+        assert.equal(headers['x-synthetic'], 'preserved');
+        if (fault === 'inject') assert.equal(headers.traceparent, undefined);
+        for (const domainFails of [false, true]) {
+          const req = new EventEmitter(); req.headers = {}; req.path = '/health';
+          const res = new EventEmitter(); res.statusCode = 200;
+          if (fault === 'listener') res.once = () => { throw new Error('synthetic listener failure'); };
+          calls = 0;
+          try {
+            telemetry.traceHttpRequest()(req, res, () => { calls++; if (domainFails) throw sentinel; });
+            if (domainFails) assert.fail('next error was suppressed');
+          } catch (error) { if (!domainFails) throw error; assert.equal(error, sentinel); }
+          assert.equal(calls, 1);
+          const endsBefore = endCalls;
+          res.emit('finish'); res.emit('close');
+          assert.ok(endCalls - endsBefore <= 1);
+        }
+      `;
+      const child = spawnSync(process.execPath, ['--eval', script], {
+        env: { PATH: process.env.PATH, OTEL_TRACING_ENABLED: 'true' },
+        encoding: 'utf8', timeout: 10000,
+      });
+      expect({ status: child.status, stderr: child.stderr }).toEqual({ status: 0, stderr: '' });
+    });
+  }
 }

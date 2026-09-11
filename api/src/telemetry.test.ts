@@ -1,4 +1,4 @@
-import { runTelemetryPrivacyGuardTests } from '../../shared/telemetry-test-suite';
+import { runTelemetryFailureTests, runTelemetryPrivacyGuardTests } from '../../shared/telemetry-test-suite';
 import {
   captureTraceCarrier,
   injectTraceHeaders,
@@ -14,3 +14,5 @@ runTelemetryPrivacyGuardTests({
   traceHttpRequest,
   withTraceContext,
 });
+
+runTelemetryFailureTests();
