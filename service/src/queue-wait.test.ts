@@ -33,9 +33,9 @@ describe('waitForJobFinished', () => {
   test('uses the QueueEvents result when it arrives first', async () => {
     const result = { ok: true, source: 'events' } satisfies TestResult;
     const job = fakeJob({});
-    const queue = fakeQueue(async () => ({
-      returnvalue: result,
-    } as Job<unknown, TestResult, string>));
+    // The job is already evicted, so a re-read would fail; the event payload
+    // must be authoritative.
+    const queue = fakeQueue(async () => undefined);
     const queueEvents = fakeQueueEvents();
     const waitForResult = waitForJobFinished(job, queue, queueEvents, 1000);
     queueEvents.emit('completed', { jobId: 'job-1', returnvalue: result });
@@ -66,7 +66,9 @@ describe('waitForJobFinished', () => {
 
     await expect(waitForResult).resolves.toEqual(result);
     await wait(300);
-    expect(getJobCalls).toBe(2);
+    // The completion settles from the event payload, so polling stops after the
+    // single in-flight read instead of issuing a re-fetch.
+    expect(getJobCalls).toBe(1);
   });
 
   test('polls completed jobs when QueueEvents do not arrive', async () => {

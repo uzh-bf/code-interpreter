@@ -31,7 +31,6 @@ function throwIfAborted(jobId: string, signal?: AbortSignal): void {
 
 function waitForJobEvent<TData, TReturn, TName extends string>(
   jobId: string,
-  queue: Queue<TData, TReturn, TName>,
   queueEvents: QueueEvents,
   timeoutMs: number,
   signal?: AbortSignal,
@@ -63,17 +62,18 @@ function waitForJobEvent<TData, TReturn, TName extends string>(
       void promise.then(resolve, reject);
     };
 
-    const onCompleted = (event: { jobId: string }) => {
+    const onCompleted = (event: { jobId: string; returnvalue?: string }) => {
       if (event.jobId !== jobId) {
         return;
       }
-      settleWith((async () => {
-        const currentJob = await queue.getJob(jobId);
-        if (!currentJob) {
-          throw new Error(`Job ${jobId} no longer exists after completion event`);
-        }
-        return currentJob.returnvalue;
-      })());
+      // Resolve from the event payload, as BullMQ's own `waitUntilFinished`
+      // does, rather than re-reading the job from Redis. A completed job may
+      // already have been evicted by the retention policy, which would turn a
+      // successful execution into an error even though the event carries the
+      // result. BullMQ declares the payload field as a string and parses it
+      // back into the typed result before emitting, so the cast goes through
+      // `unknown`.
+      settleWith(Promise.resolve(event.returnvalue as unknown as TReturn));
     };
     const onFailed = (event: { jobId: string; failedReason?: string }) => {
       if (event.jobId === jobId) {
@@ -98,7 +98,7 @@ function waitForJobEvent<TData, TReturn, TName extends string>(
   });
 }
 
-async function pollJobUntilFinished<TData, TReturn, TName extends string>(
+export async function pollJobUntilFinished<TData, TReturn, TName extends string>(
   job: Job<TData, TReturn, TName>,
   queue: Queue<TData, TReturn, TName>,
   timeoutMs: number,
@@ -164,7 +164,6 @@ async function waitForJobFinished<TData, TReturn, TName extends string>(
 
   const eventWait = waitForJobEvent<TData, TReturn, TName>(
     jobId,
-    queue,
     queueEvents,
     timeoutMs,
     eventAbortController.signal,
@@ -178,6 +177,20 @@ async function waitForJobFinished<TData, TReturn, TName extends string>(
       eventWait,
       pollWait,
     ]);
+  } catch (error) {
+    // A poll failure must not preempt a completion event that is already in
+    // flight: the event carries the result, while the poll can only observe the
+    // job record, which the retention policy may have evicted. Give the event
+    // channel one poll interval to deliver before honoring the poll error, so a
+    // successful execution is never reported as a missing job.
+    const grace = await Promise.race([
+      eventWait.then(value => ({ settled: true as const, value }), () => ({ settled: false as const })),
+      wait(JOB_RESULT_POLL_INTERVAL_MS).then(() => ({ settled: false as const })),
+    ]);
+    if (grace.settled) {
+      return grace.value;
+    }
+    throw error;
   } finally {
     pollAbortController.abort();
     eventAbortController.abort();

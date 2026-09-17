@@ -16,6 +16,29 @@ versions. Historical commits are evidence, not an automatic cherry-pick series.
 - Limitation: the fork SHA identifies the audited pre-reconciliation branch;
   the reconciliation PR records the resulting exact head and GitHub merge SHA
 
+### Re-audit basis: upstream v1.1.0 integration (2026-09-17)
+
+This ledger was re-inventoried when the fork merged upstream release v1.1.0. The
+dispositions and contract text above were re-checked against the new upstream
+tree; the patch index and every required-behavior section below reflect that
+re-check. Where a section's source-evidence quotes the older `2c7fb8fc`
+baseline, the v1.1.0 status is recorded in the same section.
+
+- Fork ref and SHA: `uzh/main` at
+  `f5bf3b4c17cd6f83cec4323256805957a46a8475` (PR #23 nonfatal telemetry)
+- Upstream ref and SHA: LibreChat-AI/code-interpreter tag `v1.1.0` at
+  `b35c503fd2fe7be412d95c0eef6db50a09aad280` (chart 0.3.1, appVersion 2.0.0)
+- Merge base: `2c7fb8fcd7113f0f78b2085e80adf651ea4e5359` (PR #17 reconcile point)
+- Audited date: 2026-09-17
+- Method: semantic merge of the exact refs above (scratch clone), per-patch
+  source and test inspection against v1.1.0, rendered Helm verification, and the
+  reconciliation PR recording the exact head
+- Delta: 108 upstream commits since the merge base. Eight conflicted files were
+  resolved; Helm templates, `values.yaml`, `ci.yml`, `egress-ledger.ts`, and the
+  logger sinks auto-merged and were verified rather than replayed.
+- Limitation: the fork SHA identifies the pre-integration fork branch; the
+  reconciliation PR records the resulting exact head and GitHub merge SHA.
+
 States: Active, Review on sync, Draft, History only, Retired.
 
 ## Patch index
@@ -31,6 +54,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
 | Bind JWT trust to verified issuers | Active | `f68acf0` | JWT verification keys and issuer configuration |
 | Keep operational logs values-free | Active | `c87a14d`, `bf83dbe`, `689be7d`, `42a9743` | Winston and Pino logging sinks and public failures |
+| Preserve requests through telemetry failures | Active | PR #23 (`f5bf3b4`) | OpenTelemetry SDK and the shared telemetry core |
 
 ## Publish exact-SHA UZH images
 
@@ -81,11 +105,19 @@ Source and current-upstream evidence:
 - Commit `73292bde26900095e8bbd52385a2fa4f84cb25ce` defines the final behavior.
 - Upstream `2c7fb8fcd7113f0f78b2085e80adf651ea4e5359` does not include the UZH
   readable-root changes or the matching CI compile-and-smoke check.
+- Upstream `v1.1.0` adds `docker/rootfs-setup.c`, `api/src/guest-dns.sh`, and the
+  bind-mount rootfs handling, but still compiles both binaries with `chmod 0111`.
+  The merge adopts the new rootfs setup and the hosted-app launcher while keeping
+  `chmod 0555` on both `spec-guard` and `sandbox-rootfs-setup` in `api/Dockerfile`,
+  `docker/Dockerfile.worker-sandbox`, and `launcher/Dockerfile`.
 
 Replay and drop condition:
 
 - Start from upstream Dockerfiles and retain only the directory permissions
   required by the current `spec-guard` execution path and CI smoke.
+- Apply the same 0555 delta to any new compiled sandbox binary upstream adds; the
+  v1.1.0 merge shows this patch must be re-derived per compiled binary, not
+  replayed as a wholesale file replacement.
 - Drop when upstream images pass an equivalent CI check and the deployed
   sandbox can execute all supported runtimes without the UZH permission delta.
 
@@ -205,6 +237,10 @@ Source and current-upstream evidence:
   `c1509a88a3189aaf666fe9409ec0c9c539f30c1d` define the final lifecycle.
 - Upstream `2c7fb8fcd7113f0f78b2085e80adf651ea4e5359` introduced baked-image and PVC
   package sources, but its PVC Job remains a Helm hook with a TTL.
+- Upstream `v1.1.0` (chart 0.3.1) still renders the PVC package-init Job as a Helm
+  hook with a TTL. The merge retains the Argo-managed retained Job and PVC at sync
+  wave `-5`, and renders exactly one package-init Job plus PVC only when
+  `packages.source=pvc`.
 
 Replay and drop condition:
 
@@ -212,6 +248,10 @@ Replay and drop condition:
   to `source=pvc` resources. Existing UZH environments must explicitly retain
   `source=pvc` while their old directory-root image is pinned, then switch to
   `source=image` only with a matching baked runner SHA.
+- Retirement review: production now runs baked images, so this patch is rollback
+  compatibility only. Re-check it once every UZH environment has moved to
+  `source=image` and the pinned directory-root image is no longer needed for
+  rollback; the patch can then be retired with the compatibility mode.
 - Drop when upstream's PVC mode renders a retained non-hook Job/PVC that remains
   a no-op across unchanged Argo syncs and supports the split sandbox namespace.
 
@@ -245,6 +285,16 @@ Source and current-upstream evidence:
 - Upstream `2c7fb8fcd7113f0f78b2085e80adf651ea4e5359` adds execution-profile queues
   and `jobCompletionWaitTimeoutMs`, but still waits only on QueueEvents.
 
+- Upstream `v1.1.0` adds `waitForJobWithCancellation`. The merge composes the
+  fork poll race into it. The completion event settles from its own payload, as
+  BullMQ's `waitUntilFinished` does, so an evicted completed job is not reported
+  as an error; the composed poll owns an abort signal and stops once any other
+  outcome settles.
+- Retention depth is part of this contract: a completed job must still exist in
+  Redis while the poll fallback can observe it. Both enqueue sites in
+  `service/src/service/programmatic-router.ts` keep `removeOnComplete.count=100`
+  (upstream ships `1`), matching `service/src/service/router.ts`.
+
 Replay and drop condition:
 
 - Start from upstream routers and route their current timeout through
@@ -271,10 +321,16 @@ Source and current-upstream evidence:
 - Commit `5e459dd4f2d8bea6ae7a3004f15051dff26abae0` defines the final retry policy.
 - Upstream `2c7fb8fcd7113f0f78b2085e80adf651ea4e5359` still stops reconnecting after
   five attempts.
+- Upstream `v1.1.0` now reconnects the queue and cancellation Redis clients
+  indefinitely through `redisReconnectDelay` in `service/src/redis-options.ts`, so
+  only the singleton egress ledger keeps the UZH policy. `queue.ts` uses the
+  upstream reconnect helper; the fork's finite-retry concern there is resolved.
 
 Replay and drop condition:
 
 - Preserve upstream ledger behavior and replace only its finite retry strategy.
+- Narrowed to `service/src/egress-ledger.ts`; do not replay the old queue-client
+  retry policy over the upstream `redisReconnectDelay` helper.
 - Drop when upstream retries indefinitely or a supervised lifecycle reliably
   recreates the Redis client after terminal disconnect, with a readiness
   recovery test covering an outage longer than five attempts.
@@ -328,6 +384,15 @@ Source and current-upstream evidence:
 - Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
   baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` serialize runtime messages,
   identifiers, child output, and arbitrary error details without this policy.
+- Re-inventoried for v1.1.0: the four upstream-added logger consumers
+  (`api/src/hosted-app.ts`, `service/src/hosted-app/queue.ts`,
+  `service/src/hosted-app/worker.ts`, and `service/src/workspace-tools/outcome.ts`)
+  import the sanitized sinks and pass structured values for the allowlist to
+  drop. The only direct console call is the known fixed message in
+  `api/src/tool-call-socket-proxy.ts`, and the policy is centralized in sink
+  creation (`api/src/logger.ts` via `createOperationalLogger`;
+  `service/src/logger.ts` via `operationalLogFormat`). No enabled-path bypass was
+  found.
 
 Replay and drop condition:
 
@@ -353,6 +418,10 @@ Required behavior:
   `external:<slug>` namespace without embedding a consumer-specific source,
   and isolate their tenant storage namespaces by that validated source.
 
+- When more than one trust entry shares the verifier, bound the upstream
+  `code_worker_id` claim per entry through an explicit prefix allowlist so an
+  external issuer cannot name another issuer's bridge worker.
+
 Owned paths:
 
 - `docker-compose.yaml`
@@ -371,6 +440,11 @@ Source and current-upstream evidence:
   baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` retain only one effective
   issuer policy.
 
+- Upstream `v1.1.0` adds the `code_worker_id` claim. The merge integrates it
+  into the fork trust table and adds `codeWorkerIdPrefixes`: a multi-entry
+  table must declare the prefixes its external entry may mint, while a
+  single-entry table stays unconstrained for backward compatibility.
+
 Replay and drop condition:
 
 - Reapply the trust-table seam around the current upstream verifier rather than
@@ -378,6 +452,43 @@ Replay and drop condition:
 - Drop when upstream supports equivalent issuer-keyed trust, exact key
   assignment, fail-closed configuration, bounded external sources, and legacy
   fallback with matching positive and cross-entry negative tests.
+
+## Preserve requests through telemetry failures
+
+Required behavior:
+
+- Keep optional OpenTelemetry instrumentation from failing a request: a failing
+  tracer, propagator, exporter, processor, resource, provider, registration, or
+  shutdown path must degrade telemetry without propagating to the request or
+  response lifecycle.
+- Route every optional telemetry construction and lifecycle step through the
+  shared `optionalTelemetry` guard so a single fault cannot abort request
+  handling.
+
+Owned paths:
+
+- `shared/telemetry-core.ts`
+- `shared/telemetry-test-suite.ts`
+- `api/src/telemetry.test.ts`
+- `service/src/telemetry.test.ts`
+
+Source and current-upstream evidence:
+
+- PR #23 (`f5bf3b4c17cd6f83cec4323256805957a46a8475`), "fix(telemetry): preserve
+  requests through instrumentation failures", introduced the guard and the
+  shared fault matrix.
+- Upstream `v1.1.0` has no `optionalTelemetry` guard in `shared/telemetry-core.ts`;
+  `api/src/telemetry.ts` and `service/src/telemetry.ts` are otherwise identical to
+  upstream, so the fork delta is confined to the shared core and the shared test
+  suite.
+
+Replay and drop condition:
+
+- Re-apply the guard around the current upstream `telemetry-core.ts` construction
+  and shutdown paths, keeping upstream's config shape and request attributes.
+- Drop when upstream isolates optional instrumentation failures so no fault in the
+  OpenTelemetry construction or lifecycle reaches the request path, with a test
+  matrix covering each fault class.
 
 ## Retired debris
 
@@ -397,6 +508,12 @@ Replay and drop condition:
 - Fork-authored non-merge commits were collapsed into the nine logical final
   behaviors above. The values-free logging package adds thirteen owned or shared
   paths outside the original 23-path audit. The issuer-trust package adds three
-  owned paths outside that audit and shares the existing Helm README path. The
-  only fork merge commit is classified as history-only; no fork-authored
-  final-tree path is left unowned.
+  owned paths outside that audit and shares the existing Helm README path. PR #23
+  adds the telemetry patch above. The only fork merge commit is classified as
+  history-only; no fork-authored final-tree path is left unowned.
+- v1.1.0 integration coverage: the replay and re-audit above account for all ten
+  logical behaviors, including the narrowed egress-ledger patch (only
+  `service/src/egress-ledger.ts` remains fork-owned) and the telemetry patch added
+  by PR #23. The auto-merged paths (Helm templates, `values.yaml`, `ci.yml`,
+  `egress-ledger.ts`, logger sinks) were verified against v1.1.0 rather than
+  replayed; no fork-authored final-tree path is left unowned after the merge.

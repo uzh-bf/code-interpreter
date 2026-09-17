@@ -40,6 +40,7 @@ interface LibreChatJwtClaims {
   chc_user_id?: string; // leak-check:allow
   auth_context_hash?: string;
   plan_id?: string;
+  code_worker_id?: string;
 }
 
 interface PublicKeyEntry {
@@ -53,6 +54,7 @@ interface JwtTrustEntry {
   keyIds: Set<string>;
   allowedAlgs: Set<JwtAlg>;
   principalSources: Set<JwtPrincipalSource>;
+  codeWorkerIdPrefixes: Set<string>;
 }
 
 interface VerificationConfig {
@@ -92,6 +94,7 @@ const TRUST_ENTRY_FIELDS = new Set([
   'keyIds',
   'allowedAlgorithms',
   'principalSources',
+  'codeWorkerIdPrefixes',
 ]);
 
 function base64UrlDecode(value: string): Buffer {
@@ -342,6 +345,7 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
   const entries = new Map<string, JwtTrustEntry>();
   const assignedKeyIds = new Set<string>();
   const assignedExternalSources = new Set<string>();
+  const assignedWorkerIdPrefixes = new Set<string>();
   for (const [index, value] of parsed.entries()) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} must be an object`);
@@ -366,6 +370,9 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
       record.principalSources,
       `JWT trust entry ${index} principalSources`,
     );
+    const workerIdPrefixes = record.codeWorkerIdPrefixes === undefined
+      ? []
+      : assertUniqueStrings(record.codeWorkerIdPrefixes, `JWT trust entry ${index} codeWorkerIdPrefixes`);
     if (!algorithmValues.every((value): value is JwtAlg => SUPPORTED_ALGORITHMS.has(value as JwtAlg))) {
       throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} has an unsupported algorithm`);
     }
@@ -383,6 +390,33 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
         );
       }
       assignedExternalSources.add(source);
+    }
+    // An external issuer mints its own `code_worker_id`. When more than one
+    // trust entry can verify tokens, the claim must be bounded per entry or an
+    // external issuer could name another issuer's bridge worker and route
+    // workspace-tool commands to it. A single-entry table has no such ambiguity
+    // and stays unconstrained for backward compatibility.
+    const hasExternalSource = sourceValues.some(source => source.startsWith('external:'));
+    if (parsed.length > 1 && hasExternalSource && workerIdPrefixes.length === 0) {
+      throw new CodeApiJwtAuthError(
+        'config',
+        `JWT trust entry ${index} must declare codeWorkerIdPrefixes for its external principal source`,
+      );
+    }
+    // Two entries that accept the same worker ID would each admit the other's
+    // bridge workers, which is what the per-entry bound exists to prevent. The
+    // prefixes must therefore be disjoint across entries.
+    for (const prefix of workerIdPrefixes) {
+      const overlapping = [...assignedWorkerIdPrefixes].find(
+        assigned => assigned.startsWith(prefix) || prefix.startsWith(assigned),
+      );
+      if (overlapping !== undefined) {
+        throw new CodeApiJwtAuthError(
+          'config',
+          `codeWorkerIdPrefixes must be disjoint across trust entries: ${prefix} overlaps ${overlapping}`,
+        );
+      }
+      assignedWorkerIdPrefixes.add(prefix);
     }
     const allowedAlgs = new Set<JwtAlg>(algorithmValues);
     for (const keyId of keyIds) {
@@ -408,6 +442,7 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
       keyIds: new Set(keyIds),
       allowedAlgs,
       principalSources: new Set<JwtPrincipalSource>(sourceValues),
+      codeWorkerIdPrefixes: new Set(workerIdPrefixes),
     });
   }
 
@@ -433,6 +468,7 @@ function buildTrustEntries(keys: Map<string, PublicKeyEntry>): Map<string, JwtTr
       keyIds: new Set(keys.keys()),
       allowedAlgs: parseAllowedAlgs(),
       principalSources: new Set<JwtPrincipalSource>(['librechat_jwt', 'openid_reuse']),
+      codeWorkerIdPrefixes: new Set<string>(),
     }],
   ]);
 }
@@ -593,6 +629,27 @@ function tenantNamespace(tenantId: string, principalSource: JwtPrincipalSource):
     : tenantId;
 }
 
+function boundCodeWorkerId(
+  codeWorkerId: string | undefined,
+  trustEntry: JwtTrustEntry,
+): string | undefined {
+  if (codeWorkerId === undefined) {
+    return undefined;
+  }
+  if (trustEntry.codeWorkerIdPrefixes.size === 0) {
+    return codeWorkerId;
+  }
+  for (const prefix of trustEntry.codeWorkerIdPrefixes) {
+    if (codeWorkerId.startsWith(prefix)) {
+      return codeWorkerId;
+    }
+  }
+  throw new CodeApiJwtAuthError(
+    'malformed_claims',
+    'code_worker_id is not permitted for this issuer',
+  );
+}
+
 function validateClaims(
   claims: LibreChatJwtClaims,
   config: VerificationConfig,
@@ -605,6 +662,10 @@ function validateClaims(
   const nbf = assertNumericDate(claims.nbf, 'nbf');
   const exp = assertNumericDate(claims.exp, 'exp');
   const planId = optionalString(claims.plan_id, 'plan_id');
+  const codeWorkerId = boundCodeWorkerId(
+    optionalString(claims.code_worker_id, 'code_worker_id'),
+    trustEntry,
+  );
   const principalSource = assertPrincipalSource(claims.principal_source, trustEntry.principalSources);
   const tenantId = tenantNamespace(resolveTenantIdClaim(claims.tenant_id), principalSource);
   const authContextHash = assertString(claims.auth_context_hash, 'auth_context_hash');
@@ -642,6 +703,7 @@ function validateClaims(
     principalSource,
     authContextHash,
     planId,
+    codeWorkerId,
   };
 }
 

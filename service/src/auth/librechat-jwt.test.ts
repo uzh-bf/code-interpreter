@@ -49,6 +49,7 @@ type JwtClaims = {
   chc_user_id?: string;
   auth_context_hash?: string;
   plan_id?: string;
+  code_worker_id?: string;
 };
 
 const originalEnv = new Map<string, string | undefined>();
@@ -77,6 +78,7 @@ function baseClaims(overrides: Partial<JwtClaims> = {}): JwtClaims {
     external_user_id: 'chc_123',
     auth_context_hash: 'hash_123',
     plan_id: 'prod_plan_123',
+    code_worker_id: 'code-user_123',
     ...overrides,
   };
 }
@@ -187,6 +189,7 @@ describe('LibreChat JWT auth provider', () => {
       principalSource: 'openid_reuse',
       authContextHash: 'hash_123',
       planId: 'prod_plan_123',
+      codeWorkerId: 'code-user_123',
     });
   });
 
@@ -254,6 +257,7 @@ describe('LibreChat JWT auth provider', () => {
         audiences: ['partner-codeapi'],
         keyIds: ['partner-kid'],
         principalSources: ['external:partner'],
+        codeWorkerIdPrefixes: ['partner-'],
       }),
     ]);
 
@@ -262,12 +266,25 @@ describe('LibreChat JWT auth provider', () => {
       iss: 'partner',
       aud: 'partner-codeapi',
       principal_source: 'external:partner',
+      code_worker_id: 'partner-worker-1',
     });
     const partnerPrincipal = verifyLibreChatJwt(
       signJwt(partnerClaims, { kid: 'partner-kid' }, partner.privateKey),
     );
     expect(partnerPrincipal.principalSource).toBe('external:partner');
     expect(partnerPrincipal.tenantId).toBe('external:partner:tenant_abc');
+    expect(partnerPrincipal.codeWorkerId).toBe('partner-worker-1');
+
+    // A worker ID outside the entry's declared prefixes must not be accepted,
+    // so an external issuer cannot name another issuer's bridge worker.
+    expectJwtReason(
+      signJwt(
+        { ...partnerClaims, code_worker_id: 'code-user_123' },
+        { kid: 'partner-kid' },
+        partner.privateKey,
+      ),
+      'malformed_claims',
+    );
 
     expectJwtReason(signJwt(partnerClaims), 'unknown_kid');
     expectJwtReason(
@@ -311,6 +328,72 @@ describe('LibreChat JWT auth provider', () => {
     setModernTrustEntries([valid]);
     process.env.CODEAPI_JWT_ISSUER = 'stale-issuer';
     expectJwtReason(signJwt(baseClaims()), 'config');
+  });
+
+  test('requires an external trust entry to bound code_worker_id when multiple entries share the verifier', () => {
+    const partner = generateKeyPairSync('ed25519');
+    const partnerJwk = partner.publicKey.export({ format: 'jwk' });
+    process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
+      keys: [
+        { ...publicJwk, kid: 'test-kid', alg: 'EdDSA' },
+        { ...partnerJwk, kid: 'partner-kid', alg: 'EdDSA' },
+      ],
+    });
+    const partnerEntry = trustEntry({
+      issuer: 'partner',
+      audiences: ['partner-codeapi'],
+      keyIds: ['partner-kid'],
+      principalSources: ['external:partner'],
+    });
+
+    setModernTrustEntries([trustEntry(), partnerEntry]);
+    expectJwtReason(signJwt(baseClaims()), 'config');
+
+    process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
+      keys: [{ ...publicJwk, kid: 'test-kid', alg: 'EdDSA' }],
+    });
+    // A single-entry table has no cross-issuer ambiguity and stays unconstrained.
+    setModernTrustEntries([trustEntry()]);
+    expect(verifyLibreChatJwt(signJwt(baseClaims())).codeWorkerId).toBe('code-user_123');
+  });
+
+  test('rejects overlapping code worker ID prefixes across trust entries', () => {
+    const partner = generateKeyPairSync('ed25519');
+    const partnerJwk = partner.publicKey.export({ format: 'jwk' });
+    const second = generateKeyPairSync('ed25519');
+    const secondJwk = second.publicKey.export({ format: 'jwk' });
+    process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
+      keys: [
+        { ...publicJwk, kid: 'test-kid', alg: 'EdDSA' },
+        { ...partnerJwk, kid: 'partner-kid', alg: 'EdDSA' },
+        { ...secondJwk, kid: 'second-kid', alg: 'EdDSA' },
+      ],
+    });
+    const partnerEntry = trustEntry({
+      issuer: 'partner',
+      audiences: ['partner-codeapi'],
+      keyIds: ['partner-kid'],
+      principalSources: ['external:partner'],
+      codeWorkerIdPrefixes: ['partner-'],
+    });
+    const secondEntry = (prefix: string): Record<string, unknown> =>
+      trustEntry({
+        issuer: 'second',
+        audiences: ['second-codeapi'],
+        keyIds: ['second-kid'],
+        principalSources: ['external:second'],
+        codeWorkerIdPrefixes: [prefix],
+      });
+
+    // Duplicate and nested prefixes let each external entry mint a worker ID
+    // the other entry also accepts, so the table is rejected at config time.
+    for (const prefix of ['partner-', 'partner-x-']) {
+      setModernTrustEntries([trustEntry(), partnerEntry, secondEntry(prefix)]);
+      expectJwtReason(signJwt(baseClaims()), 'config');
+    }
+
+    setModernTrustEntries([trustEntry(), partnerEntry, secondEntry('second-')]);
+    expect(verifyLibreChatJwt(signJwt(baseClaims())).principalSource).toBe('openid_reuse');
   });
 
   test('rejects duplicate key IDs across verification key sources', () => {
