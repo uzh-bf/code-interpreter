@@ -285,6 +285,16 @@ Source and current-upstream evidence:
 - Upstream `2c7fb8fcd7113f0f78b2085e80adf651ea4e5359` adds execution-profile queues
   and `jobCompletionWaitTimeoutMs`, but still waits only on QueueEvents.
 
+- Upstream `v1.1.0` adds `waitForJobWithCancellation`. The merge composes the
+  fork poll race into it. The completion event settles from its own payload, as
+  BullMQ's `waitUntilFinished` does, so an evicted completed job is not reported
+  as an error; the composed poll owns an abort signal and stops once any other
+  outcome settles.
+- Retention depth is part of this contract: a completed job must still exist in
+  Redis while the poll fallback can observe it. Both enqueue sites in
+  `service/src/service/programmatic-router.ts` keep `removeOnComplete.count=100`
+  (upstream ships `1`), matching `service/src/service/router.ts`.
+
 Replay and drop condition:
 
 - Start from upstream routers and route their current timeout through
@@ -408,6 +418,10 @@ Required behavior:
   `external:<slug>` namespace without embedding a consumer-specific source,
   and isolate their tenant storage namespaces by that validated source.
 
+- When more than one trust entry shares the verifier, bound the upstream
+  `code_worker_id` claim per entry through an explicit prefix allowlist so an
+  external issuer cannot name another issuer's bridge worker.
+
 Owned paths:
 
 - `docker-compose.yaml`
@@ -425,6 +439,11 @@ Source and current-upstream evidence:
 - Upstream `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` and the reconciled UZH
   baseline `83c4f7b105b6b3e69eda12701ad4ec437acba08f` retain only one effective
   issuer policy.
+
+- Upstream `v1.1.0` adds the `code_worker_id` claim. The merge integrates it
+  into the fork trust table and adds `codeWorkerIdPrefixes`: a multi-entry
+  table must declare the prefixes its external entry may mint, while a
+  single-entry table stays unconstrained for backward compatibility.
 
 Replay and drop condition:
 

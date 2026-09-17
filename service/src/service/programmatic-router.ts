@@ -453,7 +453,9 @@ async function runReplayIteration(
         egressGrantToken: sandboxSecurity.egressGrantToken,
       },
       {
-        removeOnComplete: { age: 60, count: 1 },
+        // Retention must stay deeper than the poll fallback's reach: the
+        // fallback can only recover a completed job that is still in Redis.
+        removeOnComplete: { age: 60, count: 100 },
         removeOnFail: { age: 180, count: 1 },
         attempts: 1,
         jobId: cancellationTarget.jobId,
@@ -484,11 +486,13 @@ async function runReplayIteration(
     signal,
     // UZH fork: recover completion when QueueEvents lag, without weakening the
     // upstream cancellation fence or timeout authority.
-    fallbackCompletion: pollJobUntilFinished(
-      job as never,
-      queue as never,
-      JOB_COMPLETION_WAIT_TIMEOUT_MS,
-    ) as Promise<t.ExecuteResult>,
+    fallbackCompletion: signal =>
+      pollJobUntilFinished(
+        job as never,
+        queue as never,
+        JOB_COMPLETION_WAIT_TIMEOUT_MS,
+        signal,
+      ) as Promise<t.ExecuteResult>,
   });
 }
 
@@ -1826,7 +1830,9 @@ async function handleBlocking(
       egressGrantToken: sandboxSecurity.egressGrantToken,
             },
             {
-      removeOnComplete: { age: 60, count: 1 },
+      // Retention must stay deeper than the poll fallback's reach: the
+      // fallback can only recover a completed job that is still in Redis.
+      removeOnComplete: { age: 60, count: 100 },
       removeOnFail: { age: 180, count: 1 },
       attempts: 1,
       jobId: session_id,

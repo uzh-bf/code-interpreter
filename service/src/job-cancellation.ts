@@ -566,7 +566,7 @@ export async function waitForJobWithCancellation<T>(args: {
   /** UZH fork: additive BullMQ job-state polling. Resolves when polling observes
    * a terminal state that a missed or lagged QueueEvents event would otherwise
    * hide. It NEVER rejects, so it cannot change upstream failure semantics. */
-  fallbackCompletion?: Promise<T>;
+  fallbackCompletion?: (signal: AbortSignal) => Promise<T>;
 }): Promise<T> {
   const {
     commands,
@@ -581,6 +581,12 @@ export async function waitForJobWithCancellation<T>(args: {
   // Subscription startup can itself wait for Redis recovery. Own the losing
   // promise immediately, before any await, rather than after registration.
   void completion.catch(() => undefined);
+  // UZH fork: the additive polling fallback is owned here so that its signal is
+  // aborted once any other outcome settles. Without that, an evicted or
+  // cancelled job would leave the poller reading Redis for the whole timeout.
+  const fallbackAbortController = new AbortController();
+  const fallbackCompletion = args.fallbackCompletion?.(fallbackAbortController.signal);
+  void fallbackCompletion?.catch(() => undefined);
   const target = { queueName: job.queueName, jobId: String(job.id) };
   const deadlineAtMs = args.deadlineAtMs ?? Date.now() + timeoutMs;
   let fencing: Promise<JobFenceOutcome<T>> | undefined;
@@ -596,6 +602,7 @@ export async function waitForJobWithCancellation<T>(args: {
     await registry.register(target, externalController);
   } catch (error) {
     void completion.catch(() => undefined);
+    fallbackAbortController.abort();
     const outcome = await fence();
     if (outcome.status === 'completed') return outcome.result;
     await removeJobIfWaiting(job).catch(() => false);
@@ -648,7 +655,7 @@ export async function waitForJobWithCancellation<T>(args: {
   // UZH fork: the polling fallback is additive. On failure it parks on a
   // never-settling promise so upstream's completion, cancellation, and timeout
   // outcomes remain authoritative.
-  const fallback = args.fallbackCompletion?.then(
+  const fallback = fallbackCompletion?.then(
     value => value,
     () => new Promise<T>(() => {}),
   );
@@ -664,6 +671,9 @@ export async function waitForJobWithCancellation<T>(args: {
     throw error;
   } finally {
     removeAbortListener();
+    // Stop the additive poller as soon as any outcome wins, so it never keeps
+    // reading Redis after completion, cancellation, or timeout.
+    fallbackAbortController.abort();
     await registry
       .unregister(target, externalController)
       .catch(() => undefined);
