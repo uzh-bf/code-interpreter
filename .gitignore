@@ -18,6 +18,9 @@ helm/*/Chart.lock
 # Local sandbox runtime data (docker volume mount)
 data/
 
+# Local review and plan-hardening reports, never committed
+docs/project/_local/
+
 
 # Editor config
 .vscode/
