@@ -40,6 +40,7 @@ interface LibreChatJwtClaims {
   chc_user_id?: string; // leak-check:allow
   auth_context_hash?: string;
   plan_id?: string;
+  code_worker_id?: string;
 }
 
 interface PublicKeyEntry {
@@ -605,6 +606,7 @@ function validateClaims(
   const nbf = assertNumericDate(claims.nbf, 'nbf');
   const exp = assertNumericDate(claims.exp, 'exp');
   const planId = optionalString(claims.plan_id, 'plan_id');
+  const codeWorkerId = optionalString(claims.code_worker_id, 'code_worker_id');
   const principalSource = assertPrincipalSource(claims.principal_source, trustEntry.principalSources);
   const tenantId = tenantNamespace(resolveTenantIdClaim(claims.tenant_id), principalSource);
   const authContextHash = assertString(claims.auth_context_hash, 'auth_context_hash');
@@ -642,6 +644,7 @@ function validateClaims(
     principalSource,
     authContextHash,
     planId,
+    codeWorkerId,
   };
 }
 

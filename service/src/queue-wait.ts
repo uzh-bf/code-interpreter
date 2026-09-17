@@ -98,7 +98,7 @@ function waitForJobEvent<TData, TReturn, TName extends string>(
   });
 }
 
-async function pollJobUntilFinished<TData, TReturn, TName extends string>(
+export async function pollJobUntilFinished<TData, TReturn, TName extends string>(
   job: Job<TData, TReturn, TName>,
   queue: Queue<TData, TReturn, TName>,
   timeoutMs: number,
