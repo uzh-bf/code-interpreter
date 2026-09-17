@@ -62,7 +62,7 @@ function waitForJobEvent<TData, TReturn, TName extends string>(
       void promise.then(resolve, reject);
     };
 
-    const onCompleted = (event: { jobId: string; returnvalue?: TReturn }) => {
+    const onCompleted = (event: { jobId: string; returnvalue?: string }) => {
       if (event.jobId !== jobId) {
         return;
       }
@@ -70,8 +70,10 @@ function waitForJobEvent<TData, TReturn, TName extends string>(
       // does, rather than re-reading the job from Redis. A completed job may
       // already have been evicted by the retention policy, which would turn a
       // successful execution into an error even though the event carries the
-      // result.
-      settleWith(Promise.resolve(event.returnvalue as TReturn));
+      // result. BullMQ declares the payload field as a string and parses it
+      // back into the typed result before emitting, so the cast goes through
+      // `unknown`.
+      settleWith(Promise.resolve(event.returnvalue as unknown as TReturn));
     };
     const onFailed = (event: { jobId: string; failedReason?: string }) => {
       if (event.jobId === jobId) {

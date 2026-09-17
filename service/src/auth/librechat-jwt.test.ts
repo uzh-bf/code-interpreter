@@ -356,6 +356,46 @@ describe('LibreChat JWT auth provider', () => {
     setModernTrustEntries([trustEntry()]);
     expect(verifyLibreChatJwt(signJwt(baseClaims())).codeWorkerId).toBe('code-user_123');
   });
+
+  test('rejects overlapping code worker ID prefixes across trust entries', () => {
+    const partner = generateKeyPairSync('ed25519');
+    const partnerJwk = partner.publicKey.export({ format: 'jwk' });
+    const second = generateKeyPairSync('ed25519');
+    const secondJwk = second.publicKey.export({ format: 'jwk' });
+    process.env.CODEAPI_JWT_JWKS_JSON = JSON.stringify({
+      keys: [
+        { ...publicJwk, kid: 'test-kid', alg: 'EdDSA' },
+        { ...partnerJwk, kid: 'partner-kid', alg: 'EdDSA' },
+        { ...secondJwk, kid: 'second-kid', alg: 'EdDSA' },
+      ],
+    });
+    const partnerEntry = trustEntry({
+      issuer: 'partner',
+      audiences: ['partner-codeapi'],
+      keyIds: ['partner-kid'],
+      principalSources: ['external:partner'],
+      codeWorkerIdPrefixes: ['partner-'],
+    });
+    const secondEntry = (prefix: string): Record<string, unknown> =>
+      trustEntry({
+        issuer: 'second',
+        audiences: ['second-codeapi'],
+        keyIds: ['second-kid'],
+        principalSources: ['external:second'],
+        codeWorkerIdPrefixes: [prefix],
+      });
+
+    // Duplicate and nested prefixes let each external entry mint a worker ID
+    // the other entry also accepts, so the table is rejected at config time.
+    for (const prefix of ['partner-', 'partner-x-']) {
+      setModernTrustEntries([trustEntry(), partnerEntry, secondEntry(prefix)]);
+      expectJwtReason(signJwt(baseClaims()), 'config');
+    }
+
+    setModernTrustEntries([trustEntry(), partnerEntry, secondEntry('second-')]);
+    expect(verifyLibreChatJwt(signJwt(baseClaims())).principalSource).toBe('openid_reuse');
+  });
+
   test('rejects duplicate key IDs across verification key sources', () => {
     process.env.CODEAPI_JWT_PUBLIC_KEY = JSON.stringify(publicJwk);
     process.env.CODEAPI_JWT_KID = 'test-kid';

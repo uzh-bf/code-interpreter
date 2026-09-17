@@ -412,6 +412,117 @@ test('registration failure fences and removes the already-enqueued job', async (
   await registry.close();
 });
 
+test('owns the additive fallback poller and stops it once completion wins', async () => {
+  const fake = new FakeRedis();
+  const registry = new JobCancellationRegistry(redis(fake));
+  let release!: (value: string) => void;
+  const job = {
+    id: 'fallback-lifecycle',
+    queueName: 'other',
+    waitUntilFinished: () =>
+      new Promise<string>(resolve => {
+        release = resolve;
+      }),
+    getState: async () => 'active',
+    remove: async () => {},
+  } as unknown as Job<unknown, string>;
+  let fallbackSignal: AbortSignal | undefined;
+  let pollerStopped = false;
+
+  const waiting = waitForJobWithCancellation({
+    commands: redis(fake),
+    registry,
+    job,
+    events: {} as QueueEvents,
+    timeoutMs: 1_000,
+    cancellationTtlSeconds: 60,
+    fallbackCompletion: signal => {
+      fallbackSignal = signal;
+      return new Promise<string>(resolve => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            pollerStopped = true;
+            resolve('polled');
+          },
+          { once: true },
+        );
+      });
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  // The poller runs while the wait is pending and must stop as soon as any
+  // other outcome settles, so it never keeps reading Redis for the full
+  // timeout after completion, cancellation, or timeout.
+  expect(fallbackSignal?.aborted).toBe(false);
+  expect(pollerStopped).toBe(false);
+
+  release('completed');
+  await expect(waiting).resolves.toBe('completed');
+  expect(fallbackSignal?.aborted).toBe(true);
+  expect(pollerStopped).toBe(true);
+  await registry.close();
+});
+
+test('aborts the fallback poller when subscription registration fails', async () => {
+  const fake = new FakeRedis();
+  fake.subscriber.subscribeFailures = 1;
+  const registry = new JobCancellationRegistry(redis(fake));
+  const job = {
+    id: 'fallback-register-failure',
+    queueName: 'other',
+    waitUntilFinished: () => new Promise<never>(() => {}),
+    getState: async () => 'waiting',
+    remove: async () => {},
+  } as unknown as Job<unknown, unknown>;
+  let fallbackSignal: AbortSignal | undefined;
+
+  await expect(
+    waitForJobWithCancellation({
+      commands: redis(fake),
+      registry,
+      job,
+      events: {} as QueueEvents,
+      timeoutMs: 1_000,
+      cancellationTtlSeconds: 60,
+      fallbackCompletion: signal => {
+        fallbackSignal = signal;
+        return new Promise<unknown>(() => {});
+      },
+    }),
+  ).rejects.toThrow('subscriber unavailable');
+
+  expect(fallbackSignal?.aborted).toBe(true);
+  await registry.close();
+});
+
+test('a rejecting fallback poller cannot override the completion outcome', async () => {
+  const fake = new FakeRedis();
+  const registry = new JobCancellationRegistry(redis(fake));
+  const job = {
+    id: 'fallback-rejection',
+    queueName: 'other',
+    waitUntilFinished: () => Promise.resolve('completed'),
+    getState: async () => 'active',
+    remove: async () => {},
+  } as unknown as Job<unknown, string>;
+
+  const waiting = waitForJobWithCancellation({
+    commands: redis(fake),
+    registry,
+    job,
+    events: {} as QueueEvents,
+    timeoutMs: 1_000,
+    cancellationTtlSeconds: 60,
+    fallbackCompletion: () => Promise.reject(new Error('poller failed')),
+  });
+
+  // The poller is additive: upstream completion, cancellation, and timeout
+  // remain the only outcomes that can settle the wait.
+  await expect(waiting).resolves.toBe('completed');
+  await registry.close();
+});
+
 test('a result rejection is owned while subscription registration is pending', async () => {
   const fake = new FakeRedis();
   let release!: () => void;

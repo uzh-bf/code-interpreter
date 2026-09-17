@@ -486,12 +486,12 @@ async function runReplayIteration(
     signal,
     // UZH fork: recover completion when QueueEvents lag, without weakening the
     // upstream cancellation fence or timeout authority.
-    fallbackCompletion: signal =>
+    fallbackCompletion: fallbackSignal =>
       pollJobUntilFinished(
         job as never,
         queue as never,
         JOB_COMPLETION_WAIT_TIMEOUT_MS,
-        signal,
+        fallbackSignal,
       ) as Promise<t.ExecuteResult>,
   });
 }

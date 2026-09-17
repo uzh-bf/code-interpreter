@@ -345,6 +345,7 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
   const entries = new Map<string, JwtTrustEntry>();
   const assignedKeyIds = new Set<string>();
   const assignedExternalSources = new Set<string>();
+  const assignedWorkerIdPrefixes = new Set<string>();
   for (const [index, value] of parsed.entries()) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       throw new CodeApiJwtAuthError('config', `JWT trust entry ${index} must be an object`);
@@ -401,6 +402,21 @@ function parseModernTrustEntries(keys: Map<string, PublicKeyEntry>, raw: string)
         'config',
         `JWT trust entry ${index} must declare codeWorkerIdPrefixes for its external principal source`,
       );
+    }
+    // Two entries that accept the same worker ID would each admit the other's
+    // bridge workers, which is what the per-entry bound exists to prevent. The
+    // prefixes must therefore be disjoint across entries.
+    for (const prefix of workerIdPrefixes) {
+      const overlapping = [...assignedWorkerIdPrefixes].find(
+        assigned => assigned.startsWith(prefix) || prefix.startsWith(assigned),
+      );
+      if (overlapping !== undefined) {
+        throw new CodeApiJwtAuthError(
+          'config',
+          `codeWorkerIdPrefixes must be disjoint across trust entries: ${prefix} overlaps ${overlapping}`,
+        );
+      }
+      assignedWorkerIdPrefixes.add(prefix);
     }
     const allowedAlgs = new Set<JwtAlg>(algorithmValues);
     for (const keyId of keyIds) {
