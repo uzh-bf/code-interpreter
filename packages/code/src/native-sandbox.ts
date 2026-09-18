@@ -13,6 +13,9 @@ import {
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdtemp, open, realpath, rm, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
+import { matchesWorkspaceRoot } from './root-identity.js';
+import type { WorkspaceRootIdentity } from './root-identity.js';
+import { withWorkspaceRoot, WorkspaceRootAccessError, spawnWithinWorkspace, realpath as rootedRealpath, stat as rootedStat } from './root-access.js';
 
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 
@@ -157,6 +160,7 @@ type SpawnCommand = (
 ) => ChildProcessWithoutNullStreams;
 
 export interface NativeSrtWorkspaceCommandSandboxOptions {
+  workspaceIdentity?: WorkspaceRootIdentity;
   workspaceRoot: string;
   commandPolicy?: NativeSrtCommandPolicy;
   /** Trusted worker files that must never become workspace-readable or writable. */
@@ -343,6 +347,9 @@ export class NativeSrtWorkspaceCommandSandbox implements WorkspaceCommandSandbox
       );
     }
     const root = await realpath(this.options.workspaceRoot);
+    if (this.options.workspaceIdentity && !await matchesWorkspaceRoot(root, this.options.workspaceIdentity)) {
+      throw new WorkspaceToolError('Selected project changed before sandbox admission', 'REGISTRATION_INVALID');
+    }
     if (!(await stat(root)).isDirectory()) {
       throw new WorkspaceToolError(
         'Native sandbox workspace is unavailable',
@@ -573,7 +580,20 @@ export class NativeSrtWorkspaceCommandSandbox implements WorkspaceCommandSandbox
     executionDirectory: string,
     signal?: AbortSignal,
   ): Promise<string> {
+    try {
+      return await withWorkspaceRoot(this.options.workspaceRoot, this.options.workspaceIdentity,
+        () => this.createBoundProgrammaticProbeWorkspace(executionDirectory, signal));
+    } catch (error) {
+      if (error instanceof WorkspaceRootAccessError) throw new WorkspaceToolError('Selected project changed before probe staging', 'REGISTRATION_INVALID');
+      throw error;
+    }
+  }
+
+  private async createBoundProgrammaticProbeWorkspace(executionDirectory: string, signal?: AbortSignal): Promise<string> {
     await this.initialize();
+    if (this.options.workspaceIdentity && !await matchesWorkspaceRoot(this.options.workspaceRoot, this.options.workspaceIdentity)) {
+      throw new WorkspaceToolError('Selected project changed before probe staging', 'REGISTRATION_INVALID');
+    }
     const scratchDirectory = this.scratchDirectory;
     const root = this.canonicalRoot;
     let parent: string;
@@ -608,8 +628,11 @@ export class NativeSrtWorkspaceCommandSandbox implements WorkspaceCommandSandbox
         this.platform === 'darwin'
           ? ['-cR', root, destination]
           : ['--archive', '--reflink=always', root, destination];
+      const identity = this.options.workspaceIdentity;
+      const copyArgs = identity ? [...args.slice(0, -2), '.', destination] : args;
       await new Promise<void>((resolveCopy, rejectCopy) => {
-        const child = this.spawnCommand('/bin/cp', args, {
+        const child = spawnWithinWorkspace(this.spawnCommand, '/bin/cp', copyArgs, {
+          ...(identity ? { cwd: root } : {}),
           env: {
             PATH: this.environment.PATH,
             LANG: this.environment.LANG,
@@ -800,6 +823,26 @@ export class NativeSrtWorkspaceCommandSandbox implements WorkspaceCommandSandbox
         sandboxScratchDirectory?: string,
         workspaceRoot?: string,
   ): Promise<WorkspaceExecuteCommandResult> {
+    try {
+      return await withWorkspaceRoot(this.options.workspaceRoot, workspaceRoot ? undefined : this.options.workspaceIdentity,
+        () => this.executeBound(request, signal, trustedEnvironment, customConfig, sandboxScratchDirectory, workspaceRoot));
+    } catch (error) {
+      if (error instanceof WorkspaceRootAccessError) throw new WorkspaceToolError(error.message, 'REGISTRATION_INVALID');
+      throw error;
+    }
+  }
+
+  private async executeBound(
+    request: WorkspaceExecuteCommandRequest,
+    signal?: AbortSignal,
+    trustedEnvironment?: NodeJS.ProcessEnv,
+    customConfig?: Partial<SandboxRuntimeConfig>,
+    sandboxScratchDirectory?: string,
+    workspaceRoot?: string,
+  ): Promise<WorkspaceExecuteCommandResult> {
+    if (this.options.workspaceIdentity && !await matchesWorkspaceRoot(this.options.workspaceRoot, this.options.workspaceIdentity)) {
+      throw new WorkspaceToolError('Selected project changed after sandbox admission', 'REGISTRATION_INVALID');
+    }
     if (
       !isWorkspaceToolRequest(request) ||
       request.operation !== 'execute_command'
@@ -819,8 +862,8 @@ export class NativeSrtWorkspaceCommandSandbox implements WorkspaceCommandSandbox
     const root = workspaceRoot ?? this.canonicalRoot!;
     let cwd: string;
     try {
-      cwd = await realpath(resolve(root, request.cwd ?? '.'));
-      if (!isWithin(root, cwd) || !(await stat(cwd)).isDirectory())
+      cwd = await rootedRealpath(resolve(root, request.cwd ?? '.'));
+      if (!isWithin(root, cwd) || !(await rootedStat(cwd)).isDirectory())
         throw new Error('invalid cwd');
     } catch {
       throw new WorkspaceToolError(
@@ -939,7 +982,7 @@ export class NativeSrtWorkspaceCommandSandbox implements WorkspaceCommandSandbox
       (resolvePromise, reject) => {
         let child: ChildProcessWithoutNullStreams;
         try {
-                    child = this.spawnCommand(
+                    child = spawnWithinWorkspace(this.spawnCommand,
                         wrapped.argv[0],
                         wrapped.argv.slice(1),
                         {

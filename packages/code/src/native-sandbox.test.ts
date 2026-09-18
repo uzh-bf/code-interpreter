@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import {
   access,
   chmod,
@@ -234,6 +235,119 @@ test('programmatic probes use a copy-on-write workspace without mutating the pro
   await writeFile(join(snapshot, 'state.txt'), 'probe-only');
   assert.equal(await readFile(join(root, 'state.txt'), 'utf8'), 'original');
   assert.equal(await readFile(join(snapshot, 'state.txt'), 'utf8'), 'probe-only');
+});
+
+test('selected command cwd stays bound when replacement happens while wrapping', async t => {
+  const parent = await mkdtemp(join(tmpdir(), 'librechat-project-command-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = join(await realpath(parent), 'project');
+  await mkdir(root);
+  await writeFile(join(root, 'identity.txt'), 'original');
+  const identity = await stat(root, { bigint: true });
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    workspaceIdentity: { path: root, dev: String(identity.dev), ino: String(identity.ino) },
+    manager: fakeManager({ beforeWrap: async () => {
+      await rename(root, `${root}.old`);
+      await mkdir(root);
+      await writeFile(join(root, 'identity.txt'), 'replacement');
+    } }).manager,
+  });
+  t.after(() => sandbox.close());
+  const result = await sandbox.execute({ ...request, command: 'cat identity.txt; printf written > result.txt' });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.stdout, 'original');
+  assert.equal(await readFile(join(`${root}.old`, 'result.txt'), 'utf8'), 'written');
+  await assert.rejects(access(join(root, 'result.txt')));
+});
+
+test('selected command cancellation kills the exec trampoline process group', async t => {
+  const parent = await mkdtemp(join(tmpdir(), 'librechat-project-cancel-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = await realpath(parent);
+  const identity = await stat(root, { bigint: true });
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    workspaceIdentity: { path: root, dev: String(identity.dev), ino: String(identity.ino) },
+    manager: fakeManager().manager,
+  });
+  t.after(() => sandbox.close());
+  const controller = new AbortController();
+  const running = sandbox.execute({ ...request, timeoutMs: 5000,
+    command: 'printf started > started; sleep 3; printf late > late' }, controller.signal);
+  const rejected = assert.rejects(running, error => error instanceof WorkspaceToolError && error.code === 'EXECUTION_ABORTED');
+  const deadline = Date.now() + 3000;
+  while (true) {
+    try { await access(join(root, 'started')); break; } catch { /* Wait for the actual child. */ }
+    if (Date.now() > deadline) throw new Error('Selected command did not start');
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  controller.abort();
+  await rejected;
+  await new Promise(resolve => setTimeout(resolve, 3100));
+  await assert.rejects(access(join(root, 'late')));
+});
+
+test('selected replay copy stays on the verified directory after pathname replacement', async t => {
+  const parent = await mkdtemp(join(tmpdir(), 'librechat-project-copy-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = join(await realpath(parent), 'project');
+  await mkdir(root);
+  await writeFile(join(root, 'identity.txt'), 'original');
+  const identity = await stat(root, { bigint: true });
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    workspaceIdentity: { path: root, dev: identity.dev.toString(), ino: identity.ino.toString() },
+    manager: fakeManager().manager,
+    spawnCommand(command, args, options) {
+      assert.equal(command, process.execPath);
+      renameSync(root, `${root}.old`);
+      mkdirSync(root);
+      writeFileSync(join(root, 'identity.txt'), 'replacement');
+      return spawn(command, args, options);
+    },
+  });
+  t.after(() => sandbox.close());
+  const directory = await sandbox.createExecutionDirectory();
+  let snapshot: string;
+  try {
+    snapshot = await sandbox.createProgrammaticProbeWorkspace(directory);
+  } catch (error) {
+    if (error instanceof CopyOnWriteCloneUnavailableError) {
+      t.skip('host filesystem does not support copy-on-write cloning');
+      return;
+    }
+    throw error;
+  }
+  assert.equal(await readFile(join(root, 'identity.txt'), 'utf8'), 'replacement');
+  assert.equal(await readFile(join(snapshot, 'identity.txt'), 'utf8'), 'original');
+});
+
+test('programmatic probes reject a replaced selected project before copying', async t => {
+  const parent = await mkdtemp(join(tmpdir(), 'librechat-project-probe-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = join(await realpath(parent), 'project');
+  await mkdir(root);
+  const identity = await stat(root, { bigint: true });
+  let copies = 0;
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    workspaceIdentity: { path: root, dev: identity.dev.toString(), ino: identity.ino.toString() },
+    manager: fakeManager().manager,
+    spawnCommand() {
+      copies++;
+      throw new Error('must not copy a replaced project');
+    },
+  });
+  t.after(() => sandbox.close());
+  const executionDirectory = await sandbox.createExecutionDirectory();
+  await rename(root, join(parent, 'original'));
+  await mkdir(root);
+  await assert.rejects(
+    sandbox.createProgrammaticProbeWorkspace(executionDirectory),
+    /Selected project changed before probe staging/,
+  );
+  assert.equal(copies, 0);
 });
 
 test('programmatic probes do not hide clone implementation failures as unsupported filesystems', async t => {

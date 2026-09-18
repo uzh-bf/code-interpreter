@@ -47,6 +47,7 @@ export class BridgeStoreError extends Error {
       | 'WORKER_UNAUTHORIZED'
       | 'WORKER_BUSY'
       | 'WORKER_QUEUE_FULL'
+      | 'WORKSPACE_QUEUE_TIMEOUT'
       | 'ASSIGNMENT_EXPIRED'
       | 'ASSIGNMENT_FENCED'
       | 'ASSIGNMENT_NOT_FOUND'
@@ -838,6 +839,7 @@ export class RedisBridgeStore {
     );
     const lockIncarnationId = registration.incarnationId;
     let assignment: StoredAssignment | undefined;
+    let enqueueAttempted = false;
     let workspaceLeaseSlot: number | undefined;
     const selectedWorkspaceId =
       args.workspaceRequest?.workspaceId ?? args.workspaceId;
@@ -1024,12 +1026,14 @@ export class RedisBridgeStore {
         this.assertDispatchActive(args.signal, args.deadlineAtMs);
         assignment.incarnationId = registration.incarnationId;
         queued = await this.dispatchCommand(
-          () =>
-            this.enqueueForActiveIncarnation(
+          () => {
+            enqueueAttempted = true;
+            return this.enqueueForActiveIncarnation(
               assignment!,
               ttlSeconds,
               readyToken,
-            ),
+            );
+          },
           args,
           'Bridge assignment enqueue',
         );
@@ -1130,6 +1134,18 @@ export class RedisBridgeStore {
         }
         throw error;
       }
+    } catch (error) {
+      // Once enqueue starts, even a lost Redis response may hide execution.
+      if (
+        admission != null && !enqueueAttempted && !args.signal.aborted &&
+        error instanceof BridgeStoreError && error.code === 'ASSIGNMENT_EXPIRED'
+      ) {
+        throw new BridgeStoreError(
+          'WORKSPACE_QUEUE_TIMEOUT',
+          'Workspace capacity was unavailable before the queue deadline. The operation was not started. Wait for active work to finish or select an independent workspace on a machine with available capacity.',
+        );
+      }
+      throw error;
     } finally {
       if (admission != null) {
         // Expiry remains the fallback if Redis is unavailable during cancellation.
