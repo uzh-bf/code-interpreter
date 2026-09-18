@@ -170,7 +170,7 @@ export interface ExecutionState {
    * interface only as a deploy-time fallback so executions whose state was
    * persisted by an older binary still resolve correctly while in-flight. */
   jobCompleted?: boolean;
-  jobResult?: t.ExecuteResult;
+  jobResult?: t.PublicExecuteResponse;
   jobError?: string;
 }
 
@@ -410,7 +410,7 @@ export async function scanKeys(
 // Blocking-mode terminal result
 // ---------------------------------------------------------------------------
 
-/** Blocking-mode result key. The full `t.ExecuteResult` (stdout / stderr /
+/** Blocking-mode result key. The full `t.PublicExecuteResponse` (stdout / stderr /
  * file refs) lives here, separate from `exec_state:`, because a successful
  * blocking run with large stdout/stderr or many file refs can serialize past
  * the `MAX_EXECUTION_STATE_BYTES` cap; storing the result inline used to
@@ -424,7 +424,7 @@ function blockingResultKey(execution_id: string): string {
   return `exec_result:${execution_id}`;
 }
 
-export async function setBlockingResult(execution_id: string, result: t.ExecuteResult): Promise<void> {
+export async function setBlockingResult(execution_id: string, result: t.PublicExecuteResponse): Promise<void> {
   await redis.set(
     blockingResultKey(execution_id),
     JSON.stringify(result),
@@ -433,9 +433,9 @@ export async function setBlockingResult(execution_id: string, result: t.ExecuteR
   );
 }
 
-export async function getBlockingResult(execution_id: string): Promise<t.ExecuteResult | null> {
+export async function getBlockingResult(execution_id: string): Promise<t.PublicExecuteResponse | null> {
   const data = await redis.get(blockingResultKey(execution_id));
-  return data != null ? (JSON.parse(data) as t.ExecuteResult) : null;
+  return data != null ? (JSON.parse(data) as t.PublicExecuteResponse) : null;
 }
 
 export async function deleteBlockingResult(execution_id: string): Promise<void> {
@@ -457,7 +457,7 @@ export async function deleteBlockingResult(execution_id: string): Promise<void> 
  * and, only if so, writes BOTH the updated state (with `jobCompleted=true`)
  * and the result blob in a single hop. If cleanup has already removed the
  * state, the entire update is skipped. */
-export async function setExecutionResult(execution_id: string, result: t.ExecuteResult): Promise<void> {
+export async function setExecutionResult(execution_id: string, result: t.PublicExecuteResponse): Promise<void> {
   const stateKey = `exec_state:${execution_id}`;
   const resultKey = `exec_result:${execution_id}`;
   const existing = await getExecutionState(execution_id);
