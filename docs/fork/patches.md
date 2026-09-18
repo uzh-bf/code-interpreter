@@ -102,6 +102,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
+| Keep public and sandbox wire contracts distinct | Draft | `0b66a3a`, `3ac5e8f` | Optional upstream contract maintenance |
 | Bind JWT trust to verified issuers | Active | `f68acf0` | JWT verification keys and issuer configuration |
 | Keep operational logs values-free | Active | `c87a14d`, `bf83dbe`, `689be7d`, `42a9743` | Winston and Pino logging sinks and public failures |
 | Preserve requests through telemetry failures | Active | PR #23 (`f5bf3b4`) | OpenTelemetry SDK and the shared telemetry core |
@@ -386,6 +387,61 @@ Replay and drop condition:
   recreates the Redis client after terminal disconnect, with a readiness
   recovery test covering an outage longer than five attempts.
 
+## Keep public and sandbox wire contracts distinct
+
+Required behavior:
+
+- Keep this package optional and runtime-neutral. No UZH feature, source gate,
+  image, or deployment depends on it.
+- Preserve the established exported `ExecuteResponse` sandbox transport while
+  naming the flat `/v1/exec` result `PublicExecuteResponse` for service-owned
+  producers and consumers.
+- Describe the public execution, upload, batch-upload, listing, metadata,
+  deletion, and download wire shapes separately from the internal
+  `/api/v2/execute` contract.
+- Keep the internal input filename optional and distinguish inline inputs from
+  stored-file references in the schema.
+
+Owned paths:
+
+- `api/openapi.yaml`
+- `service/openapi.yml`
+- `service/src/openapi-contract.test.ts`
+
+Shared paths:
+
+- `service/src/service/programmatic-router.ts`
+- `service/src/service/replay-state.ts`
+- `service/src/types/service.ts`
+- `service/src/workers.ts`
+
+Source and current-upstream evidence:
+
+- Commit `0b66a3a722bdafbcb48b8a32f91bb2ae0997a685` defines the separate public
+  type, corrected OpenAPI documents, and contract tests. Commit
+  `3ac5e8fec1fb7d551ca903aab259be9c983bdd69` removes the runtime response
+  change so this package remains contract maintenance only.
+- The root, API, and service manifests at baseline
+  `83c4f7b105b6b3e69eda12701ad4ec437acba08f` have no package exports or
+  `publishConfig`; these are deployed applications, not published libraries.
+- Complete-tree searches at the UZH baseline and upstream
+  `297fead1a0cd997b0e3e6e55f77fbe83b376be1a` found `ExecuteResponse` only in
+  its definition, OpenAPI names, and the internal sandbox backend adapter.
+- GitHub searches across `uzh-bf` found no external `ExecuteResponse` or direct
+  source import. The upstream fork network search found the same type
+  definition in eight indexed forks and no separate consumer contract.
+- GitLab searches of `ai-infrastructure/deployment` and local AI and Klicker
+  source-checkout searches found no `ExecuteResponse` or direct import from the
+  CodeAPI source tree. The legacy export remains unchanged regardless.
+
+Replay and drop condition:
+
+- Reapply the public schemas around the current service routes and the internal
+  schema around the current sandbox request validator; do not rename the
+  established sandbox transport for source consumers.
+- Drop when upstream publishes equivalent public and internal schemas, a
+  separately named flat public type, and matching executable contract tests.
+
 ## Keep operational logs values-free
 
 Required behavior:
@@ -604,7 +660,8 @@ Replay and drop condition:
   behaviors above. The values-free logging package adds thirteen owned or shared
   paths outside the original 23-path audit. The issuer-trust package adds three
   owned paths outside that audit and shares the existing Helm README path. PR #23
-  adds the telemetry patch above. The only fork merge commit is classified as
+  adds the telemetry patch above. This branch adds one public-contract behavior
+  with eight owned or shared paths. The only fork merge commit is classified as
   history-only; no fork-authored final-tree path is left unowned.
 - v1.1.0 integration coverage: the replay and re-audit above account for all ten
   logical behaviors, including the narrowed egress-ledger patch (only

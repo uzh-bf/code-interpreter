@@ -272,6 +272,10 @@ export type ExecuteResult = {
     pending_tool_calls_payload?: string;
 };
 
+/** Public /v1/exec response. `ExecuteResponse` remains the established
+ * internal sandbox transport for source consumers of this repository. */
+export type PublicExecuteResponse = ExecuteResult;
+
 export interface LanguageConfig {
   language: string;
   version: string;
@@ -336,7 +340,7 @@ export type JobData = {
   /** W3C trace context carrier injected by the API before the BullMQ boundary. */
   _otel?: Record<string, string>;
 };
-export type JobResult = ExecuteResult;
+export type JobResult = PublicExecuteResponse;
 export type ExecuteJob = Job<JobData, JobResult, Jobs.execute>;
 
 export interface CodeApiAuthContext {
