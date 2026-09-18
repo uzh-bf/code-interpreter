@@ -57,6 +57,38 @@ unchanged.
 - Delta: the port also picks up upstream `c688b30` (#225), which the fork's
   byte-identical-to-v1.1.0 `release.yml` had been missing.
 
+### Re-audit basis: upstream v1.2.0 integration (2026-09-18)
+
+Recorded when the fork merged upstream release v1.2.0. Every disposition above
+was re-checked against the merged tree; all ten behaviors remain Active and
+none needed re-derivation.
+
+- Fork ref and SHA: `uzh/main` at
+  `529d9c0ee18f0f4fb8e91ef726a2528db87335e8` (PR #25 release guard)
+- Upstream ref and SHA: LibreChat-AI/code-interpreter tag `v1.2.0` at
+  `fd9a4fa65e0a5189957032c0046eb286311fda62` (also `upstream/main`)
+- Merge base: `b35c503fd2fe7be412d95c0eef6db50a09aad280` (tag `v1.1.0`)
+- Audited date: 2026-09-18
+- Method: semantic merge of the exact refs above in the scratch clone (clean,
+  zero conflicts), file-overlap analysis between the fork's 55-file delta over
+  `v1.1.0` and the merge's 28-file delta, a logging-sink grep over the newly
+  introduced upstream files, and byte-checks of the release-automation files
+- Delta: three upstream commits. `#226` (`4c7b224`, bounded
+  repository-instruction discovery) and `#222` (`95bfcbd`, selected coding
+  project registration) add new `packages/code` and `service` files; `#227`
+  (`672e195`) reports workspace admission capacity from `service/src/bridge`.
+  `#225` and `#233` were already ported (see the two bases above).
+- Overlap: the only file both the fork delta and the merge touch is
+  `.github/workflows/ci.yml`, where upstream appends two test steps and the
+  fork's `chmod 0555` and release-version-resolution lines are unchanged. The
+  merged `.github/scripts/resolve-release-version.sh` and
+  `tests/release-version-resolution.sh` stay byte-identical to `v1.2.0`, and
+  `release.yml` differs from `v1.2.0` only by the fork guard described below.
+- No merged upstream file introduces a logging sink, so the values-free policy
+  (below) gains no new surface.
+- Limitation: the fork SHA identifies the pre-integration `main`; the
+  integration PR records the resulting exact head and the GitHub merge SHA.
+
 States: Active, Review on sync, Draft, History only, Retired.
 
 ## Patch index

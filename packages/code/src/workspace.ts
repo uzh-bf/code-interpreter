@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, lstat, open, realpath, rename, stat, unlink } from 'node:fs/promises';
+import { link, lstat, open, realpath, rename, stat, unlink, spawn, withWorkspaceRoot, WorkspaceRootAccessError } from './root-access.js';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import type { FileHandle } from 'node:fs/promises';
+import { matchesWorkspaceRoot } from './root-identity.js';
+import type { WorkspaceRootIdentity } from './root-identity.js';
 
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -45,6 +46,7 @@ import type {
 } from './protocol.js';
 
 export { isWorkspaceToolRequest, isWorkspaceToolResult };
+import { readRepositoryInstructions } from './instructions.js';
 export type {
   WorkspaceReadFileRequest,
   WorkspaceReadFileResult,
@@ -66,6 +68,7 @@ export type {
 };
 
 export interface LocalWorkspaceConfig {
+  identity?: WorkspaceRootIdentity;
   id: string;
   name?: string;
   root: string;
@@ -75,6 +78,7 @@ export interface LocalWorkspaceConfig {
 
 export interface LocalWorkspaceToolsOptions {
   workspaces: LocalWorkspaceConfig[];
+  repositoryInstructions?: boolean;
 }
 
 export interface WorkspaceToolExecutor {
@@ -334,6 +338,7 @@ async function readConfinedFile(
 }
 
 interface WorkspaceRoot {
+  identity?: WorkspaceRootIdentity;
   root: string;
   writable: boolean;
 }
@@ -1429,6 +1434,16 @@ async function withinListDeadline<T>(
 export class LocalWorkspaceTools implements WorkspaceToolExecutor {
   readonly capabilities: BridgeWorkspaceToolCapabilities;
   readonly mutationFailuresAreAtomic = true as const;
+  private repositoryInstructions = false;
+
+  async instructionDescriptors() {
+    if (!this.repositoryInstructions) return undefined;
+    const entries = await Promise.all([...this.roots].map(async ([id, { root, identity }]) => {
+      const snapshot = await withWorkspaceRoot(root, identity, () => readRepositoryInstructions(root));
+      return [id, snapshot ? [snapshot.descriptor] : []] as const;
+    }));
+    return new Map(entries);
+  }
 
   private constructor(
     private readonly roots: ReadonlyMap<string, WorkspaceRoot>,
@@ -1496,6 +1511,8 @@ export class LocalWorkspaceTools implements WorkspaceToolExecutor {
       let canonicalRoot: string;
       try {
         canonicalRoot = await realpath(workspace.root);
+        if (workspace.identity && !await matchesWorkspaceRoot(canonicalRoot, workspace.identity)) throw new Error();
+        await withWorkspaceRoot(canonicalRoot, workspace.identity, async () => undefined);
         if (!(await stat(canonicalRoot)).isDirectory()) throw new Error();
       } catch {
         throw new WorkspaceToolError(
@@ -1504,11 +1521,12 @@ export class LocalWorkspaceTools implements WorkspaceToolExecutor {
         );
       }
       roots.set(workspace.id, {
+        identity: workspace.identity,
         root: canonicalRoot,
         writable: workspace.writable === true,
       });
     }
-    return new LocalWorkspaceTools(
+    const tools = new LocalWorkspaceTools(
       roots,
       operations,
       workspaces,
@@ -1517,9 +1535,25 @@ export class LocalWorkspaceTools implements WorkspaceToolExecutor {
       capabilities.editFileFeatures,
       capabilities.listFileFeatures,
     );
+    tools.repositoryInstructions = options.repositoryInstructions === true;
+    return tools;
   }
 
   async execute(
+    request: WorkspaceToolRequest,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceToolResult> {
+    const workspace = this.roots.get(request?.workspaceId);
+    if (!workspace?.identity) return this.executeBound(request, signal);
+    try {
+      return await withWorkspaceRoot(workspace.root, workspace.identity, () => this.executeBound(request, signal));
+    } catch (error) {
+      if (error instanceof WorkspaceRootAccessError) throw new WorkspaceToolError(error.message, 'REGISTRATION_INVALID');
+      throw error;
+    }
+  }
+
+  private async executeBound(
     request: WorkspaceToolRequest,
     signal?: AbortSignal,
   ): Promise<WorkspaceToolResult> {
@@ -1579,6 +1613,15 @@ export class LocalWorkspaceTools implements WorkspaceToolExecutor {
       );
     }
 
+    if (request.instructionSha256 !== undefined) {
+      const snapshot = this.repositoryInstructions ? await readRepositoryInstructions(root) : undefined;
+      if (!snapshot || snapshot.descriptor.path !== request.path || snapshot.descriptor.sha256 !== request.instructionSha256) {
+        throw new WorkspaceToolError('Repository instructions changed or are unavailable', 'INVALID_PATH');
+      }
+      return { protocolVersion: BRIDGE_PROTOCOL_VERSION, operation: 'read_file', workspaceId: request.workspaceId,
+        path: request.path, content: snapshot.content, startLine: 1, endLine: snapshot.content.split('\n').length,
+        truncated: snapshot.descriptor.truncated };
+    }
     const startLine = request.startLine ?? 1;
     const maxLines = request.maxLines ?? 200;
     if (

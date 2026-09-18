@@ -51,6 +51,50 @@ chosen non-overlapping project directories with `--workspace` or `--environment`
 Do not also register their parent directory. Treat the inventory as a snapshot;
 normal workspace admission must validate any directory selected from it.
 
+## Register selected projects
+
+After pairing, use paths from `projects --root` to register individual checkouts:
+
+```bash
+librechat-code run --project-root /srv/projects \
+  --project web --project services/api \
+  --allow-workspace-writes --allow-workspace-commands
+```
+
+Only the explicitly listed checkouts become execution roots. The discovery
+directory is not registered, and adding a new sibling repository does not grant
+access to it. In LibreChat, select the project in the existing workspace picker;
+the conversation stores that selection for subsequent tools and approval resumes.
+An agent's default workspace and the user's recent selection work as before.
+
+Project IDs are derived from the canonical discovery directory and relative
+project path, not the branch or selection order. Keep both paths unchanged across
+restarts to retain chat bindings. Moving a checkout changes its ID. These are
+registration IDs, not the root-local IDs printed by the inventory command.
+
+Up to 32 selected projects are supported. Each must be a standalone Git checkout;
+linked worktrees, symlink traversal, overlapping roots, and duplicate selections
+are rejected. Existing native sandbox, command/write permissions, lease-slot and
+quarantine rules still apply. This mode cannot be combined with `--environment`,
+`--worker-dir`, `--workspace`, default-workspace, or workspace ID/name settings.
+Existing registrations are not migrated automatically; use a new conversation
+when switching registration mode. Non-Git directories still use the existing
+workspace flags. Named environment setup/actions still use `--environment`.
+
+Selected projects require macOS or Linux (including WSL2). Each request opens
+and verifies the admitted directory, then retains that descriptor through file
+access, repository-instruction loading, command startup, and replay copying.
+Renaming a project cannot redirect an in-flight request to a replacement checkout;
+subsequent requests reject the changed identity. Restart with an explicitly
+selected replacement to admit it. Descriptors close when requests settle, and
+independent workspaces do not share a current directory or global execution lock.
+
+This reuses the existing workspace protocol. Programmatic tool calling requires
+a LibreChat version that preserves the selected workspace across initial
+execution and replay, plus the worker's normal programmatic prerequisites.
+Installation alone does not restart workers or change registration; update your
+worker service arguments explicitly.
+
 ## Pair
 
 Hardened deployments use a one-time code instead of copying a long-lived
@@ -647,6 +691,19 @@ librechat-code run \
   --allow-workspace-writes \
   --allow-workspace-commands
 ```
+
+Slots are per machine, not a fleet-wide execution limit. A busy machine does not
+consume another machine's slots. Requests for the same root remain serialized,
+including commands started through background tools. Independent checkouts can
+use different slots; selecting subdirectories beneath one registered parent root
+does not create separate scheduling boundaries. Linked Git worktrees share Git
+metadata and are not supported by selected-project registration.
+
+Admission waits at most 30 seconds. A `WORKSPACE_QUEUE_TIMEOUT` response (HTTP
+503, `Retry-After: 1`) means the operation was not assigned or started; wait for
+capacity before submitting it again. This is distinct from `ASSIGNMENT_EXPIRED`
+or a transport timeout after dispatch, where execution may have occurred and
+mutations must not be blindly retried. No automatic retry is added by this policy.
 
 Keep the existing URL, pairing/identity, and network policy configuration.
 The primary root keeps its configured workspace ID (default `primary`). Repeat

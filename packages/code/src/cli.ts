@@ -6,6 +6,7 @@ import { basename, resolve, relative, isAbsolute, sep } from 'node:path';
 
 import { pairBridgeWorker } from './pairing.js';
 import { discoverProjects } from './projects.js';
+import { loadProjectRoots, projectRootArguments } from './project-roots.js';
 import {
     loadCodeEnvironment,
     assertEnvironmentDefinitionsOutsideRoots,
@@ -309,6 +310,26 @@ async function run(
   runtimeSessionId?: string,
   args: string[] = [],
 ): Promise<void> {
+    const projectArgs = projectRootArguments(args);
+    if (
+        projectArgs &&
+        (runtimeSessionId != null ||
+            args.some(arg =>
+                ['--environment', '--worker-dir', '--default-workspace',
+                    '--workspace', '--workspace-id', '--workspace-name'].some(
+                    flag => arg === flag || arg.startsWith(`${flag}=`),
+                ),
+            ) ||
+            [process.env.LIBRECHAT_CODE_WORKER_DIR,
+                process.env.LIBRECHAT_CODE_WORKSPACE_ID,
+                process.env.LIBRECHAT_CODE_WORKSPACE_NAME].some(value => value?.trim()) ||
+            process.env.LIBRECHAT_CODE_DEFAULT_WORKSPACE?.trim().toLowerCase() === 'true')
+    ) {
+        throw new Error('Project selection cannot be combined with other workspace registration settings');
+    }
+    const projectRoots = projectArgs
+        ? await loadProjectRoots(projectArgs.root, projectArgs.projects)
+        : [];
     const environmentPaths: string[] = [];
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--environment') {
@@ -426,11 +447,13 @@ async function run(
     runtimeSessionId == null &&
     (fileRelayUpstream?.length ?? 0) > 0;
   const workspaceId =
+        projectRoots[0]?.id ??
         environments[0]?.definition.name ??
     option(args, '--workspace-id') ??
     process.env.LIBRECHAT_CODE_WORKSPACE_ID?.trim() ??
     'primary';
   const explicitWorkerDirectory =
+        projectRoots[0]?.root ??
         environments[0]?.definition.root ??
         (runtimeSessionId == null
       ? nonEmpty(
@@ -467,6 +490,9 @@ async function run(
   }
     if (environments.length && commandSandboxMode !== 'native-srt') {
         throw new Error('Environment definitions require native-srt');
+    }
+    if (projectRoots.length && commandSandboxMode !== 'native-srt') {
+        throw new Error('Project selections require native-srt');
     }
     if (
         environments.some(environment => environment.definition.setup) &&
@@ -575,8 +601,10 @@ async function run(
         {
           id: workspaceId,
           root: canonicalWorkerDirectory,
+          identity: projectRoots[0]?.identity,
           writable: allowWorkspaceWrites,
           name:
+                      projectRoots[0]?.name ??
                       environments[0]?.definition.name ??
             option(args, '--workspace-name') ??
             process.env.LIBRECHAT_CODE_WORKSPACE_NAME?.trim() ??
@@ -596,6 +624,9 @@ async function run(
             root: environment.definition.root,
             writable: allowWorkspaceWrites,
         });
+    }
+    for (const project of projectRoots.slice(1)) {
+        roots.push({ ...project, writable: allowWorkspaceWrites });
     }
     await assertEnvironmentDefinitionsOutsideRoots(environments, roots);
   for (let i = 0; i < args.length; i++) {
@@ -684,11 +715,13 @@ async function run(
       }),
     ]),
   );
-  let workspaceTools: WorkspaceToolExecutor | undefined = workerDirectory
+  const localWorkspaceTools = workerDirectory
     ? await LocalWorkspaceTools.create({
         workspaces: roots,
+        repositoryInstructions: args.includes('--repository-instructions'),
       })
     : undefined;
+  let workspaceTools: WorkspaceToolExecutor | undefined = localWorkspaceTools;
   if (allowWorkspaceCommands && !canonicalWorkerDirectory) {
     throw new Error('Workspace commands require a registered directory');
   }
@@ -880,6 +913,7 @@ async function run(
         });
   const nativeOptions: NativeProcessSandboxOptions = {
     workspaceRoot: canonicalWorkerDirectory!,
+    workspaceIdentity: roots[0]?.identity,
     commandPolicy,
     protectedPaths: [
       identityPath,
@@ -919,7 +953,7 @@ async function run(
             new Map(
                           roots.map(root => [
                 root.id,
-                { ...nativeOptions, workspaceRoot: root.root },
+                { ...nativeOptions, workspaceRoot: root.root, workspaceIdentity: root.identity },
               ]),
             ),
             workspaceLeaseSlots,
@@ -1030,6 +1064,7 @@ async function run(
   }
   try {
     const worker = new BridgeWorker({
+      instructionDescriptors: () => localWorkspaceTools?.instructionDescriptors() ?? Promise.resolve(undefined),
       codeApiUrl,
       token: configuredToken,
       identity: workerIdentity,
