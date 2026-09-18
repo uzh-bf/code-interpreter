@@ -4,6 +4,12 @@
 #
 # Three entry points feed one job:
 #
+# UZH fork: the job is disabled unconditionally. The fork tracks upstream
+# releases and adds its own commits on top, with deployments pinned by
+# commit SHA, so it never cuts a tag or publishes a release of its own.
+# This file stays otherwise byte-identical to upstream so a release merge
+# applies cleanly. See docs/fork/patches.md.
+#
 #   * successful CI on main — automatically releases deployable changes. The
 #     next repository version follows Conventional Commit intent; changes that
 #     only touch docs, workflows, or tests do not cut a release.
@@ -53,11 +59,11 @@ concurrency:
 jobs:
   release:
     name: Tag and publish
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main')
+    # UZH fork: disabled unconditionally. Upstream tags and publishes the release
+    # here; the fork must not create tags or releases, so no trigger can run
+    # this job. Deleting this condition restores upstream behavior (see
+    # docs/fork/patches.md).
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

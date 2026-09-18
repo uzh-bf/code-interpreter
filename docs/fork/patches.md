@@ -39,6 +39,24 @@ baseline, the v1.1.0 status is recorded in the same section.
 - Limitation: the fork SHA identifies the pre-integration fork branch; the
   reconciliation PR records the resulting exact head and GitHub merge SHA.
 
+### Follow-up basis: upstream v1.2.0 release-workflow port (2026-09-18)
+
+Recorded when the fork ported upstream's release version-resolution fix. Only
+the release-automation files were re-checked; the v1.1.0 dispositions above are
+unchanged.
+
+- Fork ref and SHA: `uzh/main` at
+  `55840f32f3e0204f0f459832d17be33ecfc2c5cc` (PR #24 v1.1.0 merge)
+- Upstream ref and SHA: LibreChat-AI/code-interpreter tag `v1.2.0` at
+  `fd9a4fa65e0a5189957032c0046eb286311fda62` (also `upstream/main`)
+- Ported as `b67791e` (cherry-pick): `.github/scripts/resolve-release-version.sh`,
+  `.github/workflows/release.yml`, and `tests/release-version-resolution.sh` are
+  byte-identical to `v1.2.0`, and the `ci.yml` release-version-resolution step is
+  identical. `ci.yml` keeps the fork's own `chmod 0555` line and does not carry
+  the `#222` and `#227` test steps from trees the fork does not have.
+- Delta: the port also picks up upstream `c688b30` (#225), which the fork's
+  byte-identical-to-v1.1.0 `release.yml` had been missing.
+
 States: Active, Review on sync, Draft, History only, Retired.
 
 ## Patch index
@@ -55,6 +73,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Bind JWT trust to verified issuers | Active | `f68acf0` | JWT verification keys and issuer configuration |
 | Keep operational logs values-free | Active | `c87a14d`, `bf83dbe`, `689be7d`, `42a9743` | Winston and Pino logging sinks and public failures |
 | Preserve requests through telemetry failures | Active | PR #23 (`f5bf3b4`) | OpenTelemetry SDK and the shared telemetry core |
+| Never publish fork tags or releases | Active | PR #25 (port `b67791e`, disable `e9f6fa0`) | GitHub Actions events and the ported upstream resolver |
 
 ## Publish exact-SHA UZH images
 
@@ -490,6 +509,44 @@ Replay and drop condition:
   OpenTelemetry construction or lifecycle reaches the request path, with a test
   matrix covering each fault class.
 
+## Never publish fork tags or releases
+
+Required behavior:
+
+- Track upstream releases and add fork commits on top; deployments pin a commit
+  SHA, so the fork never cuts a tag or publishes a GitHub release of its own.
+- Vendor upstream's release automation — `.github/scripts/resolve-release-version.sh`,
+  `.github/workflows/release.yml`, `tests/release-version-resolution.sh`, and the
+  `ci.yml` step — so merge-sync stays trivial and the ported resolver stays tested.
+- Keep the vendored `release.yml` inert: its job carries `if: ${{ false }}`, so no
+  trigger can create a tag or release.
+
+Owned paths:
+
+- `.github/workflows/release.yml` (the job condition and the header note only;
+  every other line, including upstream’s triggers, tracks `v1.2.0`
+  byte-for-byte)
+
+Source and current-upstream evidence:
+
+- Upstream `fd9a4fa` (tag `v1.2.0`, PR #233) fixed #228 (untagged abort) and #229
+  (rerun-resume rejected its own tag) by extracting the resolver into
+  `.github/scripts/resolve-release-version.sh`; ported verbatim as `b67791e`.
+- GitHub's workflow schema requires the `on` key
+  (`json.schemastore.org/github-workflow.json`), so a trigger-less `release.yml`
+  is not valid; the disable is a job condition rather than an empty `on` block.
+- The fork has no tags or releases on `origin` (`git ls-remote --tags` empty).
+  Nothing consumes fork releases: df-cloud pins chart revision
+  `c1509a88a3189aaf666fe9409ec0c9c539f30c1d` and images by commit SHA from
+  `ghcr.io/uzh-bf/code-interpreter/*`.
+
+Replay and drop condition:
+
+- Replay by restoring upstream's job `if:` condition and the `workflow_run`
+  trigger block.
+- Drop only on a deliberate policy change: if the fork starts cutting its own
+  tags and releases, remove this row and the disable.
+
 ## Retired debris
 
 - Merge commit `356123a` is history-only transport for the package-init fix;
@@ -517,3 +574,7 @@ Replay and drop condition:
   by PR #23. The auto-merged paths (Helm templates, `values.yaml`, `ci.yml`,
   `egress-ledger.ts`, logger sinks) were verified against v1.1.0 rather than
   replayed; no fork-authored final-tree path is left unowned after the merge.
+- v1.2.0 release-workflow coverage: the port adds upstream files that are not
+  fork patches, and the disable adds one fork-owned path,
+  `.github/workflows/release.yml`, recorded above. No other fork path changed in
+  this port.
