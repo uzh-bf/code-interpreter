@@ -32,6 +32,10 @@ release. Successful `main` CI automatically releases deployable changes while
 documentation, workflow, and test-only changes are skipped. See
 [docs/RELEASING.md](docs/RELEASING.md) for the full process and manual path.
 
+> **UZH fork.** The fork does not cut its own tags or releases; it tracks
+> upstream releases and pins deployments by commit SHA. See
+> [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Development
 
 See the [README](README.md) for the architecture overview and

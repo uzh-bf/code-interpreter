@@ -3,6 +3,11 @@
 Deployments should track a tag, not `main`. This document covers how those
 tags are cut.
 
+> **UZH fork.** The fork does not cut its own tags or releases. It tracks
+> upstream releases and adds its own commits on top, and its deployments pin a
+> commit SHA. The process below describes upstream’s release flow; in the fork
+> the Release job is disabled, so a tag pushed by hand would not publish either.
+
 ## Versioning
 
 A release is named `vMAJOR.MINOR.PATCH`, optionally with a `-rcN` suffix for a

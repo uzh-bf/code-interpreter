@@ -526,6 +526,8 @@ Owned paths:
 - `.github/workflows/release.yml` (the job condition and the header note only;
   every other line, including upstream’s triggers, tracks `v1.2.0`
   byte-for-byte)
+- `docs/RELEASING.md` and `CONTRIBUTING.md` (a fork note at the top of the
+  release process; upstream text is otherwise unchanged)
 
 Source and current-upstream evidence:
 
@@ -535,10 +537,14 @@ Source and current-upstream evidence:
 - GitHub's workflow schema requires the `on` key
   (`json.schemastore.org/github-workflow.json`), so a trigger-less `release.yml`
   is not valid; the disable is a job condition rather than an empty `on` block.
-- The fork has no tags or releases on `origin` (`git ls-remote --tags` empty).
-  Nothing consumes fork releases: df-cloud pins chart revision
+- The fork has no tags or releases on `origin` (`git ls-remote --tags` empty),
+  and nothing consumes fork releases: df-cloud pins chart revision
   `c1509a88a3189aaf666fe9409ec0c9c539f30c1d` and images by commit SHA from
   `ghcr.io/uzh-bf/code-interpreter/*`.
+- The vendored `docs/RELEASING.md` documents cutting a tag by hand
+  (`git tag -a … && git push origin …`), which the disabled job cannot stop, so
+  both it and `CONTRIBUTING.md` carry a fork note saying the fork does not cut
+  tags or releases.
 
 Replay and drop condition:
 
