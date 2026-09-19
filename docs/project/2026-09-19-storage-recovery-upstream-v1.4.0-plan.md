@@ -220,9 +220,8 @@ Source integration merged in PR #31 at
 and upstream v1.4.0 are verified ancestors; the merged tree equals the reviewed
 head. All ten PR CI jobs and the integrated final review passed. Post-merge CI
 35466160859 passed all ten jobs. All seven merge-SHA image manifests are
-available with their expected architectures; image build 35466160848 is still
-finishing its sandbox-runner job at this checkpoint. Release run 35468744570
-was skipped as intended.
+available with their expected architectures; image build 35466160848 passed
+all seven jobs. Release run 35468744570 was skipped as intended.
 Fork tag and release counts remain zero. No storage or application deployment
 has occurred; recovery-window/cost and PRD alert-routing decisions are unanswered.
 
@@ -262,7 +261,7 @@ coordination. Record this dependency in storage delivery notes.
     non-root, with git/ripgrep/jq. Initial missing-tool/root-container failures
     were test-environment deficiencies; no application change was used to mask them.
 -   Release versioning, version resolution, bridge pairing and compose contract
-    checks passed. PR and post-merge CI passed; image-workflow completion remains pending.
+    checks passed. PR CI, post-merge CI and all seven image-build jobs passed.
 -   Exact SeaweedFS image on 200MiB tmpfs, 8MiB volumes and 20MiB reserve
     reproduced 24 initial slots. At 12.9MiB free, writes continued until the
     periodic disk check (first refusal after 55.1 seconds); at refusal 12.1MiB
