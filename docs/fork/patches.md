@@ -89,6 +89,19 @@ none needed re-derivation.
 - Limitation: the fork SHA identifies the pre-integration `main`; the
   integration PR records the resulting exact head and the GitHub merge SHA.
 
+### Re-audit basis: upstream v1.4.0 integration (2026-09-19)
+
+- Fork baseline: `ccc225985ff2f6aec6a3fe1472515d8e9bf188bf`.
+- Upstream release: `277fa7742d383eb1b6606ec228cdafe36af043a4`.
+- Three incoming commits add repository-scoped GitHub App credential routing,
+  authenticated bot lookup and optional workspace command timeout metadata.
+- The clean merge preserves both histories. All fourteen incoming paths match
+  upstream exactly, and none overlaps a fork-modified path relative to v1.2.0.
+  Existing fork patch dispositions remain active. The disabled Release workflow
+  is unchanged; deployments continue to use commit images without fork tags.
+- Service and package tests passed; live storage and consumer acceptance remain
+  separately gated in the [execution plan](../project/2026-09-19-storage-recovery-upstream-v1.4.0-plan.md).
+
 States: Active, Review on sync, Draft, History only, Retired.
 
 ## Patch index

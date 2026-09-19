@@ -269,47 +269,73 @@ async function uploadFile(
 
 app.get('/metrics', metricsHandler);
 
-app.get('/health', (_req: express.Request, res: express.Response) => {
-  res.status(200).json({ status: 'ok' });
-});
+/** Injectable dependencies for the liveness and readiness routes. Production
+ *  wiring below reads the module-level Redis client, object store, and startup
+ *  flag; tests drive the same HTTP behavior with synthetic fakes. */
+export interface FileServerHealthDependencies {
+  pingRedis: () => Promise<unknown>;
+  bucketExists: (bucket: string) => Promise<boolean>;
+  isStorageInitialized: () => boolean;
+}
 
-app.get('/ready', async (_req: express.Request, res: express.Response) => {
-  const checks: { redis?: string; s3?: string; storage?: string } = {};
-  let healthy = true;
+export function createHealthRouter(deps: FileServerHealthDependencies): express.Router {
+  const router = express.Router();
 
-  if (!storageInitialized) {
-    checks.storage = 'initializing';
-    healthy = false;
-  }
+  router.get('/health', (_req: express.Request, res: express.Response) => {
+    res.status(200).json({ status: 'ok' });
+  });
 
-  try {
-    await redisClient.ping();
-    checks.redis = 'ok';
-  } catch (error) {
-    logger.error('Readiness check failed - Redis:', { error });
-    checks.redis = 'error';
-    healthy = false;
-  }
+  router.get('/ready', async (_req: express.Request, res: express.Response) => {
+    const checks: { redis?: string; s3?: string; storage?: string } = {};
+    let healthy = true;
 
-  if (storageInitialized) {
-    try {
-      await minioClient.bucketExists(bucketName);
-      checks.s3 = 'ok';
-    } catch (error) {
-      logger.error('Readiness check failed - S3:', { error });
-      checks.s3 = 'error';
+    if (!deps.isStorageInitialized()) {
+      checks.storage = 'initializing';
       healthy = false;
     }
-  } else {
-    checks.s3 = 'pending';
-  }
 
-  if (healthy) {
-    res.status(200).json({ status: 'ready', checks });
-  } else {
-    res.status(503).json({ status: 'not ready', checks });
-  }
-});
+    try {
+      await deps.pingRedis();
+      checks.redis = 'ok';
+    } catch (error) {
+      logger.error('Readiness check failed - Redis:', { error });
+      checks.redis = 'error';
+      healthy = false;
+    }
+
+    if (deps.isStorageInitialized()) {
+      try {
+        if (await deps.bucketExists(bucketName)) {
+          checks.s3 = 'ok';
+        } else {
+          logger.error('Readiness check failed - S3 bucket missing:', { bucket: bucketName });
+          checks.s3 = 'missing';
+          healthy = false;
+        }
+      } catch (error) {
+        logger.error('Readiness check failed - S3:', { error });
+        checks.s3 = 'error';
+        healthy = false;
+      }
+    } else {
+      checks.s3 = 'pending';
+    }
+
+    if (healthy) {
+      res.status(200).json({ status: 'ready', checks });
+    } else {
+      res.status(503).json({ status: 'not ready', checks });
+    }
+  });
+
+  return router;
+}
+
+app.use(createHealthRouter({
+  pingRedis: () => redisClient.ping(),
+  bucketExists: bucket => minioClient.bucketExists(bucket),
+  isStorageInitialized: () => storageInitialized,
+}));
 
 if (!internalServiceAuthEnabled()) {
   logger.warn('CODEAPI_INTERNAL_SERVICE_TOKEN is not set; file object routes are unauthenticated');
@@ -678,7 +704,9 @@ async function shutdown(): Promise<void> {
   }
 }
 
-startServer();
+if (process.env.CODEAPI_FILE_SERVER_AUTOSTART !== 'false') {
+  startServer();
+}
 
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
