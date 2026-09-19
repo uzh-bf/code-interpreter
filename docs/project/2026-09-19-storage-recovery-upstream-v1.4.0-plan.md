@@ -111,9 +111,10 @@ Proposed new monitoring manifests are seaweedfs/{stg,prd}/monitoring.yaml;
 recovery manifests, if their design is accepted, are
 seaweedfs/{stg,prd}/recovery.yaml. Do not implement these pending designs simply
 because paths are named. The df-cloud owner is src/apps/seaweedfs/index.ts for
-bootstrap and Argo kind permissions, and src/apps/codeapi/index.ts for the
-chart revision. Start from origin/stg; promote relevant commits through the
-existing prd branch process. Preserve unrelated drift. No local Pulumi.
+bootstrap and Argo kind permissions, and src/apps/codeapi/functions.ts for the
+chart revision consumed by index.ts. Start from origin/stg; promote relevant
+commits through the existing prd branch process. Preserve unrelated drift.
+No local Pulumi.
 
 CodeAPI integration may progress independently of the recovery block. Before
 main merge verify both ccc225985ff2f6aec6a3fe1472515d8e9bf188bf and upstream
@@ -126,7 +127,8 @@ the chosen chart revision with its values before coordinated promotion; use
 CI-only df-cloud preview/apply for the chart revision and helm-charts for all
 seven image references: api, worker, sandbox-runner, package-init,
 file-server, tool-call-server and egress-gateway (confirm value paths when editing).
-Sandbox-waker inherits its image from the chart and is verified separately.
+The sandbox pool waker is owned by helm-charts companion manifests and uses
+registry.k8s.io/pause:3.9; verify its KEDA ownership separately.
 Record baseline chart and seven pins first, then proposed and reconciled values.
 A failed application check restores that recorded compatible chart/image set
 while retaining repaired storage settings. Do not promote PRD until STG passes.
@@ -210,6 +212,22 @@ then verify no late artifact success for cancelled work over the configured
 retention interval. Record each operation's ID/status without secrets/content.
 
 ## Progress
+
+Source integration merged in PR #31 at
+5d063ffe81df98824c5a15fcafabef5728973672 on 2026-09-19. Both prior fork main
+and upstream v1.4.0 are verified ancestors; the merged tree equals the reviewed
+head. All ten PR CI jobs and the integrated final review passed. Post-merge CI
+35466160859 and image build 35466160848 remain pending at this checkpoint.
+Fork tag and release counts remain zero. No storage or application deployment
+has occurred; recovery-window/cost and PRD alert-routing decisions are unanswered.
+
+The proposed STG values with all seven pins updated to the merge SHA passed
+Helm lint, rendering and Kubernetes server-side dry-run. Baked-image mode renders
+six active fork images and omits the package-init Job while retaining its pin.
+No Secret resources render, file-server probes use /ready and /health, and
+sandbox-runner replicas remain owned by KEDA. The chart itself is byte-identical
+to the current STG chart revision. These checks do not prove image availability
+or consumer acceptance. Proposed values remain outside GitOps.
 
 Planning review: APPROVED after one correction round on 2026-09-19. No cluster
 mutations have occurred. Azure snapshot capability discovery is blocked by the
