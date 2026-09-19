@@ -223,3 +223,45 @@ settings. It is not merged or enabled in current main. Do not merge or activate
 that component before it preserves the repaired capacity flags; otherwise it
 would reintroduce this defect. Do not modify that other owner's branch without
 coordination. Record this dependency in storage delivery notes.
+
+### Executed source and local proof receipts
+
+-   Plan committed as 2a8539c; native planner approved after one correction.
+-   Upstream merge c0b7f223cb988200e90acba4fa1338e79855096d has parents
+    2a8539c and 277fa7742d383eb1b6606ec228cdafe36af043a4. Both fork baseline
+    ccc2259 and upstream v1.4.0 are ancestors. All fourteen incoming paths
+    exactly match upstream; release workflow remains disabled and remote tags
+    remain empty.
+-   Service build passed. Full service suite: 1092 pass, 12 skip, 0 fail on
+    Bun 1.3.14 with required Redis, jq and Python installed in the test container.
+    Package build/tests: 497 pass, 18 platform skips, 0 fail on Node 22.22.0,
+    non-root, with git/ripgrep/jq. Initial missing-tool/root-container failures
+    were test-environment deficiencies; no application change was used to mask them.
+-   Release versioning, version resolution, bridge pairing and compose contract
+    checks passed. Remote CI and post-merge checks still pending.
+-   Exact SeaweedFS image on 200MiB tmpfs, 8MiB volumes and 20MiB reserve
+    reproduced 24 initial slots. At 12.9MiB free, writes continued until the
+    periodic disk check (first refusal after 55.1 seconds); at refusal 12.1MiB
+    remained, so this was reserve enforcement rather than ENOSPC. Existing
+    1MiB object hash remained unchanged. Removing only synthetic filler restored
+    PUT/GET in 58.4 seconds; old hash remained intact. Container stopped, not
+    OOM-killed; exit137 followed the 15-second stop timeout. This is not graceful
+    shutdown or snapshot restore evidence.
+-   Physical guard is periodic and can be overrun by sufficient write throughput.
+    Proposed 5GiB is not a proven production headroom guarantee. Thresholds need
+    growth-rate and operational response evidence; monitoring stays a release gate.
+-   STG-only storage diff renders successfully and passes server-side Kubernetes
+    dry-run. No shared storage resources changed; recovery gate remains open.
+
+- Readiness correction and bridge timeout coverage: focused HTTP/router tests
+  passed 17/17. Integrated service build and suite passed 1101 tests, 12 skips,
+  zero failures. Bucket absence returns 503; dependency failure leaves liveness
+  200. Source enforcement clamps command budget to JOB_TIMEOUT and protocol
+  rejects requests above 300000ms; advertised ceiling matches these constraints.
+- STG allocation MR: helm-charts !103
+  at b163f36069019b0d4f098e76fd22991bf7ef3382, draft. Pipeline668162 passed.
+  Recovery and deployment review remain merge blockers.
+- Claude reviewer was unavailable with expired OAuth. AGY review continuation
+  reached SUCCESS envelope but produced no structured review: its read_file
+  permission was automatically denied in headless mode. This is not a passing
+  review; no permission bypass or agent configuration change attempted.
