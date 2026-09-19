@@ -137,7 +137,9 @@ while retaining repaired storage settings. Do not promote PRD until STG passes.
 
 Current preflight: neither cluster has a VolumeSnapshotClass. Snapshot CRDs
 exist, but this alone does not establish a functioning controller. Azure CLI
-cannot refresh its token because the sandbox rejects its token-cache lock.
+cannot refresh its token because the sandbox rejects writes to its session and
+token-cache files. Cached Kubernetes credentials have now expired as well,
+blocking fresh cluster reads, server dry-runs and live operations.
 No credential caches may be copied to bypass this limitation. Resolve supported
 snapshot capability before implementing a recovery mechanism. The SeaweedFS
 AppProject currently excludes VolumeSnapshot, CronJob, ServiceMonitor,
@@ -217,7 +219,10 @@ Source integration merged in PR #31 at
 5d063ffe81df98824c5a15fcafabef5728973672 on 2026-09-19. Both prior fork main
 and upstream v1.4.0 are verified ancestors; the merged tree equals the reviewed
 head. All ten PR CI jobs and the integrated final review passed. Post-merge CI
-35466160859 and image build 35466160848 remain pending at this checkpoint.
+35466160859 passed all ten jobs. All seven merge-SHA image manifests are
+available with their expected architectures; image build 35466160848 is still
+finishing its sandbox-runner job at this checkpoint. Release run 35468744570
+was skipped as intended.
 Fork tag and release counts remain zero. No storage or application deployment
 has occurred; recovery-window/cost and PRD alert-routing decisions are unanswered.
 
@@ -226,8 +231,9 @@ Helm lint, rendering and Kubernetes server-side dry-run. Baked-image mode render
 six active fork images and omits the package-init Job while retaining its pin.
 No Secret resources render, file-server probes use /ready and /health, and
 sandbox-runner replicas remain owned by KEDA. The chart itself is byte-identical
-to the current STG chart revision. These checks do not prove image availability
-or consumer acceptance. Proposed values remain outside GitOps.
+to the current STG chart revision. Registry inspection separately confirms all
+seven image manifests. Neither rendering nor image publication establishes
+consumer acceptance. Proposed values remain outside GitOps.
 
 Planning review: APPROVED after one correction round on 2026-09-19. No cluster
 mutations have occurred. Azure snapshot capability discovery is blocked by the
@@ -256,7 +262,7 @@ coordination. Record this dependency in storage delivery notes.
     non-root, with git/ripgrep/jq. Initial missing-tool/root-container failures
     were test-environment deficiencies; no application change was used to mask them.
 -   Release versioning, version resolution, bridge pairing and compose contract
-    checks passed. Remote CI and post-merge checks still pending.
+    checks passed. PR and post-merge CI passed; image-workflow completion remains pending.
 -   Exact SeaweedFS image on 200MiB tmpfs, 8MiB volumes and 20MiB reserve
     reproduced 24 initial slots. At 12.9MiB free, writes continued until the
     periodic disk check (first refusal after 55.1 seconds); at refusal 12.1MiB
@@ -268,8 +274,10 @@ coordination. Record this dependency in storage delivery notes.
 -   Physical guard is periodic and can be overrun by sufficient write throughput.
     Proposed 5GiB is not a proven production headroom guarantee. Thresholds need
     growth-rate and operational response evidence; monitoring stays a release gate.
--   STG-only storage diff renders successfully and passes server-side Kubernetes
-    dry-run. No shared storage resources changed; recovery gate remains open.
+-   STG-only allocation diff passed server-side Kubernetes dry-run before the
+    shutdown-grace addition. Current full draft renders; its fresh server dry-run
+    is blocked by expired credentials and Azure cache write permissions. No
+    shared storage resources changed; recovery gate remains open.
 
 - Readiness correction and bridge timeout coverage: focused HTTP/router tests
   passed 17/17. Integrated service build and suite passed 1101 tests, 12 skips,
@@ -277,9 +285,45 @@ coordination. Record this dependency in storage delivery notes.
   200. Source enforcement clamps command budget to JOB_TIMEOUT and protocol
   rejects requests above 300000ms; advertised ceiling matches these constraints.
 - STG allocation MR: helm-charts !103
-  at b163f36069019b0d4f098e76fd22991bf7ef3382, draft. Pipeline668162 passed.
-  Recovery and deployment review remain merge blockers.
+  at 75ad20714483286055a40e798b905a7d0127cc80, draft. Pipeline 668175
+  passed secret detection; it is not Kubernetes schema/runtime validation.
+  Independent final review passed this full two-file draft without findings.
+  Recovery, safe first replacement and live acceptance remain merge blockers.
 - Claude reviewer was unavailable with expired OAuth. AGY review continuation
   reached SUCCESS envelope but produced no structured review: its read_file
   permission was automatically denied in headless mode. This is not a passing
   review; no permission bypass or agent configuration change attempted.
+
+### Shutdown and detection checkpoint
+
+Exact-image non-root synthetic shutdowns with a 60-second stop allowance took
+29.992 and 40.205 seconds, both exit 0 and not OOM-killed. The existing object's
+bytes and selected metadata survived restart; a new authenticated write/read
+also passed. Both live environments were observed using only 30 seconds of
+termination grace. MR !103 now proposes 120 seconds for replacement STG pods.
+This adds measured margin, not a bound on loaded shutdown. The existing pod keeps
+its old 30 seconds on first replacement. Its safe shutdown procedure and a fresh
+whole-PVC snapshot with isolated restoration remain prerequisites. Local restart
+is not snapshot recovery evidence.
+
+A local canary using the pinned existing AWS CLI image passed authenticated
+PUT/GET/hash/DELETE as UID 1000 with a read-only root. It rejected wrong
+credentials, a missing bucket, an unavailable endpoint and corrupted content.
+HEAD-bucket preflight avoids the normal missing-bucket auto-creation path, but
+cannot eliminate a concurrent bucket-deletion race. A future recurring job needs
+an overall deadline, concurrency control and scoped cleanup for interrupted runs.
+No canary or monitoring change has been deployed.
+
+Prometheus 3.10.0 rule tests passed healthy, stalled, delayed, absent-series and
+recovery cases using existing kube-state-metrics CronJob freshness. Each required
+bucket needs independent missing-series detection. Exact SeaweedFS metrics are
+currently disabled; enabling collection needs reviewed Service, NetworkPolicy,
+monitoring manifests and Argo kind permissions. PRD notification routing remains
+an unanswered decision. Physical headroom thresholds still need operational
+acceptance; the periodic reserve guard alone cannot prevent disk exhaustion.
+
+The next live step requires supported Azure authentication-cache write access,
+a concrete STG maintenance window and snapshot/restore cost approval. PRD follows
+only after STG acceptance and its own recovery/routing decisions. Retain recovery
+resources until cleanup is separately approved. No storage or application live
+changes have been made in this package.
