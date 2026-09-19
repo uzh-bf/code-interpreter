@@ -167,7 +167,17 @@ describe('paired bridge HTTP API', () => {
     });
   });
 
-  test('advertises a configured command timeout below the protocol ceiling', async () => {
+  test.each([
+    ['a configured timeout below the protocol ceiling', 120_000, ['execute_command'], 120_000],
+    ['omission without the execute_command capability', 120_000, ['read_file'], undefined],
+    ['omission without a configured timeout', undefined, ['execute_command'], undefined],
+  ] as const)('reports command timeout metadata for %s', async (
+    scenario,
+    maxCommandTimeoutMs,
+    operations,
+    expectedTimeoutMs,
+  ) => {
+    const workerId = 'metadata-worker';
     const store = new RedisBridgeStore(redis);
     const app = express();
     app.use(json());
@@ -178,8 +188,8 @@ describe('paired bridge HTTP API', () => {
         pairings: new RedisBridgePairingStore(redis),
         authMode: 'static',
         adminToken: 'strong-administrator-bootstrap-token',
-        configuredWorkerId: 'command-worker',
-        maxCommandTimeoutMs: 120_000,
+        configuredWorkerId: workerId,
+        maxCommandTimeoutMs,
       }),
     );
     server = createServer(app);
@@ -190,7 +200,7 @@ describe('paired bridge HTTP API', () => {
     }
     await store.register({
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
-      workerId: 'command-worker',
+      workerId,
       incarnationId: 'incarnation-00000001',
       capabilities: {
         statefulWorkspace: false,
@@ -198,117 +208,25 @@ describe('paired bridge HTTP API', () => {
         runtimes: [],
         workspaceTools: {
           protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          operations: ['execute_command'],
+          operations: [...operations],
           workspaces: [{ id: 'primary' }],
         },
       },
     });
 
     const response = await fetch(
-      `http://127.0.0.1:${address.port}/v1/bridge/workers/command-worker/status`,
-      { headers: { Authorization: 'Bearer strong-administrator-bootstrap-token' } },
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      workerId: 'command-worker',
-      maxCommandTimeoutMs: 120_000,
-    });
-  });
-
-  test('omits the command timeout for workers that do not advertise execute_command', async () => {
-    const store = new RedisBridgeStore(redis);
-    const app = express();
-    app.use(json());
-    app.use(
-      '/v1/bridge',
-      createBridgeRouter({
-        store,
-        pairings: new RedisBridgePairingStore(redis),
-        authMode: 'static',
-        adminToken: 'strong-administrator-bootstrap-token',
-        configuredWorkerId: 'read-worker',
-        maxCommandTimeoutMs: 120_000,
-      }),
-    );
-    server = createServer(app);
-    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
-    const address = server.address();
-    if (address == null || typeof address === 'string') {
-      throw new Error('Expected TCP listener');
-    }
-    await store.register({
-      protocolVersion: BRIDGE_PROTOCOL_VERSION,
-      workerId: 'read-worker',
-      incarnationId: 'incarnation-00000001',
-      capabilities: {
-        statefulWorkspace: false,
-        sandboxProfile: 'native-srt',
-        runtimes: [],
-        workspaceTools: {
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          operations: ['read_file'],
-          workspaces: [{ id: 'primary' }],
-        },
-      },
-    });
-
-    const response = await fetch(
-      `http://127.0.0.1:${address.port}/v1/bridge/workers/read-worker/status`,
+      `http://127.0.0.1:${address.port}/v1/bridge/workers/${workerId}/status`,
       { headers: { Authorization: 'Bearer strong-administrator-bootstrap-token' } },
     );
 
     const status = (await response.json()) as Record<string, unknown>;
     expect(response.status).toBe(200);
-    expect(status.workerId).toBe('read-worker');
-    expect('maxCommandTimeoutMs' in status).toBe(false);
-  });
-
-  test('omits the command timeout when the deployment configures none', async () => {
-    const store = new RedisBridgeStore(redis);
-    const app = express();
-    app.use(json());
-    app.use(
-      '/v1/bridge',
-      createBridgeRouter({
-        store,
-        pairings: new RedisBridgePairingStore(redis),
-        authMode: 'static',
-        adminToken: 'strong-administrator-bootstrap-token',
-        configuredWorkerId: 'command-worker',
-      }),
-    );
-    server = createServer(app);
-    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
-    const address = server.address();
-    if (address == null || typeof address === 'string') {
-      throw new Error('Expected TCP listener');
+    expect(status.workerId).toBe(workerId);
+    if (expectedTimeoutMs === undefined) {
+      expect('maxCommandTimeoutMs' in status).toBe(false);
+    } else {
+      expect(status.maxCommandTimeoutMs).toBe(expectedTimeoutMs);
     }
-    await store.register({
-      protocolVersion: BRIDGE_PROTOCOL_VERSION,
-      workerId: 'command-worker',
-      incarnationId: 'incarnation-00000001',
-      capabilities: {
-        statefulWorkspace: false,
-        sandboxProfile: 'native-srt',
-        runtimes: [],
-        workspaceTools: {
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          operations: ['execute_command'],
-          workspaces: [{ id: 'primary' }],
-        },
-      },
-    });
-
-    const response = await fetch(
-      `http://127.0.0.1:${address.port}/v1/bridge/workers/command-worker/status`,
-      { headers: { Authorization: 'Bearer strong-administrator-bootstrap-token' } },
-    );
-
-    const status = (await response.json()) as Record<string, unknown>;
-    expect(response.status).toBe(200);
-    expect(status.workerId).toBe('command-worker');
-    expect('maxCommandTimeoutMs' in status).toBe(false);
   });
 
   test('rejects invalid configured command timeouts', () => {

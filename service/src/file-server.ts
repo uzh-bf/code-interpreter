@@ -50,6 +50,9 @@ const redisClient = new IORedis({
   port: Number(process.env.REDIS_PORT) || 6379,
   password: process.env.REDIS_PASSWORD,
   enableReadyCheck: false,
+  // Pure HTTP imports with autostart explicitly disabled (tests) must not open
+  // an unsolicited connection; deployed servers keep the eager connect.
+  lazyConnect: process.env.CODEAPI_FILE_SERVER_AUTOSTART === 'false',
   tls: process.env.REDIS_TLS === 'true' ? {
     // For self-signed certificates
     rejectUnauthorized: false
@@ -706,15 +709,15 @@ async function shutdown(): Promise<void> {
 
 if (process.env.CODEAPI_FILE_SERVER_AUTOSTART !== 'false') {
   startServer();
+
+  process.on('SIGTERM', () => void shutdown());
+  process.on('SIGINT', () => void shutdown());
+
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception', { error });
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection', { reason, promise });
+  });
 }
-
-process.on('SIGTERM', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
-
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', { error });
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason, promise });
-});
