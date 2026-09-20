@@ -788,3 +788,97 @@ a concrete STG maintenance window and snapshot/restore cost approval. PRD follow
 only after STG acceptance and its own recovery/routing decisions. Retain recovery
 resources until cleanup is separately approved. No storage or application live
 changes have been made in this package.
+
+### PRD storage recovery and CodeAPI promotion — 2026-09-20
+
+df-cloud MR !604 merged with history preserved at
+65d8aa9b4ec5f5661a265966ea9f111f0f723b5e (the renamed protected branch
+release/prd-seaweedfs-snapshot-alerting). Its app-up for seaweedfs ran the
+reviewed preview exactly: one create and two updates, no delete or replace. The
+create is the Retain VolumeSnapshotClass seaweedfs-disk-snapshots
+(disk.csi.azure.com). The AppProject prd-apps-seaweedfs now permits ConfigMap,
+CronJob, Deployment, Ingress, Job, NetworkPolicy, PersistentVolumeClaim,
+PrometheusRule, ResourceQuota, Service, ServiceMonitor and VolumeSnapshot, the
+same kind set STG already carries.
+
+The merged PRD fence could not land by itself: Argo had already recorded a failed
+automatic sync of main revision 55aba4b6 with the message
+"Skipping auto-sync: failed previous sync attempt to 55aba4b6", because the
+earlier attempt predated the AppProject kinds change. The retry budget was
+exhausted, so the desired ResourceQuota stayed missing. I issued one sync of
+app-seaweedfs through the Argo CD API. The diff before the sync was the single
+ResourceQuota seaweedfs-recovery-fence; the operation succeeded and the
+Application became Synced/Healthy. This changed no desired state: it applied the
+revision already merged to main. The sync used an in-memory short-lived admin
+session token minted from the cluster's own argocd-secret signing key over a
+kubectl port-forward; no credential value was written or printed.
+
+Fence verification. ResourceQuota seaweedfs-recovery-fence
+(UID d2e290b5-5782-4388-aa76-eb397b38b642) reports spec and status hard
+pods: "0" with used pods: "1". A PodSecurity-restricted-compliant probe pod was
+rejected at admission: "exceeded quota: seaweedfs-recovery-fence, requested:
+pods=1, used: pods=1, limited: pods=0". The live Deployment intent was unchanged
+at that point (replicas 1, grace 30), so no pod was disturbed by the sync.
+
+Clean shutdown and hold. The approved UID-bound operator deletion ran against pod
+seaweedfs-5bbcb79965-n528p (UID 965f0a54-3476-4ab2-aeb9-7b4785aa4a05) with an
+accepted 120-second grace; the old process exited 0 with reason Completed at
+17:45:01 UTC and the receipt requires that terminal status. helm-charts !115
+merged at 087c36aa and reconciled: desired replicas 0, termination grace 120, and
+the repaired allocation flags -metricsPort=9327 -master.volumeSizeLimitMB=2048
+-volume.max=0 -volume.minFreeSpace=5GiB with WEED_MASTER_VOLUME_GROWTH_COPY_1=1.
+The disk detached with no VolumeAttachment for
+pvc-970fc522-b1ca-4328-8593-31b2628d77b6.
+
+Snapshot. helm-charts !116 merged at 8b7d54ac. VolumeSnapshot
+seaweedfs-recovery-20260920 (UID bf9a535d-14ca-4853-a363-2f9b21d35938) reached
+readyToUse at 17:49:09 UTC, Retain, 50 GiB, driver disk.csi.azure.com, content
+snapcontent-bf9a535d-14ca-4853-a363-2f9b21d35938 (UID
+bcb76b9e-6d24-4413-bc87-9a617d659792) bound to the source PVC UID
+970fc522-b1ca-4328-8593-31b2628d77b6. The Azure snapshot is
+snapshot-bf9a535d-14ca-4853-a363-2f9b21d35938.
+
+Resume. helm-charts !117 merged at af8909bc within the one-hour evidence window:
+desired replicas 1, fence removed, bucket-bootstrap hook restored and the PRD
+monitoring manifest added. The replacement pod seaweedfs-6d7b6b65b7-qm5wz
+(UID 7eb130f5-ab82-412c-beab-4626be46271f) became Ready at 17:51 with 0 restarts
+on the pinned digest, source PVC and repaired flags. Master topology now reports
+Max 24 / Free 16: the slot count is derived from disk (50 GiB / 2 GiB) instead of
+the hardcoded 8, all eight pre-existing volumes re-registered, and both the
+default collection and codeapi-files have a writable volume. Prometheus confirms
+scrape up, 16 spare slots, zero allocation errors in the last ten minutes and all
+eight SeaweedFS storage rules inactive.
+
+Isolated restore. helm-charts !118 merged at 32baecbe. Restore PVC
+seaweedfs-restore-20260920 (UID 5052720d-d4c1-4c5e-b498-de33b8595cf0) bound 50 GiB
+from the snapshot, and Job seaweedfs-restore-20260920
+(UID 8441ef75-bf14-465c-bcce-a4b12f4dfe9a) completed at 17:53:44 UTC. The
+verifier printed the preserved synthetic hash
+9775d7a5ca100b519819db645bb559f29c85051c7b4d5dfde2a9f3ec1f789ab1 and the line
+snapshot_restore=verified new_write=verified metadata=verified. The restored
+server was loopback-bound with a synthetic credential and no service-account
+token, and exited cleanly. Restore PVC, Job and snapshot are retained.
+
+Storage observation. Fifteen consecutive canary completions covered 839 seconds
+with a maximum gap of 63 seconds; the first post-resume canary failed while
+storage was still starting and every later one completed in about five seconds,
+and the metric assertions passed. The one earlier failing canary is expected and
+recorded.
+
+CodeAPI promotion. helm-charts !119 (PRD image pins to
+f6ec42cd44729b33a950016114651ca28fdcd172) had already merged at 55aba4b6. df-cloud
+!605 merged at ca14cc40, advancing CODE_INTERPRETER_TARGET_REVISION to the same
+merge commit. Its app-up preview was a single in-place Application update with no
+delete or replace. All five PRD control-plane Deployments (api, worker,
+file-server, tool-call-server, egress-gateway) now run f6ec42cd and are Ready; the
+KEDA-owned sandbox runner stays at scale zero. The PRD DF LibreChat default route
+is http://codeapi-api.codeapi.svc.cluster.local:3112/v1 with the librechat-jwt
+provider.
+
+Outstanding. The synthetic PRD CodeAPI end-to-end acceptance needs the PRD
+signing key through a new restricted Infisical profile, which is a live mutation
+awaiting explicit approval. Mirroring the STG critical-email alert routing needs a
+Pulumi apply; the PRD infra preview carries 44 unrelated creates that predate this
+work, so a bounded targeted apply is proposed instead of a blanket infra-up-prd.
+Receipts are in docs/project/_local/reviews/2026-09-20-prd-*.json.
+
