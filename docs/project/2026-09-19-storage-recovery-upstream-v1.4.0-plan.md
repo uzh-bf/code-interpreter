@@ -134,7 +134,7 @@ blocked; its resume control is user-only, and no replacement goal was created.
 
 Approval mode: executable batch. On 2026-09-19 the user approved the preceding
 storage-reliability proposal and changed the upstream target to v1.4.0.
-The active goal covers this complete conditional sequence, including GitOps
+The approved goal covers this complete conditional sequence, including GitOps
 merges and staged STG then PRD deployment after successful acceptance checks.
 
 Restore artifact storage without removing existing volumes or changing the
@@ -288,6 +288,25 @@ fix requires broader retries, renewed signatures or worker changes. Source
 delivery remains a draft until its review and CI pass; a new image rollout and
 fresh cold execution proof must be explicitly covered before those live actions.
 No warm rerun substitutes for the failed cold acceptance.
+
+### Cold-start correction source verification — 2026-09-20
+
+The correction is committed as 39cbcd26e95e7735639c9b3caf81bbb32636ac65.
+It changes only the existing HTTP backend and its transport tests. In a disposable
+Bun 1.3.14 container with Redis, jq and Python installed, the service build passed
+with no new type warnings, scoped ESLint reported zero errors and one existing
+warning, and the full service suite passed 1,114 tests with twelve skips and no
+failures (3,373 assertions across 97 files). The earlier bare-container full run
+lacked Redis and jq; it is superseded by this properly provisioned run. Existing
+unrelated build warnings and test DNS diagnostics remain visible in local logs.
+The test container exited and was removed automatically.
+
+The substantive package is 455 added/deleted source and test lines across two
+files, excluding the project plan. One defect correction and its regression
+coverage form a single package. Independent simplification and slice review are
+running against that immutable range. Final review and GitHub CI are pending.
+The deployed image still uses 5d063ffe and the failed cold probe remains the live
+acceptance result. Do not equate these passing local checks with STG acceptance.
 
 ### Consumer configuration check — 2026-09-20
 
