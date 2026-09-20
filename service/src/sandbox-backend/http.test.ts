@@ -421,6 +421,19 @@ describe('HttpSandboxBackend', () => {
     expect(elapsedMs).toBeLessThan(1_000);
   });
 
+  test('does not overflow the timer for a distant deadline', async () => {
+    const responseBody = { session_id: 'sess_long_deadline', language: 'python', version: '3.14.4', files: [] };
+    nextResponse = { status: 200, body: responseBody, delayMs: 50 };
+
+    const result = await new HttpSandboxBackend().execute(
+      request(), context({ deadlineAtMs: Date.now() + 2_147_483_647 + 60_000 }),
+    );
+
+    expect(result).toEqual(responseBody);
+    expect(dispatchAttempts).toHaveLength(1);
+    expect(captured).toHaveLength(1);
+  });
+
   test('rejects an invalid supplied deadline before dispatching', async () => {
     const invalid = [Number.NaN, Number.POSITIVE_INFINITY, 0, -1];
 

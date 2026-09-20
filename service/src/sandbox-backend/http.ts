@@ -53,10 +53,17 @@ export class HttpSandboxBackend implements SandboxBackend {
     const cancel = new AbortController();
     const onCallerAbort = (): void => cancel.abort();
     ctx.signal.addEventListener('abort', onCallerAbort, { once: true });
-    const deadlineTimer = setTimeout(
-      () => cancel.abort(cancellation()),
-      Math.max(0, deadlineAtMs - Date.now()),
-    );
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const armDeadline = (): void => {
+      const remainingMs = deadlineAtMs - Date.now();
+      if (remainingMs <= 0) {
+        cancel.abort(cancellation());
+        return;
+      }
+      // Long deadlines need multiple timer legs to avoid the runtime's 32-bit overflow.
+      deadlineTimer = setTimeout(armDeadline, Math.min(remainingMs, 2_147_483_647));
+    };
+    armDeadline();
 
     try {
       const response = await withSpan('codeapi.sandbox.execute', {
