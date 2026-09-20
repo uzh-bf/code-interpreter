@@ -944,3 +944,42 @@ PRD alerting. The user decided PRD does not need Alertmanager yet, so the
 alert-routing apply is dropped from scope. No Pulumi apply was run; the 44
 unrelated creates in the PRD infra preview are untouched.
 
+
+### v1.4.1 merge, STG rollout and acceptance — 2026-09-20
+
+Upstream v1.4.1 integration merged to the fork. PR #34 (draft) was marked ready
+and merged with a history-preserving merge commit e0b8c4409c337789d8fb07e5c5665bc2879c4fc3
+(parents 477a8aa and c8b3e149); no squash, no fork tag or release. The Release
+workflow stayed skipped. Post-merge image build 35532769998 passed all seven
+jobs and the registry serves all seven e0b8c440 image tags (verified by
+anonymous OCI index fetch). Post-merge CI 35532770018 ran.
+
+STG promotion. helm-charts !120 merged 551a874d advancing the seven STG image
+pins from f6ec42cd to e0b8c440 (chart source unchanged). df-cloud !606 merged
+d550a8ee advancing CODE_INTERPRETER_TARGET_REVISION to e0b8c440; because STG
+values track helm-charts main, the app stack update carries the merged pins.
+The df-cloud STG pipeline preview showed exactly one Application update with no
+delete or replace. ArgoCD autosync then reconciled app-codeapi to e0b8c440: all
+five control-plane Deployments (api, service-worker, file-server,
+tool-call-server, egress-gateway) run e0b8c440 and rolled out cleanly.
+
+STG E2E acceptance against e0b8c440 through the restricted codeapi-stg profile
+passed: cold execution HTTP 200 exit 0 in 269563 ms, warm execution 299 ms
+reusing the uploaded input, downloads exact (169 and 231 bytes), the timeout
+probe ended as sandbox_time_limit exit 137 SIGKILL, and three objects were
+deleted with absence verified (404). The /exec route exposes no cancellation, so
+that step remains documented rather than executed. SeaweedFS storage stayed
+healthy: the codeapi-stg and trypost-stg storage canaries are completing with
+successful S3 delete round trips and no Failed state.
+
+PRD promotion. helm-charts !121 (seven PRD image pins to e0b8c440) is open with
+a passing pipeline. df-cloud PRD still needs a protected release/prd-* branch
+merged with a recorded human release approval; that gate is left to the user.
+PRD E2E remains blocked in this environment: the restricted codeapi-prd profile
+cannot be created because macOS Keychain writes are denied to the sandbox and
+the profile directory is read-only, and the reusable organization identity in
+Keychain is not a member of the codeapi project. The cluster's own
+infisical-machine-identity-prd-codeapi-prd Secret can read codeapi/prd (the
+signing key is CODEAPI_JWT_PRIVATE_KEY) but only the user's interactive session
+can add it to Keychain and run configure.
+
