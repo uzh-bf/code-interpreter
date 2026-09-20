@@ -1,6 +1,6 @@
 # Storage recovery and upstream v1.4.0 integration
 
-## Close-out checkpoint — 2026-09-20
+## Historical close-out checkpoint — superseded by approval below
 
 Source integration is complete; the environment rollout remains blocked and
 must not be recorded as achieved. The user requested task finalization.
@@ -67,8 +67,9 @@ Trypost round trip, not CodeAPI recovery or snapshot restoration.
 
 The temporary admission fence is prepared in
 [helm-charts MR !105](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/105)
-at 52d4d84701ed92184d07d1b8d16c62013b6ce909. Source review, server dry-run and CI
-passed. Merge waits for bootstrap apply and ready shutdown/restoration mechanics.
+at 3856d06850483ce4b2f8523b2c132962d10cabbf. Its operational utility and isolated
+restore artifacts are outside Kustomization. Six regression cases, correction
+review and exact-head pipeline 668352 passed. Merge waits for bootstrap apply.
 
 Planner-approved maintenance sequence: establish a temporary zero-pod admission
 quota through GitOps while omitting PostSync bootstrap hooks; leave the current
@@ -96,10 +97,10 @@ Never restore over the original PVC or force detach. After repair accepts new
 writes, retain repaired allocation settings on every recovery branch.
 
 The bounded shutdown utility passed synthetic cases for clean exit, nonzero
-exit, missing fence, wrong pod UID and wrong PVC UID. Only the two correctly
-identified fenced cases issue a DELETE. Operational review remains required
-before execution. No storage shutdown, snapshot, or application promotion has
-occurred. The PRD alert destination remains an open decision requested from the
+exit, missing fence, wrong pod UID, wrong PVC UID and stale termination status.
+It accepts only current deletion-marked clean exit evidence and drops arbitrary
+termination messages from receipts. Independent correction review passed.
+No storage shutdown, snapshot, or application promotion has occurred. The PRD alert destination remains an open decision requested from the
 user; it does not block independent STG preparation.
 
 ### Rollout resumption check — 2026-09-20
@@ -149,6 +150,40 @@ environments. Stop only dependent branches on failed checks or a material scope
 decision. A healthy Argo application or HTTP 200 execution does not substitute
 for delivered and downloadable artifacts. Recovery must preserve new writes;
 reverting the storage limit to eight is not a safe rollback.
+
+### Monitoring delivery checkpoint — 2026-09-20
+
+The required detection is integrated into existing
+[storage MR !103](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/103) at
+7815c5f0175e4a217fa55a60fa77db87bb544231, avoiding a second storage restart.
+The same replacement enables private metrics scraping plus one bounded canary
+per existing bucket. It checks a reserved synthetic object only; credentials
+remain existing Secret references. Rules cover failed/stopped canaries, writable
+volumes, spare slots, allocation errors, scrape absence and physical PVC space.
+All manifests passed STG server dry-run. Prometheus 3.10.0 syntax and seventeen
+behavioral cases passed, including startup delay and normal transient growth.
+The 4.37 writable gauge refreshes every 5 to 5.5 minutes, so its alert waits
+seven minutes; the one-minute canaries provide earlier behavioral detection.
+Exact-image inspection confirmed all retained metrics, including both writable
+collection gauges after their first refresh. The synthetic container is stopped.
+Pipeline 668389 passed; integrated review remains in progress. Simplification
+recommended dropping byte counts before hash comparison; retain the previously
+tested checker because its small overhead does not justify changing this proof.
+
+The df-cloud bootstrap pattern audit passed with no findings. Its authoritative
+preview remains queued on the shared STG runner. No maintenance shutdown,
+snapshot, restore or application rollout has happened. The only live change
+so far is the successful retained synthetic recovery-seed Job.
+
+The application promotion is prepared in
+[helm-charts !106](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/106)
+at d1ada06477eb09d70fa2108e35473fffebec5d8c (seven STG image pins), and
+[df-cloud !601](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/601)
+at f210432ddf2e557728222c2910dc25fb3dd3c690 (chart revision only). Both target
+5d063ffe81df98824c5a15fcafabef5728973672, with prior revision 929ec4d recorded
+for recovery. The chart tree equality was freshly verified. Preview-only pipeline
+668394 is requested; draft delivery is not deployment. Merge/apply await storage
+acceptance and applicable review/CI.
 
 ## Execution details
 
