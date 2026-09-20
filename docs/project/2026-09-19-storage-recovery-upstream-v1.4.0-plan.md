@@ -1019,3 +1019,19 @@ mergeable but its pipeline is still queued on saturated prd-tagged runners, and
 merging to prd requires one recorded human release approval plus the manual
 infra-up-prd and deploy-app-prd: [codeapi] jobs. No PRD apply was performed.
 
+
+## 2026-09-20 final readiness review
+
+Fresh verification at 2026-09-20T21:21Z across every layer.
+
+Source. Fork main is e0b8c4409c337789d8fb07e5c5665bc2879c4fc3, the PR #34 merge that integrates upstream v1.4.1 with the upstream tag 2ed5b581 as an ancestor. The fork has no open PRs, no releases and no tags; all merges preserved history.
+
+Desired state. helm-charts main is c1edada3 (STG pins 551a874, PRD pins 25a3a4c). df-cloud stg is d550a8ee with STG pinned to e0b8c440. df-cloud prd is still ca14cc40 from the v1.4.0 promotion; !607 is open and mergeable and advances prd to e0b8c440 with helm-charts c1edada3.
+
+Deployed and runtime. STG runs e0b8c440 on all five control-plane deployments with Ready pods; app-codeapi and app-seaweedfs are Synced/Healthy. PRD runs f6ec42cd on all five; app-codeapi is Synced/Healthy. Both SeaweedFS deployments run -master.volumeSizeLimitMB=2048 -volume.max=0 -volume.minFreeSpace=5GiB. STG topology reports Max 24, Free 15, with writable volumes for the default collection, trypost-media and codeapi-files. PRD reports Max 24, Free 16, with codeapi-files writable on volume 8 at about 86 MB of the 2048 MB limit. The latest storage canaries completed in both clusters.
+
+Acceptance receipts. 2026-09-20-stg-v141-e2e.json records the passing v1.4.1 E2E on e0b8c440 (cold 269563 ms, warm 299 ms, exact-byte downloads, timeout SIGKILL 137, three deletes verified 404). 2026-09-20-prd-e2e.json records the passing PRD E2E on f6ec42cd (cold 271133 ms, warm 223 ms, same step coverage).
+
+Regression found and fixed. 37cb3ab removed the temporary PRD admission fence together with the retained snapshot manifest that 28cb874 had committed seconds earlier, leaving app-seaweedfs on prd permanently OutOfSync with requiresPruning=true; the live snapshot survived only through its Prune=false annotation. helm-charts !122 (commit 25ced7f) restores the exact 28cb874 manifest, so the merge is a no-op apply that clears the drift. Merge pending approval.
+
+Remaining gates. !607 still needs the recorded human release approval in GitLab; the release-approval-gate-mr-prd job has not passed and also enforces the no-squash rule. After approval: merge !607, run the manual infra-up-prd and codeapi prd app jobs, verify PRD pods on e0b8c440, then rerun the PRD E2E with the PEM shim. df-cloud !591, the broad stg-to-prd promotion, stays unmerged and out of scope.
