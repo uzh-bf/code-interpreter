@@ -998,3 +998,24 @@ infra-up-prd and deploy-app-prd: [codeapi] jobs are left to the user. No PRD
 apply was performed; PRD remains on f6ec42cd and its five control-plane pods are
 Ready with no Failed pods.
 
+
+
+### PRD E2E acceptance on f6ec42cd — 2026-09-20
+
+The restricted codeapi-prd Infisical profile was created by the user with read
+access to CODEAPI_JWT_PRIVATE_KEY only. That entry is a PEM private key (not a
+JWK), so the PRD synthetic auth shim derives the public key, matches it to the
+PRD JWKS, and signs EdDSA tokens with the matching kid. The authenticated PRD
+end-to-end probe then passed against svc/codeapi-api on the current f6ec42cd
+revision through a local port-forward: cold execution HTTP 200 exit 0 in
+271133 ms, warm execution 223 ms reusing the uploaded input, downloads exact
+(169 and 231 bytes), the timeout probe ended as sandbox_time_limit exit 137
+SIGKILL, and three objects were deleted with absence verified (404). The /exec
+route exposes no cancellation, so that step remains documented. Receipt:
+docs/project/_local/reviews/2026-09-20-prd-e2e.json.
+
+PRD v1.4.1 promotion remains pending. MR !607 (release/prd-codeapi-v141) is
+mergeable but its pipeline is still queued on saturated prd-tagged runners, and
+merging to prd requires one recorded human release approval plus the manual
+infra-up-prd and deploy-app-prd: [codeapi] jobs. No PRD apply was performed.
+
