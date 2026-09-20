@@ -12,15 +12,63 @@ type CapturedRequest = {
   headers: Record<string, string>;
 };
 
-let server: ReturnType<typeof Bun.serve>;
+type DispatchAttempt = {
+  url: string;
+};
+
+/** Endpoint every test starts from, plus any endpoint a test starts itself. */
+const servers: ReturnType<typeof Bun.serve>[] = [];
+let defaultPort = 0;
 let captured: CapturedRequest[] = [];
 let nextResponse: { status: number; body: unknown; delayMs?: number } = { status: 200, body: {} };
+let nextResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+/** Dispatch attempts and connection refusals for the endpoint under test. */
+let dispatchAttempts: DispatchAttempt[] = [];
+let refusalCount = 0;
+let targetPort = 0;
+/** Test hook: while set, the endpoint starts listening once this many
+ *  connection attempts were refused, so later attempts meet a listening
+ *  process exactly like a scaled-from-zero sandbox that finished starting up.
+ *  Two refusals prove the retry repeats rather than firing once. */
+const REFUSALS_BEFORE_ENDPOINT_STARTS = 2;
+let startEndpointAfterRefusals = false;
+
+const interceptor = axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (axios.isAxiosError(error)) recordRefusal(error, error.config?.url ?? '');
+    return Promise.reject(error);
+  },
+);
+
+const requestInterceptor = axios.interceptors.request.use((config) => {
+  const url = config.url ?? '';
+  if (!url.includes(`:${targetPort}/`)) return config;
+  dispatchAttempts.push({ url });
+  if (startEndpointAfterRefusals && refusalCount >= REFUSALS_BEFORE_ENDPOINT_STARTS) {
+    startEndpointAfterRefusals = false;
+    spawnServer(targetPort);
+  }
+  return config;
+});
+
+function recordRefusal(error: unknown, url: string): void {
+  if (!axios.isAxiosError(error)) return;
+  if (error.response !== undefined || error.code !== 'ECONNREFUSED') return;
+  if (!url.includes(`:${targetPort}/`)) return;
+  refusalCount += 1;
+}
 
 const savedEndpoint = env.SANDBOX_ENDPOINT;
 
-beforeAll(() => {
-  server = Bun.serve({
-    port: 0,
+/** Start an endpoint that records requests into captured and replies with
+ *  nextResponse. */
+function spawnServer(port: number): ReturnType<typeof Bun.serve> {
+  const served = Bun.serve({
+    port,
+    /* Bun closes a connection whose handler is still running once the socket
+     * looks idle; the slow-response cases below need it to stay open. */
+    idleTimeout: 120,
     async fetch(req) {
       captured.push({
         method: req.method,
@@ -33,21 +81,52 @@ beforeAll(() => {
       }
       return new Response(JSON.stringify(nextResponse.body), {
         status: nextResponse.status,
-        headers: { 'Content-Type': 'application/json' },
+        headers: nextResponseHeaders,
       });
     },
   });
-  env.SANDBOX_ENDPOINT = `http://localhost:${server.port}/api/v2`;
+  servers.push(served);
+  return served;
+}
+
+/** Reserve a port and release it again, so connecting to it is refused. */
+async function refusedPort(): Promise<number> {
+  const reserved = Bun.serve({ port: 0, fetch: () => new Response('') });
+  const port = reserved.port;
+  await reserved.stop(true);
+  if (port === undefined) throw new Error('TCP listener has no port');
+  return port;
+}
+
+function useEndpoint(port: number): string {
+  targetPort = port;
+  env.SANDBOX_ENDPOINT = `http://localhost:${port}/api/v2`;
+  return `http://localhost:${port}/api/v2/execute`;
+}
+
+beforeAll(() => {
+  const port = spawnServer(0).port;
+  if (port === undefined) throw new Error('TCP listener has no port');
+  defaultPort = port;
+  useEndpoint(defaultPort);
 });
 
 afterAll(() => {
+  axios.interceptors.response.eject(interceptor);
+  axios.interceptors.request.eject(requestInterceptor);
   env.SANDBOX_ENDPOINT = savedEndpoint;
-  server.stop(true);
+  for (const served of servers) served.stop(true);
 });
 
 afterEach(() => {
   captured = [];
   nextResponse = { status: 200, body: {} };
+  nextResponseHeaders = { 'Content-Type': 'application/json' };
+  dispatchAttempts = [];
+  refusalCount = 0;
+  startEndpointAfterRefusals = false;
+  for (const served of servers.splice(1)) served.stop(true);
+  useEndpoint(defaultPort);
 });
 
 function payloadBody(): t.PayloadBody {
@@ -144,6 +223,253 @@ describe('HttpSandboxBackend', () => {
       if (axios.isAxiosError(error)) {
         expect(error.code === 'ERR_CANCELED' || error.name === 'AbortError').toBe(true);
       }
+    }
+  });
+
+  test('keeps retrying refused connections and delivers the signed bytes once', async () => {
+    const port = await refusedPort();
+    const executeUrl = useEndpoint(port);
+    const responseBody = { session_id: 'sess_scaled_from_zero', language: 'python', version: '3.14.4', files: [] };
+    nextResponse = { status: 200, body: responseBody };
+    startEndpointAfterRefusals = true;
+    const backend = new HttpSandboxBackend();
+    const req = request();
+
+    const result = await backend.execute(req, context({ deadlineAtMs: Date.now() + 10_000 }));
+
+    expect(result).toEqual(responseBody);
+    expect(refusalCount).toBeGreaterThanOrEqual(REFUSALS_BEFORE_ENDPOINT_STARTS);
+    expect(dispatchAttempts.length).toBeGreaterThan(refusalCount);
+    expect(dispatchAttempts.every((attempt) => attempt.url === executeUrl)).toBe(true);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].method).toBe('POST');
+    expect(captured[0].path).toBe('/api/v2/execute');
+    expect(captured[0].rawBody).toBe(JSON.stringify(req.body));
+  });
+
+  test('stops retrying refusals at the deadline', async () => {
+    const port = await refusedPort();
+    useEndpoint(port);
+    const startedAt = Date.now();
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() + 900 }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    }
+
+    expect(refusalCount).toBeGreaterThan(1);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(captured).toHaveLength(0);
+  });
+
+  test('does not retry after an accepted request is disconnected', async () => {
+    const port = await refusedPort();
+    useEndpoint(port);
+    const dropping = Bun.serve({
+      port,
+      fetch(req, served) {
+        captured.push({ method: req.method, path: new URL(req.url).pathname, rawBody: '', headers: {} });
+        /* Drop the accepted request without sending a response. */
+        served.stop(true);
+        return new Response(null);
+      },
+    });
+    servers.push(dropping);
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() + 10_000 }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(dispatchAttempts).toHaveLength(1);
+  });
+
+  test('does not retry an HTTP failure response', async () => {
+    nextResponse = { status: 503, body: { message: 'sandbox starting' } };
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() + 10_000 }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.response?.status).toBe(503);
+    }
+
+    expect(dispatchAttempts).toHaveLength(1);
+    expect(captured).toHaveLength(1);
+  });
+
+  test('does not follow a redirect to a refused port', async () => {
+    const redirectTargetPort = await refusedPort();
+    nextResponse = { status: 302, body: {} };
+    nextResponseHeaders = { Location: `http://localhost:${redirectTargetPort}/api/v2/execute` };
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() + 10_000 }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.response?.status).toBe(302);
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].path).toBe('/api/v2/execute');
+    expect(dispatchAttempts).toHaveLength(1);
+    expect(refusalCount).toBe(0);
+  });
+
+  test('does not dispatch an already aborted request', async () => {
+    const controller = new AbortController();
+    controller.abort('deadline');
+
+    try {
+      await new HttpSandboxBackend().execute(
+        request(),
+        context({ signal: controller.signal, deadlineAtMs: Date.now() + 10_000 }),
+      );
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    }
+
+    expect(dispatchAttempts).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  test('aborts during the refusal backoff without redispatching', async () => {
+    const port = await refusedPort();
+    useEndpoint(port);
+    const controller = new AbortController();
+    const pending = new HttpSandboxBackend().execute(
+      request(),
+      context({ signal: controller.signal, deadlineAtMs: Date.now() + 10_000 }),
+    );
+    setTimeout(() => controller.abort('deadline'), 50);
+
+    try {
+      await pending;
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    }
+
+    expect(refusalCount).toBe(1);
+    expect(dispatchAttempts).toHaveLength(1);
+  });
+
+  test('stops at the deadline when the refusal backoff outlasts it', async () => {
+    const port = await refusedPort();
+    useEndpoint(port);
+    const startedAt = Date.now();
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() + 120 }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    }
+
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(dispatchAttempts).toHaveLength(1);
+    expect(captured).toHaveLength(0);
+  });
+
+  test('bounds a hanging request with the deadline when the caller never aborts', async () => {
+    nextResponse = { status: 200, body: { session_id: 'x' }, delayMs: 30_000 };
+    const deadlineAtMs = Date.now() + 200;
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    }
+
+    expect(dispatchAttempts).toHaveLength(1);
+    expect(captured).toHaveLength(1);
+    expect(Date.now()).toBeGreaterThanOrEqual(deadlineAtMs);
+  });
+
+  test('falls back to JOB_TIMEOUT from entry time when no deadline is supplied', async () => {
+    const savedJobTimeout = env.JOB_TIMEOUT;
+    env.JOB_TIMEOUT = 150;
+    nextResponse = { status: 200, body: { session_id: 'x' }, delayMs: 2_000 };
+    const startedAt = Date.now();
+
+    try {
+      await new HttpSandboxBackend().execute(request(), context());
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    } finally {
+      env.JOB_TIMEOUT = savedJobTimeout;
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    expect(elapsedMs).toBeGreaterThanOrEqual(140);
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
+
+  test('does not overflow the timer for a distant deadline', async () => {
+    const responseBody = { session_id: 'sess_long_deadline', language: 'python', version: '3.14.4', files: [] };
+    nextResponse = { status: 200, body: responseBody, delayMs: 50 };
+
+    const result = await new HttpSandboxBackend().execute(
+      request(), context({ deadlineAtMs: Date.now() + 2_147_483_647 + 60_000 }),
+    );
+
+    expect(result).toEqual(responseBody);
+    expect(dispatchAttempts).toHaveLength(1);
+    expect(captured).toHaveLength(1);
+  });
+
+  test('rejects an invalid supplied deadline before dispatching', async () => {
+    const invalid = [Number.NaN, Number.POSITIVE_INFINITY, 0, -1];
+
+    for (const deadlineAtMs of invalid) {
+      await expect(new HttpSandboxBackend().execute(request(), context({ deadlineAtMs })))
+        .rejects.toThrow();
+    }
+
+    expect(dispatchAttempts).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  test('does not dispatch when the supplied deadline already passed', async () => {
+    try {
+      await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() - 1 }));
+      throw new Error('expected rejection');
+    } catch (error) {
+      expect(axios.isAxiosError(error)).toBe(true);
+      if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
+    }
+
+    expect(dispatchAttempts).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  test('rejects an unusable fallback job timeout before dispatching', async () => {
+    const savedJobTimeout = env.JOB_TIMEOUT;
+    env.JOB_TIMEOUT = Number.NaN;
+
+    try {
+      await expect(new HttpSandboxBackend().execute(request(), context()))
+        .rejects.toThrow();
+      expect(dispatchAttempts).toHaveLength(0);
+      expect(captured).toHaveLength(0);
+    } finally {
+      env.JOB_TIMEOUT = savedJobTimeout;
     }
   });
 });
