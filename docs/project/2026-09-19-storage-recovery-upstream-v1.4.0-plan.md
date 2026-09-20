@@ -983,3 +983,18 @@ infisical-machine-identity-prd-codeapi-prd Secret can read codeapi/prd (the
 signing key is CODEAPI_JWT_PRIVATE_KEY) but only the user's interactive session
 can add it to Keychain and run configure.
 
+
+
+### v1.4.1 PRD release prepared — 2026-09-20
+
+helm-charts !121 merged c1edada3 carrying the seven PRD image pins at e0b8c440.
+The protected PRD release branch release/prd-codeapi-v141 (commit d4f3e80) was
+created from prd and advances CODE_INTERPRETER_TARGET_REVISION to e0b8c440 and
+the immutable PRD helm-charts values revision to c1edada3; MR !607 targets prd.
+The MR pipeline preview is advisory and was still queued on saturated prd-tagged
+runners at close-out. Merging to prd is gated by release-approval-gate-mr-prd,
+which needs one recorded human release approval; that approval and the manual
+infra-up-prd and deploy-app-prd: [codeapi] jobs are left to the user. No PRD
+apply was performed; PRD remains on f6ec42cd and its five control-plane pods are
+Ready with no Failed pods.
+
