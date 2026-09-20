@@ -315,6 +315,44 @@ GitHub CI remain pending. Source delivery is draft PR #32.
 The deployed image still uses 5d063ffe and the failed cold probe remains the live
 acceptance result. Do not equate these passing local checks with STG acceptance.
 
+### STG cold-start correction rollout and acceptance — 2026-09-20
+
+PR #32 merged as f6ec42cd44729b33a950016114651ca28fdcd172, a merge commit that
+keeps the prior fork baseline and upstream v1.4.0 as ancestors. No fork tag or
+release exists; the Release workflow stayed skipped. Image build 35516095220
+passed all seven jobs, the registry serves all seven merge-SHA tags, and
+post-merge CI 35516095225 carries the same tree through the standard jobs.
+
+helm-charts !112 merged at 95c8cf1bf550730fe82bc90bf0fdf4bfff95a32f, moving the
+seven STG values pins from 5d063ffe to the merge SHA. df-cloud !602 advanced
+CODE_INTERPRETER_TARGET_REVISION to the same commit; `git diff 5d063ffe f6ec42c --
+helm/codeapi` is empty, so only the image tags changed. ArgoCD app-codeapi
+reconciled from values revision 95c8cf1 and completed its sync at
+2026-09-20T15:03:05Z with Synced/Healthy. All five running service deployments
+(api, worker, file-server, tool-call-server, egress-gateway) now run the
+merge-SHA images, and the sandbox-runner template carries the same revision while
+KEDA retains scale ownership (minimum zero, maximum three).
+
+The authenticated synthetic probe then passed end to end. The cold execution
+returned HTTP 200 after 271,103 ms with exit code zero, replacing the failed
+502 after 134,816 ms that motivated the correction; the warm execution returned
+in 294 ms and reused the uploaded input plus the downloaded cold artifact.
+Downloads matched the expected bytes exactly (169 and 231 bytes), and the
+timeout probe ended as sandbox_time_limit with exit 137 and SIGKILL. The
+cancellation probe on the programmatic route observed HTTP 202
+cancellation_requested, a terminal cancelled outcome, and no late artifact
+across the 360-second retention window. Test objects were deleted and verified
+absent. Storage stayed healthy throughout: fifteen free volume slots, one
+writable volume for each of the default, trypost-media and codeapi-files
+collections, and both per-minute canaries completing.
+
+Receipts: docs/project/_local/reviews/2026-09-20-stg-coldfix-rollout.json,
+2026-09-20-stg-coldfix-e2e.json and 2026-09-20-stg-coldfix-cancellation.json.
+The consumer gap recorded below is unchanged: no STG LibreChat instance routes to
+this service, so this acceptance proves the CodeAPI surface, not LibreChat
+integration. PRD remains gated on its alert destination decision and its own
+recovery evidence; no PRD storage or application change has been made.
+
 ### Consumer configuration check — 2026-09-20
 
 Read-only inspection found that both STG LibreChat deployments (aibuddy and
@@ -529,15 +567,17 @@ retention interval. Record each operation's ID/status without secrets/content.
 
 ## Progress
 
-Current checkpoint, 2026-09-20: STG storage recovery and the fifteen-minute
-monitoring observation passed. Application image MR !106 and chart-source MR
-!601 merged. New images are running; the exact merged chart preview/apply is
-pending in child 668590. Authenticated upload and cleanup passed, but the one
-cold execution failed with ECONNREFUSED before the sandbox was available.
-Application acceptance is failed; warm/timeout/cancellation and PRD remain gated.
-The bounded HTTP connection-refusal correction is being prepared and reviewed.
-PRD alert routing and its recovery window/cost decision remain unresolved.
-The native goal remains blocked; direct approved work continues.
+Current checkpoint, 2026-09-20: STG storage recovery, the fifteen-minute
+monitoring observation and the cold-start correction rollout all passed. The
+correction merged as PR #32 at f6ec42cd44729b33a950016114651ca28fdcd172;
+helm-charts !112 and df-cloud !602 promoted it to STG through GitOps, and ArgoCD
+completed the sync with Synced/Healthy at 2026-09-20T15:03:05Z. The authenticated
+probe passed cold (HTTP 200 after 271,103 ms), warm, bounded timeout,
+cancellation with no late artifact across the retention window, upload,
+download/hash and reuse, with test objects deleted and verified absent. STG
+application acceptance is complete. The LibreChat consumer gap and PRD promotion
+remain open: PRD needs its alert destination decision, its own recovery evidence
+and separate storage and application promotion. No PRD change has been made.
 
 The receipts below are historical checkpoints; the approval and delivery sections
 above supersede their former access, cost and recovery-window blockers.
