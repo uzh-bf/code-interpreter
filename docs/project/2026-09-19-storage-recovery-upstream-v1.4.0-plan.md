@@ -318,10 +318,10 @@ acceptance result. Do not equate these passing local checks with STG acceptance.
 ### STG cold-start correction rollout and acceptance — 2026-09-20
 
 PR #32 merged as f6ec42cd44729b33a950016114651ca28fdcd172, a merge commit that
-keeps the prior fork baseline and upstream v1.4.0 as ancestors. No fork tag or
-release exists; the Release workflow stayed skipped. Image build 35516095220
-passed all seven jobs, the registry serves all seven merge-SHA tags, and
-post-merge CI 35516095225 carries the same tree through the standard jobs.
+  keeps the prior fork baseline and upstream v1.4.0 as ancestors. No fork tag or
+  release exists; the Release workflow stayed skipped. Image build 35516095220
+  passed all seven jobs, the registry serves all seven merge-SHA tags, and
+  post-merge CI 35516095225 passed all ten jobs.
 
 helm-charts !112 merged at 95c8cf1bf550730fe82bc90bf0fdf4bfff95a32f, moving the
 seven STG values pins from 5d063ffe to the merge SHA. df-cloud !602 advanced
