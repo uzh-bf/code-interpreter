@@ -882,3 +882,65 @@ Pulumi apply; the PRD infra preview carries 44 unrelated creates that predate th
 work, so a bounded targeted apply is proposed instead of a blanket infra-up-prd.
 Receipts are in docs/project/_local/reviews/2026-09-20-prd-*.json.
 
+### v1.4.1 integration, STG re-acceptance and PRD E2E — 2026-09-20
+
+Upstream v1.4.1 (2ed5b581f91324857f77dbdd23a93e8f0d29a7fa) was published after
+v1.4.0. Relative to v1.4.0 it carries two commits: 95ebbd3c "Provision
+Conversation-Scoped Code Worktrees (#239)" and c8b3e149 "Close native scratch
+directory streams (#240)"; 35 files and about 3825 insertions.
+
+Integration follows the same history-preserving pattern as v1.4.0 (c0b7f22):
+branch rs/upstream-v1.4.1 from main 477a8aa, merge v1.4.1 with --no-ff and no
+squash. Merge commit f32a1fa keeps both parents (477a8aa, c8b3e149), so v1.4.1
+and the fork baseline are both ancestors. No fork tag or release is created.
+
+Only three files overlapped between fork-side changes since v1.4.0 and v1.4.1,
+and every overlap was an independent addition, so no conflict resolution was
+needed: service/src/service/programmatic-router.ts (fork pollJobUntilFinished
+fallback vs upstream workspaceInstanceId threading), service/src/service/
+replay-state.ts (fork PublicExecuteResponse retype vs upstream workspaceInstanceId
+field) and service/src/types/service.ts (fork PublicExecuteResponse alias vs
+upstream workspace_instance_id field). Both sides are present in the merge.
+
+Validation ran in an oven/bun:1.3.14 Debian container with redis, jq, python3,
+node and git. The service suite passed 1121 with 12 skips and 0 failures (3387
+assertions, 1133 tests, 98 files) and the service rollup build succeeded with
+only pre-existing warnings. The packages/code suite reported 513 pass, 24 fail
+and 20 skip; the same class of tests fails on the unmerged v1.4.0 baseline under
+identical conditions (no ripgrep, root user). Diffing the two failure sets found
+zero new failures and two suites fixed by the merge, so the merge introduces no
+regression. A host run surfaced an unrelated missing Koffi native dependency in
+the macOS ACL path, not a v1.4.1 defect.
+
+Delivery is draft PR #34 on rs/upstream-v1.4.1 at f32a1fa. Merging to main and
+the image pin/rollout remain separately gated; no deployment was performed.
+
+STG re-acceptance. The synthetic STG CodeAPI end-to-end probe was re-run against
+svc/codeapi-api on the already-promoted f6ec42cd revision through the restricted
+codeapi-stg profile. Cold execution returned HTTP 200 with exit 0 in 270905 ms;
+warm returned in 237 ms and reused the uploaded input; downloads matched exactly
+(169 and 231 bytes); the timeout probe ended as sandbox_time_limit with exit 137
+and SIGKILL; three test objects were deleted and absence verified (404). The
+/exec route exposes no cancellation, so the cancellation step is documented
+rather than executed on this route.
+
+PRD end-to-end blocker. The PRD synthetic acceptance needs the PRD signing key.
+The restricted codeapi-stg profile is bound to project codeapi in environment stg
+only; no codeapi-prd profile exists. Creating one is blocked in this environment
+for two independent reasons: (1) the reusable organization identity already in
+macOS Keychain for inf.prd.df-app.ch is a member of 12 PRD projects but not of
+codeapi, so configure reports "expected one accessible project named codeapi;
+found 0"; and (2) macOS Keychain writes are denied to this sandbox
+(SecKeychainItemCreateFromContent ... Operation not permitted), so the operator
+cannot store the codeapi-prd machine identity. The cluster's own dedicated
+identity for that project (the infisical-machine-identity-prd-codeapi-prd Secret
+in namespace codeapi) can read codeapi/prd, which was confirmed values-free, but
+only the user's interactive session can add it to Keychain and run configure.
+STG and PRD also use different signing keys (STG kid codeapi-stg-2026-06-29,
+single key; PRD kids codeapi-prd-20260702 and codeapi-prd-20260705), so the STG
+key cannot stand in for PRD.
+
+PRD alerting. The user decided PRD does not need Alertmanager yet, so the
+alert-routing apply is dropped from scope. No Pulumi apply was run; the 44
+unrelated creates in the PRD infra preview are untouched.
+
