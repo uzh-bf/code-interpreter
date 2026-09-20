@@ -201,6 +201,27 @@ the valid signature and 401 with an invalid signature. This proves current STG
 authentication and ownership enforcement, not execution or artifact storage.
 The temporary port-forward used for this preflight was stopped successfully.
 
+### Recovery prerequisite completion — 2026-09-20
+
+Merged STG preview 2126111 passed with one create, one update and no deletes or
+replacements. Apply 2126112 succeeded at 2026-09-20 11:27 UTC. Live checks confirm
+the incremental Retain snapshot class (UID 995c3b67-a899-4f8d-b1cd-39463520d824)
+and the scoped Argo kind permissions. PRD was not changed.
+
+[Recovery fence MR !105](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/105)
+merged at 2fd428e144a22c6bcae2e9225f7c046bda4600d9 after verifying that an intervening
+main change affected only question-generation PRD configuration. Fence convergence
+and its denial dry-run are the next gate before the single UID-bound shutdown.
+[Quiescent storage MR !108](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/108)
+prepares zero replicas and future 120-second grace at e5d6427; it must remain
+unmerged until clean shutdown is proven. The source passed server dry-run;
+focused review and CI are pending. No storage shutdown or snapshot has happened.
+
+CodeAPI promotion MR !601 pipeline 668396 and preview 2125928 passed. Its only
+desired change is app-codeapi chart revision 929ec4d to 5d063ffe; no creates,
+deletes or replacements. Source review remains valid. Storage and runtime gates
+still block its promotion.
+
 ### Consumer configuration check — 2026-09-20
 
 Read-only inspection found that both STG LibreChat deployments (aibuddy and
