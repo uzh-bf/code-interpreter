@@ -60,7 +60,7 @@ resources and StackReference outputs. No local Pulumi.
 MR !600 merged with history preserved at 18100341e123c33a6799e8ee9db727f774ece117.
 Merged STG pipeline 668406 has its SeaweedFS child 668426 triggered. Build 2126110
 and preview 2126111 gate manual apply 2126112. The existing watcher targets this
-STG pipeline. No bootstrap apply has run yet.
+STG pipeline. Both preview and apply subsequently passed; see recovery completion below.
 
 The first recovery artifact is [helm-charts MR !104](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/104),
 head fe82c85d7b501789a9b8ef0448080e0b05c1c03f, merged with history preserved at
@@ -76,7 +76,7 @@ The temporary admission fence is prepared in
 [helm-charts MR !105](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/105)
 at 3856d06850483ce4b2f8523b2c132962d10cabbf. Its operational utility and isolated
 restore artifacts are outside Kustomization. Six regression cases, correction
-review and exact-head pipeline 668352 passed. Merge waits for bootstrap apply.
+review and exact-head pipeline 668352 passed. It subsequently merged after bootstrap apply.
 
 Planner-approved maintenance sequence: establish a temporary zero-pod admission
 quota through GitOps while omitting PostSync bootstrap hooks; leave the current
@@ -107,10 +107,10 @@ The bounded shutdown utility passed synthetic cases for clean exit, nonzero
 exit, missing fence, wrong pod UID, wrong PVC UID and stale termination status.
 It accepts only current deletion-marked clean exit evidence and drops arbitrary
 termination messages from receipts. Independent correction review passed.
-No storage shutdown, snapshot, or application promotion has occurred. The PRD alert destination remains an open decision requested from the
-user; it does not block independent STG preparation.
+This sequence subsequently completed through storage resumption as recorded below.
+The PRD alert destination remains an open decision requested from the user.
 
-### Rollout resumption check — 2026-09-20
+### Historical rollout resumption check — superseded by recovery completion
 
 The user requested rollout continuation after close-out. Kubernetes read access
 now succeeds for both aks-stg-apps and aks-prd-apps; the earlier cluster-access
@@ -158,7 +158,7 @@ decision. A healthy Argo application or HTTP 200 execution does not substitute
 for delivered and downloadable artifacts. Recovery must preserve new writes;
 reverting the storage limit to eight is not a safe rollback.
 
-### Monitoring delivery checkpoint — 2026-09-20
+### Historical monitoring preparation — superseded by recovery completion
 
 The required detection is integrated into existing
 [storage MR !103](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/103) at
@@ -210,12 +210,33 @@ and the scoped Argo kind permissions. PRD was not changed.
 
 [Recovery fence MR !105](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/105)
 merged at 2fd428e144a22c6bcae2e9225f7c046bda4600d9 after verifying that an intervening
-main change affected only question-generation PRD configuration. Fence convergence
-and its denial dry-run are the next gate before the single UID-bound shutdown.
-[Quiescent storage MR !108](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/108)
-prepares zero replicas and future 120-second grace at e5d6427; it must remain
-unmerged until clean shutdown is proven. The source passed server dry-run;
-focused review and CI are pending. No storage shutdown or snapshot has happened.
+main change affected only question-generation PRD configuration. The fence
+rejected replacement pods before the approved UID-bound DELETE. The old process
+exited zero at 11:34:04 UTC. MR !108 then set zero replicas and future grace to
+120 seconds; the Azure disk detached with no remaining original-PVC mounts.
+
+[Snapshot MR !109](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/109)
+created the single approved snapshot, seaweedfs-recovery-20260920, at 11:37:45 UTC.
+It is ready, Retain, 50 GiB, bound to snapshot UID
+bc55993a-746d-46b5-855c-c4cae4c0dbac. Source PVC UID remains
+99443fd6-724b-4c64-82c5-4ba63d90d329.
+
+[Isolated restore MR !110](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/110)
+mounted only restored PVC 3c6e6a3a-4177-401b-84b9-f4079ffb43f8. The verifier
+matched the saved synthetic Trypost hash and metadata and completed a new
+CodeAPI-bucket write/read/delete cycle. Verifier and restored server both exited
+zero by 11:41:49 UTC. The original PVC was never mounted by that Job.
+Snapshot, restored PVC, Job and seed remain retained; no deletion is authorized.
+
+Storage MR !103 passed focused integrated review at 7ad8b3c, exact-head CI
+668530 and full-tree server dry-run. It merged before snapshot age reached one
+hour. Argo reconciled bd2bd17b; original storage became Ready at 11:47:25 UTC
+with the pinned SeaweedFS digest, original PVC, repaired allocation and metrics.
+Both canaries succeeded at 11:48 UTC. Startup checks ran before readiness and
+failed once each; subsequent scheduled checks prove recovery. Allocation metrics
+show 24 disk-derived slots and nine used. Physical free space is 52,501,647,360
+bytes from kubelet summary. Prometheus PVC-series ingestion and delayed writable
+gauges are still under observation before application promotion.
 
 CodeAPI promotion MR !601 pipeline 668396 and preview 2125928 passed. Its only
 desired change is app-codeapi chart revision 929ec4d to 5d063ffe; no creates,
@@ -436,15 +457,16 @@ retention interval. Record each operation's ID/status without secrets/content.
 
 ## Progress
 
-Current checkpoint, 2026-09-20: source v1.4.0 integration and image builds are
-complete. Bootstrap MR !600 merged; its exact merged STG preview/apply remains
-queued. Recovery seed MR !104 merged and its synthetic round trip passed.
-Recovery fence MR !105, storage/monitoring MR !103 and application MRs !106/!601
-remain gated by the ordered recovery and acceptance checks above. The user has
-approved the STG maintenance window, one snapshot and one 50 GiB isolated restore.
-No storage shutdown, snapshot, restore or application promotion has occurred.
-PRD alert routing remains unresolved. The native goal is blocked; direct approved
-work continues, and only the user control can resume that goal.
+Current checkpoint, 2026-09-20 11:49 UTC: source v1.4.0 integration and image
+builds are complete. STG bootstrap, clean shutdown, whole-PVC snapshot and
+isolated restoration have passed. Storage/monitoring MR !103 merged at
+bd2bd17b87938d1156f730360b3a1a3635a1d69b. The original PVC is Ready again;
+both bucket canaries passed at 11:48 UTC. Live allocation is 24 slots, nine
+used and fifteen spare. The fifteen-minute observation is in progress.
+Application MRs !106/!601 remain unmerged pending storage acceptance.
+PRD alert routing and its recovery window/cost decision remain unresolved.
+The native goal is blocked; direct approved work continues, and only the user
+control can resume that goal.
 
 The receipts below are historical checkpoints; the approval and delivery sections
 above supersede their former access, cost and recovery-window blockers.
