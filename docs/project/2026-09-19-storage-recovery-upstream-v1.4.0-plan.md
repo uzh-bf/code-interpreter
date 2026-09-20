@@ -1,5 +1,44 @@
 # Storage recovery and upstream v1.4.0 integration
 
+## Close-out checkpoint — 2026-09-20
+
+Source integration is complete; the environment rollout remains blocked and
+must not be recorded as achieved. The user requested task finalization.
+Fresh forge checks confirm main remains 5d063ffe81df98824c5a15fcafabef5728973672,
+PR #31 is merged, both upstream v1.4.0 and the prior fork baseline are ancestors,
+and post-merge CI 35466160859 and image build 35466160848 succeeded.
+There are no open fork PRs, fork tags, or fork releases.
+
+STG storage MR !103 remains open and draft at
+75ad20714483286055a40e798b905a7d0127cc80; pipeline 668175 succeeded.
+Its mergeable forge status does not satisfy the recovery or runtime gates.
+Plane staging MR !101 remains open and draft at
+73bfd5b3a51de128da093d4ae75e713ef3ca954b; preserve the capacity settings before
+that component is activated, as described below.
+
+Resume in this dependency order:
+
+1. Restore supported Azure authentication-cache access, then discover snapshot
+   capability. Resolve the STG maintenance window and snapshot/restore cost.
+   These blockers remain unresolved; cluster health was not rechecked at close-out.
+2. Obtain fresh consistent whole-PVC recovery and isolated restore evidence,
+   establish safe first replacement, then merge !103 and verify writable
+   codeapi-files capacity, spare slots, Trypost access and recurring detection.
+3. Promote the seven 5d063ffe image pins and chart revision to STG through GitOps;
+   pass authenticated artifact upload, execution, download/hash and reuse,
+   cold/warm execution, timeout and cancellation acceptance.
+4. Resolve PRD alert delivery and fresh PRD recovery evidence, then perform
+   separate PRD storage and application promotions with the same acceptance.
+
+Existing source and local-test receipts below remain valid for their recorded
+scope. No deployment or live acceptance is claimed by this checkpoint.
+The CodeAPI task clone and helm-charts task clone were clean and synchronized
+with their remote task branches before this documentation update. The CodeAPI
+branch had three documentation commits beyond main. No task containers were
+running at close-out; only the shared devrouter-traefik container was listed.
+Retain task branches, clones, synthetic evidence and recovery resources for
+continuation; no cleanup or deletion was performed.
+
 ## Approval summary
 
 Approval mode: executable batch. On 2026-09-19 the user approved the preceding
