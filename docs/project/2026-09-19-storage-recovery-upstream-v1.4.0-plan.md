@@ -199,7 +199,7 @@ organization identity; status and 0600 file mode passed. A short-lived token was
 minted only in memory. A synthetic nonexistent-session probe received 403 with
 the valid signature and 401 with an invalid signature. This proves current STG
 authentication and ownership enforcement, not execution or artifact storage.
-The temporary port-forward is operator-owned and must be stopped after testing.
+The temporary port-forward used for this preflight was stopped successfully.
 
 ### Consumer configuration check — 2026-09-20
 
@@ -216,11 +216,17 @@ concrete configuration/authentication review and a target-instance decision.
 Storage recovery and direct CodeAPI acceptance remain independent approved work.
 No LibreChat configuration or credentials were changed.
 
+PRD DF LibreChat is the configured internal consumer: its deployed default route
+is http://codeapi-api.codeapi.svc.cluster.local:3112/v1, auth provider is
+librechat-jwt and the signing-key variable is present. Its live image is 6a919d9.
+The df-cloud source deliberately supplies that key only to the PRD DF instance.
+This is configuration evidence only; its consumer round trip is still pending.
+
 The restricted codeapi-stg operator profile was rechecked: authenticated for
 codeapi/stg, only CODEAPI_JWT_PRIVATE_JWK_JSON readable and no writable names.
 The bootstrap child build 2126110 remains queued for tags pulumi,stg. Runner 474
 is online and processing existing jobs; the queue is not a source failure.
-The existing CI watcher remains the sole watcher for the merged bootstrap run.
+The sole CI watcher now streams exact child preview job 2126111; the parent-branch watcher was stopped.
 
 ## Execution details
 
@@ -409,6 +415,19 @@ retention interval. Record each operation's ID/status without secrets/content.
 
 ## Progress
 
+Current checkpoint, 2026-09-20: source v1.4.0 integration and image builds are
+complete. Bootstrap MR !600 merged; its exact merged STG preview/apply remains
+queued. Recovery seed MR !104 merged and its synthetic round trip passed.
+Recovery fence MR !105, storage/monitoring MR !103 and application MRs !106/!601
+remain gated by the ordered recovery and acceptance checks above. The user has
+approved the STG maintenance window, one snapshot and one 50 GiB isolated restore.
+No storage shutdown, snapshot, restore or application promotion has occurred.
+PRD alert routing remains unresolved. The native goal is blocked; direct approved
+work continues, and only the user control can resume that goal.
+
+The receipts below are historical checkpoints; the approval and delivery sections
+above supersede their former access, cost and recovery-window blockers.
+
 Source integration merged in PR #31 at
 5d063ffe81df98824c5a15fcafabef5728973672 on 2026-09-19. Both prior fork main
 and upstream v1.4.0 are verified ancestors; the merged tree equals the reviewed
@@ -417,7 +436,7 @@ head. All ten PR CI jobs and the integrated final review passed. Post-merge CI
 available with their expected architectures; image build 35466160848 passed
 all seven jobs. Release run 35468744570 was skipped as intended.
 Fork tag and release counts remain zero. No storage or application deployment
-has occurred; recovery-window/cost and PRD alert-routing decisions are unanswered.
+had occurred at that checkpoint; its recovery-window/cost decisions are now approved.
 
 The proposed STG values with all seven pins updated to the merge SHA passed
 Helm lint, rendering and Kubernetes server-side dry-run. Baked-image mode renders
