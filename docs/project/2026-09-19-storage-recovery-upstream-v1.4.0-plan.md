@@ -41,6 +41,28 @@ continuation; no cleanup or deletion was performed.
 
 ## Approval summary
 
+### Rollout resumption check — 2026-09-20
+
+The user requested rollout continuation after close-out. Kubernetes read access
+now succeeds for both aks-stg-apps and aks-prd-apps; the earlier cluster-access
+blocker is cleared. Azure management token refresh still fails with
+`Operation not permitted` for the MSAL token-cache lockfile. No credential
+cache was copied or permission boundary bypassed.
+
+The full STG deployment at MR !103 head 75ad207 passed Kubernetes server-side
+dry-run, including the 120-second grace setting. Both live deployments still
+have one Ready replica, image 4.37 at the recorded digest and 30-second grace.
+STG app-seaweedfs in namespace argo is Synced/Healthy at 1bd3caf1; this is the
+unrepaired baseline, not artifact acceptance. Neither cluster has a
+VolumeSnapshotClass; STG has no SeaweedFS VolumeSnapshot. The STG Argo project
+still excludes VolumeSnapshot and the required monitoring resource kinds.
+PRD still has no Alertmanager resource.
+
+No live mutation occurred. Recovery capability, a concrete STG interruption
+window and snapshot/isolated-restore cost remain prerequisites to storage merge.
+PRD alert delivery remains a later promotion decision. The native goal remains
+blocked; its resume control is user-only, and no replacement goal was created.
+
 Approval mode: executable batch. On 2026-09-19 the user approved the preceding
 storage-reliability proposal and changed the upstream target to v1.4.0.
 The active goal covers this complete conditional sequence, including GitOps
