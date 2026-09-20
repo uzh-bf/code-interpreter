@@ -380,6 +380,101 @@ The bootstrap child build 2126110 remains queued for tags pulumi,stg. Runner 474
 is online and processing existing jobs; the queue is not a source failure.
 The sole CI watcher now streams exact child preview job 2126111; the parent-branch watcher was stopped.
 
+### PRD promotion — started 2026-09-20
+
+The user approved the PRD phase of this plan after the STG acceptance: mirror the
+STG critical-email alert routing for PRD, run the PRD recovery exercise
+(snapshot plus isolated restore), then promote PRD storage and CodeAPI. The
+user also confirmed the fork keeps carrying upstream releases with no tags or
+releases of its own, so the four reviewed upstream integration merges stay as
+they are and nothing here publishes a fork release.
+
+PRD baseline at the start of this phase (read-only): SeaweedFS 4.37 runs the
+image defaults, so `-volumeSizeLimitMB` is 30000 and `-volume.max` is 8;
+master reports Max 8 / Free 0 with collections default (volumes 1-7) and
+`codeapi-files` (volume 8, about 34 MB), which is one more collection than
+writable-volume headroom. The namespace has no VolumeSnapshotClass, the
+Prometheus stack has no Alertmanager, and PRD CodeAPI serves
+`d2382d66491b05f1e9000ad6756868a66ea47e1d` on all five control-plane
+Deployments with the KEDA-owned sandbox runner scaled to zero. ARGOCD
+`app-seaweedfs` and `app-codeapi` are Synced/Healthy on helm-charts `main`.
+The PRD `seaweedfs-codeapi-bootstrap` access/secret keys match the `codeapi`
+identity in the live `seaweedfs-s3-config` s3.json exactly, so the reviewed
+canary and fixture can authenticate without any credential change.
+
+Controller decision: keep the release convention of targeted PRD merge requests
+instead of a full `stg` -> `prd` promotion merge, because the STG branch carries
+eighteen unrelated commits (asyncspot node cap, GBL stacks, Langfuse export VM,
+eLearning tracking, Tailscale auth, Hatchet storage backfill) that are not part
+of this plan and are not validated by its acceptance. Any MR that targets `prd`
+requires one release approval, which is a human decision the agent does not
+request or bypass.
+
+Planned PRD sequence, mirroring the accepted STG order and its receipts:
+
+1.  df-cloud PRD bootstrap: Pulumi-owned `seaweedfs-disk-snapshots` snapshot
+    class, the namespace-scoped Argo kinds for recovery and monitoring, and the
+    Alertmanager receiver for PRD. CI-only preview then apply; no local Pulumi.
+2.  helm-charts fixture: one identified synthetic object in `codeapi-files`
+    written and hash-verified before the fence exists, because the fence blocks
+    every new pod in the namespace, including the fixture itself.
+3.  helm-charts fence: temporary `pods: 0` ResourceQuota plus dropping the
+    PostSync bucket-bootstrap hook from the PRD kustomization, with the live
+    Deployment unchanged so no pod is disrupted by the sync.
+4.  helm-charts hold: `replicas: 0` together with the repaired allocation flags
+    (`-metricsPort=9327`, `-master.volumeSizeLimitMB=2048`, `-volume.max=0`,
+    `-volume.minFreeSpace=5GiB`), `terminationGracePeriodSeconds: 120` and
+    `WEED_MASTER_VOLUME_GROWTH_COPY_1=1`, so the resumed pod is the repaired one.
+5.  Operator deletion of only the recorded pod with an explicit 120-second grace
+    and a UID precondition after verifying quota enforcement, with a sanitized
+    clean-shutdown receipt. No scale-down, no PATCH, no second delete.
+6.  helm-charts snapshot: one VolumeSnapshot of the offline source PVC, then
+    `readyToUse` with source PVC UID, content and snapshot handles recorded.
+7.  helm-charts resume: `replicas: 1`, fence removal and bootstrap-hook restore
+    in one merge, with the monitoring manifest in the same merge so detection
+    starts with the repaired storage instead of alerting against a fence.
+8.  helm-charts isolated restore: the 50 GiB restore PVC and the isolated
+    restore Job that proves the preserved fixture bytes, its metadata and a new
+    synthetic write/read/delete with repaired flags, without production endpoints.
+9.  CodeAPI promotion: PRD image pins to `f6ec42cd44729b33a950016114651ca28fdcd172`
+    in helm-charts plus the matching df-cloud chart revision, then repeated
+    consumer acceptance through the PRD DF LibreChat route.
+
+Storage recovery evidence for PRD must be collected within one hour before the
+PRD storage merge, which is step 7 above; steps 3-6 therefore precede it. The
+planned PRD window interrupts storage access, and the newly enabled PRD alerts
+are expected to fire critical notifications while the fence stops the canary.
+Delivery topology at the time of writing:
+
+- helm-charts !113 merged as `6887a33`; the PRD fixture seed Job ran to
+  completion at 2026-09-20 16:53:30 UTC and its object hash is recorded.
+- helm-charts !114 merged as `6d1bd91` for step 3. Argo cannot apply it yet:
+  the live `prd-apps-seaweedfs` AppProject permits only PersistentVolumeClaim,
+  Service, Deployment, Job, NetworkPolicy and Ingress, while
+  `stg-apps-seaweedfs` also permits ConfigMap, ResourceQuota, CronJob,
+  VolumeSnapshot, ServiceMonitor and PrometheusRule. The fence, the snapshot and
+  the monitoring manifest are therefore all blocked on the df-cloud kinds change
+  in step 1, which is the same whitelist STG already carries.
+- df-cloud !603 (`rs/prd-snapshot-alerting`) carried steps 1 and part of 9 but
+  could never authenticate: production CI variables are protected, so only a
+  protected source branch can read them, and both PRD preview jobs failed with
+  `PULUMI_ACCESS_TOKEN must be set`. Closed in favour of !604, which carries the
+  identical commits `81ff700` and `b7c9d8b` on the protected
+  `release/prd-seaweedfs-snapshot-alerting` branch that matches this project's
+  `release/prd-*` convention.
+- `release-approval-gate-mr-prd` runs `util/ci/require-release-approval.mjs`
+  with `RELEASE_APPROVALS_REQUIRED` defaulting to 1 and counts
+  `approved_by` entries. Project settings do not block a merge on a failed
+  pipeline, so this job is the release control: it needs one recorded human
+  approval before the PRD apply, and the agent neither requests a reviewer nor
+  records that approval.
+- Window merges are staged and reviewed as separate MRs so the window stays
+  short: helm-charts !115 hold (step 4), !116 snapshot (step 6), !117 resume
+  (step 7) and !118 isolated restore (step 8). The accepted STG order was fence
+  sync, recorded pod deletion, hold, snapshot, resume, restore; PRD follows it
+  with the hold merged immediately after the deletion so Argo's desired state
+  keeps storage stopped once the fence is lifted.
+
 ## Execution details
 
 Historical evidence and exact-version sizing rationale are in
