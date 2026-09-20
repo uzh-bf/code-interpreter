@@ -301,10 +301,17 @@ lacked Redis and jq; it is superseded by this properly provisioned run. Existing
 unrelated build warnings and test DNS diagnostics remain visible in local logs.
 The test container exited and was removed automatically.
 
-The substantive package is 455 added/deleted source and test lines across two
+The substantive package is 468 added/deleted source and test lines across two
 files, excluding the project plan. One defect correction and its regression
-coverage form a single package. Independent simplification and slice review are
-running against that immutable range. Final review and GitHub CI are pending.
+coverage form a single package. Independent simplification removed redundant
+refusal records from the test fixture (15416c4). The correctness reviewer found
+that distant finite deadlines could overflow the runtime timer. Correction
+055709d rearms bounded timer legs against the same absolute deadline and adds a
+regression test. The service build and scoped lint passed again, and 48 focused
+HTTP, worker-error and cancellation tests passed (146 assertions). The complete
+1,114-test run predates only this bounded timer correction and test simplification.
+The same reviewer is checking the correction; integrated final review and current
+GitHub CI remain pending. Source delivery is draft PR #32.
 The deployed image still uses 5d063ffe and the failed cold probe remains the live
 acceptance result. Do not equate these passing local checks with STG acceptance.
 
