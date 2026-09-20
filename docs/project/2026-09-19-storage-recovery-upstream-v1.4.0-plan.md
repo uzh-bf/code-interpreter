@@ -201,6 +201,27 @@ the valid signature and 401 with an invalid signature. This proves current STG
 authentication and ownership enforcement, not execution or artifact storage.
 The temporary port-forward is operator-owned and must be stopped after testing.
 
+### Consumer configuration check — 2026-09-20
+
+Read-only inspection found that both STG LibreChat deployments (aibuddy and
+edu-ai, image 6a919d9) have no LIBRECHAT_CODE_BASEURL,
+LIBRECHAT_CODE_BASEURL_STATEFUL or statefulCodeSessions environment configuration.
+Their deployed routing code uses the default hosted CodeAPI route when no
+stateful environment is selected. The deployment repository at main 30f21637
+also contains no internal CodeAPI URL in either STG overlay. Argo sources both
+instances from that repository. This is an explicit consumer acceptance gap;
+a direct synthetic CodeAPI proof cannot establish LibreChat integration.
+Switching these consumers from hosted execution to the internal service needs a
+concrete configuration/authentication review and a target-instance decision.
+Storage recovery and direct CodeAPI acceptance remain independent approved work.
+No LibreChat configuration or credentials were changed.
+
+The restricted codeapi-stg operator profile was rechecked: authenticated for
+codeapi/stg, only CODEAPI_JWT_PRIVATE_JWK_JSON readable and no writable names.
+The bootstrap child build 2126110 remains queued for tags pulumi,stg. Runner 474
+is online and processing existing jobs; the queue is not a source failure.
+The existing CI watcher remains the sole watcher for the merged bootstrap run.
+
 ## Execution details
 
 Historical evidence and exact-version sizing rationale are in
