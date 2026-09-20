@@ -1035,3 +1035,14 @@ Acceptance receipts. 2026-09-20-stg-v141-e2e.json records the passing v1.4.1 E2E
 Regression found and fixed. 37cb3ab removed the temporary PRD admission fence together with the retained snapshot manifest that 28cb874 had committed seconds earlier, leaving app-seaweedfs on prd permanently OutOfSync with requiresPruning=true; the live snapshot survived only through its Prune=false annotation. helm-charts !122 (commit 25ced7f) restores the exact 28cb874 manifest, so the merge is a no-op apply that clears the drift. Merge pending approval.
 
 Remaining gates. !607 still needs the recorded human release approval in GitLab; the release-approval-gate-mr-prd job has not passed and also enforces the no-squash rule. After approval: merge !607, run the manual infra-up-prd and codeapi prd app jobs, verify PRD pods on e0b8c440, then rerun the PRD E2E with the PEM shim. df-cloud !591, the broad stg-to-prd promotion, stays unmerged and out of scope.
+
+## 2026-09-21 PRD v1.4.1 promotion completed
+
+After the recorded human release approval (roland.schlaefli) on df-cloud !607 and a passing release-approval gate, the approved promotion sequence ran to completion.
+
+- helm-charts !122 merged at d8786f1 restoring the PRD recovery snapshot manifest; app-seaweedfs on prd returned to Synced/Healthy with no OutOfSync resources.
+- df-cloud !607 merged at b7703b3 with a merge commit, no squash. Pipeline 669054: build-azure-helpers-prd and infra-preview-prd succeeded, infra-up-prd was played and succeeded in 652 s. Child pipeline 669057 for codeapi: app-preview succeeded in 145 s, app-up succeeded in 172 s.
+- app-codeapi on prd is Synced/Healthy at targetRevision e0b8c4409c337789d8fb07e5c5665bc2879c4fc3 with the helm-charts app chart at c1edada3; all five control-plane Deployments run e0b8c440 images with Ready pods.
+- PRD E2E on v1.4.1 passed: cold 270668 ms, warm 251 ms, exact-byte downloads, timeout SIGKILL 137, three deletes verified 404, 11 requests, zero failures. Receipt: 2026-09-21-prd-v141-e2e.json.
+
+The release process kept upstream history (merge commits only), cut no fork tags or releases, and carried every revision through GitOps pins.
