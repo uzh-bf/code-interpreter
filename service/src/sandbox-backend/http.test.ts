@@ -16,11 +16,6 @@ type DispatchAttempt = {
   url: string;
 };
 
-type ConnectionRefusal = {
-  url: string;
-  code: string;
-};
-
 /** Endpoint every test starts from, plus any endpoint a test starts itself. */
 const servers: ReturnType<typeof Bun.serve>[] = [];
 let defaultPort = 0;
@@ -29,7 +24,7 @@ let nextResponse: { status: number; body: unknown; delayMs?: number } = { status
 let nextResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 /** Dispatch attempts and connection refusals for the endpoint under test. */
 let dispatchAttempts: DispatchAttempt[] = [];
-let refusals: ConnectionRefusal[] = [];
+let refusalCount = 0;
 let targetPort = 0;
 /** Test hook: while set, the endpoint starts listening once this many
  *  connection attempts were refused, so later attempts meet a listening
@@ -50,7 +45,7 @@ const requestInterceptor = axios.interceptors.request.use((config) => {
   const url = config.url ?? '';
   if (!url.includes(`:${targetPort}/`)) return config;
   dispatchAttempts.push({ url });
-  if (startEndpointAfterRefusals && refusals.length >= REFUSALS_BEFORE_ENDPOINT_STARTS) {
+  if (startEndpointAfterRefusals && refusalCount >= REFUSALS_BEFORE_ENDPOINT_STARTS) {
     startEndpointAfterRefusals = false;
     spawnServer(targetPort);
   }
@@ -61,7 +56,7 @@ function recordRefusal(error: unknown, url: string): void {
   if (!axios.isAxiosError(error)) return;
   if (error.response !== undefined || error.code !== 'ECONNREFUSED') return;
   if (!url.includes(`:${targetPort}/`)) return;
-  refusals.push({ url, code: error.code });
+  refusalCount += 1;
 }
 
 const savedEndpoint = env.SANDBOX_ENDPOINT;
@@ -128,7 +123,7 @@ afterEach(() => {
   nextResponse = { status: 200, body: {} };
   nextResponseHeaders = { 'Content-Type': 'application/json' };
   dispatchAttempts = [];
-  refusals = [];
+  refusalCount = 0;
   startEndpointAfterRefusals = false;
   for (const served of servers.splice(1)) served.stop(true);
   useEndpoint(defaultPort);
@@ -243,10 +238,8 @@ describe('HttpSandboxBackend', () => {
     const result = await backend.execute(req, context({ deadlineAtMs: Date.now() + 10_000 }));
 
     expect(result).toEqual(responseBody);
-    expect(refusals.length).toBeGreaterThan(1);
-    expect(refusals.length).toBeGreaterThanOrEqual(REFUSALS_BEFORE_ENDPOINT_STARTS);
-    expect(refusals.every((refusal) => refusal.code === 'ECONNREFUSED')).toBe(true);
-    expect(dispatchAttempts.length).toBeGreaterThan(refusals.length);
+    expect(refusalCount).toBeGreaterThanOrEqual(REFUSALS_BEFORE_ENDPOINT_STARTS);
+    expect(dispatchAttempts.length).toBeGreaterThan(refusalCount);
     expect(dispatchAttempts.every((attempt) => attempt.url === executeUrl)).toBe(true);
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe('POST');
@@ -267,7 +260,7 @@ describe('HttpSandboxBackend', () => {
       if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
     }
 
-    expect(refusals.length).toBeGreaterThan(1);
+    expect(refusalCount).toBeGreaterThan(1);
     expect(Date.now() - startedAt).toBeLessThan(5_000);
     expect(captured).toHaveLength(0);
   });
@@ -328,7 +321,7 @@ describe('HttpSandboxBackend', () => {
     expect(captured).toHaveLength(1);
     expect(captured[0].path).toBe('/api/v2/execute');
     expect(dispatchAttempts).toHaveLength(1);
-    expect(refusals).toHaveLength(0);
+    expect(refusalCount).toBe(0);
   });
 
   test('does not dispatch an already aborted request', async () => {
@@ -368,7 +361,7 @@ describe('HttpSandboxBackend', () => {
       if (axios.isAxiosError(error)) expect(error.code).toBe('ERR_CANCELED');
     }
 
-    expect(refusals).toHaveLength(1);
+    expect(refusalCount).toBe(1);
     expect(dispatchAttempts).toHaveLength(1);
   });
 
