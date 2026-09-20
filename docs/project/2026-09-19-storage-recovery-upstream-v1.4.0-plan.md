@@ -41,6 +41,67 @@ continuation; no cleanup or deletion was performed.
 
 ## Approval summary
 
+### Approved recovery execution — 2026-09-20
+
+The user approved the next STG storage interruption, one recovery snapshot and
+an isolated 50 GiB restore with temporary Azure costs. Azure token refresh now
+succeeds. Azure reports disk CSI and managed snapshot controllers enabled in
+both clusters. No AKS controller installation is needed.
+
+Bootstrap delivery is [df-cloud MR !600](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/600),
+head 0ea0f280cc75015860b090a032065d1eca750e5b. It adds a Pulumi-owned incremental
+Retain snapshot class and namespace-scoped Argo permissions for recovery and
+monitoring. Independent source review passed with no findings; simplification
+recommended no changes. Exact-head STG app preview pipeline 668342 is queued
+behind other work on the shared runner, and gates merge/apply. No local Pulumi.
+
+The first recovery artifact is [helm-charts MR !104](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/104),
+head fe82c85d7b501789a9b8ef0448080e0b05c1c03f, merged with history preserved at
+628c31d8712b893da1f784b3e1454205cd39ad4b. Independent review, server dry-run,
+Kustomize rendering and secret-detection CI passed. Its bounded synthetic
+Trypost write/read/hash Job completed in STG at 2026-09-20 09:54:24 UTC with exit
+zero. Job UID is 34b532de-d255-44bf-94ee-3d0750ecb135; synthetic content SHA-256
+is 9775d7a5ca100b519819db645bb559f29c85051c7b4d5dfde2a9f3ec1f789ab1.
+The fixture remains for snapshot verification. This proves the synthetic
+Trypost round trip, not CodeAPI recovery or snapshot restoration.
+
+The temporary admission fence is prepared in
+[helm-charts MR !105](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/105)
+at 52d4d84701ed92184d07d1b8d16c62013b6ce909. Source review, server dry-run and CI
+passed. Merge waits for bootstrap apply and ready shutdown/restoration mechanics.
+
+Planner-approved maintenance sequence: establish a temporary zero-pod admission
+quota through GitOps while omitting PostSync bootstrap hooks; leave the current
+Deployment unchanged. Verify quota enforcement before deleting only the recorded
+SeaweedFS pod with an explicit 120-second grace and UID precondition. This bounded
+operator DELETE is an approved maintenance action, not a configuration PATCH;
+all desired-state changes remain GitOps/CI. Capture sanitized termination status
+and require exit zero. Do not shorten grace through another delete or scale-down.
+After clean termination, reconcile zero replicas and 120-second future grace;
+verify disk detachment, take exactly one snapshot and await readyToUse.
+
+Then admit an isolated restore Job mounting only the snapshot-backed 50 GiB PVC.
+It uses the same SeaweedFS digest, synthetic local credentials, loopback binding,
+unique labels outside production Service selectors, no service-account token,
+and the existing default-deny policy. Verify the preserved synthetic bytes and
+metadata, then a new CodeAPI-bucket write/read/hash with repaired capacity flags
+on the restore only. Require clean restored-server shutdown. Restore/snapshot
+resources are retained. A draft of all three recovery resources passed STG
+server dry-run; this is schema evidence, not runtime recovery acceptance.
+
+Failure before deletion restores the quota/hook configuration. Failure after
+deletion blocks the repair; once the old process is demonstrably gone, restore
+service on the original PVC with baseline allocation plus 120-second grace.
+Never restore over the original PVC or force detach. After repair accepts new
+writes, retain repaired allocation settings on every recovery branch.
+
+The bounded shutdown utility passed synthetic cases for clean exit, nonzero
+exit, missing fence, wrong pod UID and wrong PVC UID. Only the two correctly
+identified fenced cases issue a DELETE. Operational review remains required
+before execution. No storage shutdown, snapshot, or application promotion has
+occurred. The PRD alert destination remains an open decision requested from the
+user; it does not block independent STG preparation.
+
 ### Rollout resumption check — 2026-09-20
 
 The user requested rollout continuation after close-out. Kubernetes read access
