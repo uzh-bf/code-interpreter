@@ -52,8 +52,15 @@ Bootstrap delivery is [df-cloud MR !600](https://gitlab.uzh.ch/uzh-bf/cloud/df-c
 head 0ea0f280cc75015860b090a032065d1eca750e5b. It adds a Pulumi-owned incremental
 Retain snapshot class and namespace-scoped Argo permissions for recovery and
 monitoring. Independent source review passed with no findings; simplification
-recommended no changes. Exact-head STG app preview pipeline 668342 is queued
-behind other work on the shared runner, and gates merge/apply. No local Pulumi.
+recommended no changes. Exact-head STG preview job 2125702 and MR pipeline
+668341 passed: one snapshot class create and one AppProject update, no deletes
+or replacements. Refresh-only drift was existing controller defaults, discovered
+resources and StackReference outputs. No local Pulumi.
+
+MR !600 merged with history preserved at 18100341e123c33a6799e8ee9db727f774ece117.
+Merged STG pipeline 668406 has its SeaweedFS child 668426 triggered. Build 2126110
+and preview 2126111 gate manual apply 2126112. The existing watcher targets this
+STG pipeline. No bootstrap apply has run yet.
 
 The first recovery artifact is [helm-charts MR !104](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/104),
 head fe82c85d7b501789a9b8ef0448080e0b05c1c03f, merged with history preserved at
@@ -166,12 +173,12 @@ The 4.37 writable gauge refreshes every 5 to 5.5 minutes, so its alert waits
 seven minutes; the one-minute canaries provide earlier behavioral detection.
 Exact-image inspection confirmed all retained metrics, including both writable
 collection gauges after their first refresh. The synthetic container is stopped.
-Pipeline 668389 passed; integrated review remains in progress. Simplification
+Pipeline 668389 and integrated final review passed with no findings. Simplification
 recommended dropping byte counts before hash comparison; retain the previously
 tested checker because its small overhead does not justify changing this proof.
 
 The df-cloud bootstrap pattern audit passed with no findings. Its authoritative
-preview remains queued on the shared STG runner. No maintenance shutdown,
+MR preview passed and the merged STG preview/apply is queued on the shared runner. No maintenance shutdown,
 snapshot, restore or application rollout has happened. The only live change
 so far is the successful retained synthetic recovery-seed Job.
 
@@ -182,8 +189,17 @@ at d1ada06477eb09d70fa2108e35473fffebec5d8c (seven STG image pins), and
 at f210432ddf2e557728222c2910dc25fb3dd3c690 (chart revision only). Both target
 5d063ffe81df98824c5a15fcafabef5728973672, with prior revision 929ec4d recorded
 for recovery. The chart tree equality was freshly verified. Preview-only pipeline
-668394 is requested; draft delivery is not deployment. Merge/apply await storage
-acceptance and applicable review/CI.
+668394 and MR pipeline 668396 are queued; draft delivery is not deployment.
+Integrated source review and the applicable pattern audit passed. Helm pipeline
+668391 passed. Merge/apply await storage acceptance and authoritative preview.
+
+The user approved the exact local Infisical profile codeapi-stg with read access
+only to CODEAPI_JWT_PRIVATE_JWK_JSON, no writes. Configuration reused the existing
+organization identity; status and 0600 file mode passed. A short-lived token was
+minted only in memory. A synthetic nonexistent-session probe received 403 with
+the valid signature and 401 with an invalid signature. This proves current STG
+authentication and ownership enforcement, not execution or artifact storage.
+The temporary port-forward is operator-owned and must be stopped after testing.
 
 ## Execution details
 
