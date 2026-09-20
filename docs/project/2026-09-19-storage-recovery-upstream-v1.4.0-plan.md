@@ -243,6 +243,52 @@ desired change is app-codeapi chart revision 929ec4d to 5d063ffe; no creates,
 deletes or replacements. Source review remains valid. Storage and runtime gates
 still block its promotion.
 
+### STG rollout and failed cold acceptance — 2026-09-20
+
+The storage observation passed at 12:03:54 UTC. Each bucket completed sixteen
+consecutive scheduled checks over fifteen minutes; maximum gap was 63 seconds.
+Prometheus confirmed fifteen spare slots, one writable volume per required
+collection, healthy scraping, physical headroom above 10 GiB and all ten storage
+rules inactive. The resumed original PVC retained the synthetic recovery hash.
+
+Helm MR !106 merged at 669b8add and df-cloud MR !601 at 4c3acda9. All five
+running service deployments use 5d063ffe; the sandbox template uses the same
+revision with KEDA owning scale from zero. Chart files are byte-identical to the
+previous revision, so execution verification can proceed while merged STG child
+668590 runs its chart-revision-only preview 2126928. Apply 2126929 remains gated
+by that exact preview. The named bridge was triggered through glab GraphQL;
+glab ci trigger did not recognize the manual bridge by name.
+
+The single authenticated cold probe passed health and a 148-byte synthetic
+upload. Execution returned HTTP 502 after 134,816 ms. The exact test-owned queue
+record confirms one attempt, HTTP backend, and ECONNREFUSED. No execution retry
+was sent. The probe skipped warm, timeout and cancellation requests, deleted its
+input and verified HTTP 404. Sandbox image pull completed later, about 217
+seconds after admission; runner readiness within 300 seconds was not captured.
+This is failed application acceptance and blocks PRD promotion.
+
+Source inspection shows one HTTP execution POST with no availability wait.
+Prepare a narrow correction in service/src/sandbox-backend/http.ts and its
+existing test file. Retry only Axios ECONNREFUSED without a response, disable
+execution redirects so a redirected failure cannot replay an accepted POST,
+and preserve the signed body. Use one finite absolute deadline, taking the
+worker deadline when supplied and validated JOB_TIMEOUT otherwise. Compose
+caller cancellation and a deadline timer, clean up listeners/timers, and use
+500 ms abort-aware backoff capped by remaining time. Never retry HTTP errors,
+resets, timeouts or other ambiguous post-dispatch failures. Add no endpoint,
+dependency, configuration surface or larger runtime budget.
+
+Planner review approved these obligations. Route: executor owns only http.ts
+and http.test.ts; main owns this plan, CI reconciliation, integration and proof.
+Extend existing real-transport tests for refused-then-listening success,
+unchanged signed body, abort/deadline including missing-deadline fallback,
+hanging accepted request, HTTP failure, accepted-request disconnect, and
+redirect to a refused port. Require no repeated accepted execution. Stop if the
+fix requires broader retries, renewed signatures or worker changes. Source
+delivery remains a draft until its review and CI pass; a new image rollout and
+fresh cold execution proof must be explicitly covered before those live actions.
+No warm rerun substitutes for the failed cold acceptance.
+
 ### Consumer configuration check — 2026-09-20
 
 Read-only inspection found that both STG LibreChat deployments (aibuddy and
@@ -457,16 +503,15 @@ retention interval. Record each operation's ID/status without secrets/content.
 
 ## Progress
 
-Current checkpoint, 2026-09-20 11:49 UTC: source v1.4.0 integration and image
-builds are complete. STG bootstrap, clean shutdown, whole-PVC snapshot and
-isolated restoration have passed. Storage/monitoring MR !103 merged at
-bd2bd17b87938d1156f730360b3a1a3635a1d69b. The original PVC is Ready again;
-both bucket canaries passed at 11:48 UTC. Live allocation is 24 slots, nine
-used and fifteen spare. The fifteen-minute observation is in progress.
-Application MRs !106/!601 remain unmerged pending storage acceptance.
+Current checkpoint, 2026-09-20: STG storage recovery and the fifteen-minute
+monitoring observation passed. Application image MR !106 and chart-source MR
+!601 merged. New images are running; the exact merged chart preview/apply is
+pending in child 668590. Authenticated upload and cleanup passed, but the one
+cold execution failed with ECONNREFUSED before the sandbox was available.
+Application acceptance is failed; warm/timeout/cancellation and PRD remain gated.
+The bounded HTTP connection-refusal correction is being prepared and reviewed.
 PRD alert routing and its recovery window/cost decision remain unresolved.
-The native goal is blocked; direct approved work continues, and only the user
-control can resume that goal.
+The native goal remains blocked; direct approved work continues.
 
 The receipts below are historical checkpoints; the approval and delivery sections
 above supersede their former access, cost and recovery-window blockers.
