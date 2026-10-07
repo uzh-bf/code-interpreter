@@ -488,3 +488,27 @@ kubectl port-forward svc/codeapi-api 3112:3112
 ## AWS / Cloud Deployment
 
 For production AWS deployment, see the section below.
+
+## Trusted worker resource requests
+
+`workerSandbox.resources` sizes the microVM sandbox and remains the fallback
+for the trusted job orchestrator. Set `workerSandbox.serviceWorker.resources`
+to override only the orchestrator. The chart merges this override into a copy
+of the shared resources; omitted request and limit fields retain their shared
+values, and sandbox resources remain unchanged.
+
+```yaml
+workerSandbox:
+  serviceWorker:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+```
+
+Use advisory Goldilocks/VPA recommendations and representative historical
+usage to select requests. The worker forwards execution to the separate
+sandbox, whose request must still cover guest memory and VMM overhead.
+Keep existing limits during initial request tuning when load peaks are
+uncertain. Check concurrency, health, restarts, queue progress, and sandbox
+resources after rollout.

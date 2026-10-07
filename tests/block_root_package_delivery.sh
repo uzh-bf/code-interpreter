@@ -379,4 +379,25 @@ assert_contains \
     'workerSandbox.packages.source must be image or pvc' \
     "package source validation failed for an unexpected reason"
 
+# A worker override must preserve the separately provisioned microVM sandbox.
+helm template codeapi "$TMP_DIR/chart" \
+    --set executionManifest.privateKey=test \
+    --set executionManifest.publicKey=test \
+    --set workerSandbox.serviceWorker.resources.requests.cpu=125m \
+    --set workerSandbox.serviceWorker.resources.requests.memory=192Mi \
+    --set workerSandbox.serviceWorker.resources.limits.cpu=750m \
+    > "$TMP_DIR/helm-worker-resources.yaml"
+awk 'BEGIN {RS="---"} /name: codeapi-service-worker/ {print}' \
+    "$TMP_DIR/helm-worker-resources.yaml" > "$TMP_DIR/worker-resources.yaml"
+assert_contains "$TMP_DIR/worker-resources.yaml" 'cpu: 125m' "worker CPU request override was lost"
+assert_contains "$TMP_DIR/worker-resources.yaml" 'memory: 192Mi' "worker memory request override was lost"
+assert_contains "$TMP_DIR/worker-resources.yaml" 'cpu: 750m' "worker CPU limit override was lost"
+assert_contains "$TMP_DIR/worker-resources.yaml" 'memory: 3Gi' "worker did not inherit the shared memory limit"
+# Compare every other rendered object to detect accidental shared-values mutation.
+awk 'BEGIN {RS="---"} !/name: codeapi-service-worker/ {print}' \
+    "$TMP_DIR/helm-image.yaml" > "$TMP_DIR/shared-resources-before.yaml"
+awk 'BEGIN {RS="---"} !/name: codeapi-service-worker/ {print}' \
+    "$TMP_DIR/helm-worker-resources.yaml" > "$TMP_DIR/shared-resources-after.yaml"
+cmp "$TMP_DIR/shared-resources-before.yaml" "$TMP_DIR/shared-resources-after.yaml"
+
 echo "block-root package delivery checks passed"

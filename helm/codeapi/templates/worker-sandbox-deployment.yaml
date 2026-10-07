@@ -11,6 +11,7 @@ Split runtime deployments:
 {{- if get $legacyAutoscaling "enabled" }}
 {{- fail "workerSandbox.autoscaling.enabled was replaced by workerSandbox.sandboxRunner.autoscaling.enabled; move autoscaling settings under workerSandbox.sandboxRunner.autoscaling" }}
 {{- end }}
+{{- $serviceWorkerResources := mergeOverwrite (deepCopy .Values.workerSandbox.resources) (default dict .Values.workerSandbox.serviceWorker.resources) }}
 {{- $serviceWorkerServiceAccount := .Values.workerSandbox.serviceAccount.name | default (printf "%s-service-worker" (include "codeapi.fullname" .)) }}
 {{- $sandboxRunnerServiceAccount := .Values.workerSandbox.sandboxServiceAccount.name | default (printf "%s-sandbox-runner" (include "codeapi.fullname" .)) }}
 {{- if not .Values.executionManifest.privateKey }}
@@ -230,9 +231,9 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: {{ .Values.workerSandbox.resources.requests.cpu }}
-              memory: {{ .Values.workerSandbox.resources.requests.memory }}
-            {{- with .Values.workerSandbox.resources.limits }}
+              cpu: {{ $serviceWorkerResources.requests.cpu }}
+              memory: {{ $serviceWorkerResources.requests.memory }}
+            {{- with $serviceWorkerResources.limits }}
             limits:
               {{- toYaml . | nindent 14 }}
             {{- end }}
