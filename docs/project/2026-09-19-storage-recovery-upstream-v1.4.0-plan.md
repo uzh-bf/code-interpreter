@@ -1310,3 +1310,11 @@ The final plan checkpoint is documentation only, reusing unchanged source checks
 and the passing final review. No exact fixture UIDs or future capture deadline exist
 yet because no live fixture or CronJob was created. After access recovery, record
 those values when the actual STG rollout occurs and continue this same sequence.
+
+The canonical snapshot checkpoint is pushed as helm-charts
+`12d81f05940b1709ceb3134b697def9d3e29bc20`; current-head pipeline 681693 passed.
+MR !125's published description was read back and matches source checks, the
+passing final review, the successful merged-result prerequisite preview and the
+blocked live gate. Its squash/delete flags are explicitly false. The source
+branches and governing plan are pushed; no reviewer, watcher or test runtime is
+left running. Next dependency remains restored Azure cache-write capability.
