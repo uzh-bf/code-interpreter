@@ -1359,3 +1359,103 @@ whitelist before the chart merge. Then follow the approved real scheduled captur
 creation-time retention, isolated restore and consumer E2E acceptance sequence.
 PRD remains conditional on complete STG acceptance, including genuine retention
 aging beyond six days. No watcher or runtime remains active.
+
+### Azure access restored and STG schedule deployed — 2026-10-12
+
+The user restored unrestricted filesystem capability and explicitly requested the
+settings edit. In the active `standard-workspace` profile, the only configuration
+change replaces `"~/.azure/commands" = true` with `"~/.azure" = true` under
+`permissions.standard-workspace.workspace_roots`. TOML validation and read-back
+confirmed no other configuration change. The current session can now refresh
+Azure credentials: the normal account reports Enabled and the STG API readiness
+endpoint returns `ok`. No credential was printed or copied. The previous Azure
+filesystem hold is resolved; operational snapshot acceptance remains open.
+
+Cluster-level changes: STG SeaweedFS app-up 2181540 in child pipeline 681687 passed
+at df-cloud STG `30935bd6ccdfce9d171cfcb8f66042133ec7eba1`. Its source additions
+are the incremental Delete class `seaweedfs-scheduled-snapshots` and the
+AppProject ServiceAccount/Role/RoleBinding whitelist. Both were verified live;
+the existing incremental Retain class `seaweedfs-disk-snapshots` remains intact.
+The apply also reported reconciliation of the existing SeaweedFS Application.
+No infra-up or unrelated app deployment was triggered.
+
+The chart's server-side dry-run passed. helm-charts !125 merged without squash as
+`0fa2e60b3d1415fb76781b086ec30f7224e4f0d3`, with parents `33241ff` and the reviewed
+task head `12d81f05940b1709ceb3134b697def9d3e29bc20`. The source branch is retained;
+merged-result pipeline 681890 passed. The intervening target commit changed only
+the unrelated knowledge-graph chart, so the unchanged snapshot source checks and
+final review were reused. Argo reached this exact merge revision and reports
+Synced/Healthy. The daily schedule now exists; its first actual run is still pending.
+
+Runtime and synthetic verification:
+
+- All 12 authorization checks passed: four snapshot verbs allowed, snapshot
+  update and access to contents, PVCs, Secrets, workloads, another namespace and
+  nodes denied. The initial receipt parser incorrectly required a bare `no`;
+  Azure returns `no - Azure does not have opinion for this user.`. After directly
+  verifying that response, the parser accepted its explanatory suffix while
+  retaining the expected answer and exit-status checks. No RBAC change was needed.
+- CodeAPI on `e0b8c440` passed the existing 11-request synthetic probe: cold
+  execution 273074 ms, warm execution 233 ms, exact-byte downloads, timeout
+  SIGKILL/137, three object deletes and the harness's input-absence check. The
+  harness does not exercise programmatic cancellation in this storage probe.
+  Receipt: `docs/project/_local/reviews/2026-10-12-stg-snapshots-e2e.json`.
+- The CodeAPI and trypost storage canaries both succeeded at
+  `2026-10-12T15:34:07Z`. SeaweedFS remains one ready pod on its existing digest.
+- Seed Job `seaweedfs-drill-seed-20261012`, UID
+  `5ada15d6-8822-4c43-bc6a-6d05c6a909e8`, completed at
+  `2026-10-12T15:31:50Z`. It verified the synthetic bytes in bucket `trypost-media`,
+  key `synthetic-recovery/20261012-snapshots-v1`, with metadata
+  `recovery=20261012-snapshots-v1`. Expected content is
+  `SeaweedFS recovery fixture 20261012 snapshots-v1` followed by one newline.
+  Only this newly created seed Job was deleted after its receipts were recorded;
+  the stored fixture remains for the scheduled-capture restore.
+- One retention fixture, `seaweedfs-auto-20261001`, UID
+  `8bff3818-a0c2-443e-933c-24b838e2d976`, was created at
+  `2026-10-12T15:33:02Z` from `seaweedfs-data` using the Delete class and schedule
+  ownership label. It is ready, bound to
+  `snapcontent-8bff3818-a0c2-443e-933c-24b838e2d976`; its incremental Azure backend
+  reports Succeeded. The date in its name only reserves an unused past name;
+  genuine creation time governs retention. Historical September objects remain.
+
+Values-free/synthetic fixture, content/backend handle, seed, RBAC and schedule
+receipts are also preserved under the existing persistent ignored root
+`docs/project/_local/reviews/2026-10-12-stg-snapshot-receipts/`, alongside their
+implementing helm-charts `project/_local/reviews/` originals. No secret-bearing
+files or credentials were copied. The port-forward is stopped, port 13112 has no
+listener, and every started CI, Kubernetes wait and E2E process has terminated.
+
+#### Pending schedule and retention acceptance
+
+CronJob `seaweedfs-snapshot-schedule` has UID
+`27bc0935-4a11-44ba-b2cc-8e2bff9d6300`, creation time
+`2026-10-12T15:31:06Z`, schedule `15 2 * * *`, time zone `Etc/UTC`, and no
+`lastSuccessfulTime` yet. First expected actual capture is
+`seaweedfs-auto-20261013` at 13 October 02:15 UTC, with a bounded deadline of
+02:45 UTC. At that time, resume this same task and use:
+
+```sh
+kubectl --context aks-stg-apps --request-timeout=15s -n seaweedfs wait \
+  --for=jsonpath='{.status.lastSuccessfulTime}' \
+  cronjob/seaweedfs-snapshot-schedule --timeout=1800s
+```
+
+Record the actual Job's CronJob owner reference, completed run/logs and updated
+last-success metric. Bind the restore drill to the resulting snapshot's exact UID
+and creation time, confirming the fixture seed completed before capture. Complete
+same-day reuse, isolated restore, temporary disk release and post-capture consumer
+acceptance. A ready operator-created retention fixture does not prove the restricted
+scheduled pod executed.
+
+The retention fixture becomes eligible strictly after 18 October 15:33:02 UTC;
+the first regular run after that cutoff is 19 October 02:15 UTC, with deadline
+02:45 UTC. Before that run compute victims and the three-ready floor from the full
+current owned inventory, then verify this fixture's content and recorded backend
+handle are reclaimed by the scheduler. Never substitute a backdated name or manual
+deletion for genuine aging and retention proof.
+
+There is no supported future completion callback attached to this task. No watcher
+or automation is left running; explicit resumption at those deadlines is required.
+PRD source promotion/deployment and the subsequent upstream v1.10.4 assessment
+remain behind full STG acceptance. This is a time/continuation hold with STG's
+schedule active, not completion of the snapshot package and not a new approval gate.
