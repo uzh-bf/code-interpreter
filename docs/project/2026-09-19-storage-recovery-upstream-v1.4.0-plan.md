@@ -1222,3 +1222,38 @@ The implemented cutoff is six days, with a three-ready floor; no policy was chan
 Writable sandbox copies are under
 `/private/tmp/codeapi-snapshots-20261012.MXrwGT/{helm-charts,df-cloud}`, on the same
 two MR branches. These are the sole source writers for this continuation.
+
+
+### October preflight receipts — 2026-10-12
+
+The reviewed continuation was committed and pushed as `fc3576a` before source
+execution. The current targets were deliberately integrated once, without
+conflicts: helm-charts main `ae07cc3473e0513ecaddd4081e7882d09453ffdb` into task
+head `052e726d423626792946fca28386381a1aebbfb3`, and df-cloud STG
+`8d22aa1c2cfcdaca18a5b0d915f80a27b59a282a` into task head
+`dbe06417e1d3c9d64cdcee9454bd6b01381aa985`. The df-cloud net delta is still only
+25 added lines in the SeaweedFS app stack. The pushed head started MR pipeline
+681657 and SeaweedFS child 681659; preview acceptance is pending.
+
+STG snapshot validation passed after integration and after retaining the unchanged
+September recovery manifests. Those four objects remain Argo-tracked with
+`Prune=false`. Removing their manifests would leave pending-prune drift without
+historical cleanup authority, so keep `recovery.yaml` referenced in both
+environments until that cleanup is separately authorized. This correction does
+not change any live object's spec or require recreation. The new operator drill
+remains outside Kustomize. STG private API endpoint `10.100.4.10` and service address
+`10.240.0.1` match the snapshot egress policy. Both APIs respond; PRD's AppProject
+still lacks the new ServiceAccount/Role/RoleBinding entries. No live change has
+been executed during this continuation.
+
+Deployment-pattern audit, derived from the fetched STG source:
+
+| Axis | Current source | Result |
+| --- | --- | --- |
+| ArgoCD and ownership | `src/common/resources.ts:997`, `src/apps/laya/index.ts` Argo block, `AGENTS.md:61` | Existing Pulumi-owned AppProject remains namespace-scoped; class is a cluster prerequisite and Argo owns the schedule. Matches ownership. Existing inline AppProject is retained; helper conversion is unrelated. |
+| Storage and shared helpers | `src/common/resources.ts:939`, `src/apps/seaweedfs/index.ts:407` | Adds an explicit CSI Delete class beside the existing Retain class. No snapshot-class factory exists in current source; no storage/PVC replacement. Matches existing resource pattern. |
+| Workload identity | `src/common/resources.ts:915`, snapshot schedule Role | Scheduler uses Kubernetes API only, namespace RBAC, no Azure identity or static cloud credential. Azure identity factory does not apply. |
+| Environment gating and naming | `src/apps/seaweedfs/index.ts:26`, existing snapshot-class naming | Uses existing STG/PRD validation and class convention; live PRD apply remains gated. Matches. |
+| CI and preview | `.gitlab/ci/apps-triggers.yml:3`, `.gitlab/ci/app-child-pipeline.yml` | SeaweedFS-specific MR preview at current head is running; readiness awaits successful preview and effect review. |
+| Secrets, data services, networking, node placement | unchanged in prerequisite diff | Not applicable; no new secret, database, endpoint or workload placement. Chart-only scheduler networking is checked separately. |
+| Decision records | existing canonical snapshot plan | Existing snapshot-only design retained; corrected creation-time acceptance and rollout ordering, no new architecture decision. |
