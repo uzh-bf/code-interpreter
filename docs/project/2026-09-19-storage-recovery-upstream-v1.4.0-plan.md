@@ -1111,8 +1111,7 @@ failed condition blocks its dependent step. No new generic proceed is required.
    disk release. Correct the inherited Slice 5 fixture procedure: retention ages
    snapshots by immutable `metadata.creationTimestamp`, not a date in the name.
    Create a separately recorded, operator-approved synthetic fixture inventory and
-   allow it to age past the implemented six-day cutoff (roughly seven daily restore
-   points in healthy operation). Derive expected victims and
+   allow it to age past the implemented six-day cutoff (the number of recent daily captures depends on start and readiness timing). Derive expected victims and
    the three-ready survivor floor from the entire current owned inventory before
    a run; never assume the three-ready floor protects every genuine daily snapshot.
    Do not change the retention window or relabel historical recovery snapshots.
@@ -1257,3 +1256,57 @@ Deployment-pattern audit, derived from the fetched STG source:
 | CI and preview | `.gitlab/ci/apps-triggers.yml:3`, `.gitlab/ci/app-child-pipeline.yml` | SeaweedFS-specific MR preview at current head is running; readiness awaits successful preview and effect review. |
 | Secrets, data services, networking, node placement | unchanged in prerequisite diff | Not applicable; no new secret, database, endpoint or workload placement. Chart-only scheduler networking is checked separately. |
 | Decision records | existing canonical snapshot plan | Existing snapshot-only design retained; corrected creation-time acceptance and rollout ordering, no new architecture decision. |
+
+
+### STG source delivery and capability hold — 2026-10-12
+
+The prerequisite MR !610 merged into STG as `30935bd6ccdfce9d171cfcb8f66042133ec7eba1`
+after pipeline 681657 and SeaweedFS preview job 2181421 passed. The desired plan
+has one new Delete snapshot class and one AppProject whitelist update, no deletes
+or replacements. The independent final reviewer passed canonical JSON validation.
+The automated review's cluster-wide escalation claim was rejected against the
+Kubernetes RBAC documentation: a RoleBinding, including one referencing a
+ClusterRole, scopes permissions to its namespace. The accepted namespace-level
+source trust remains disclosed. The separate infra preview includes unrelated
+target changes and deletions; no infra-up or unrelated app apply is authorized.
+
+GitLab applied the project's squash/delete defaults despite CLI false flags.
+The merge has parent `241da0f6`, its squash commit, rather than the reviewed task
+head; the task branch was restored with an ordinary push to preserve its original
+history. CodeAPI upstream history is unaffected. For subsequent merges use explicit
+JSON `squash: false` and `should_remove_source_branch: false` and verify the graph.
+
+The exact merged STG pipeline is 681679. SeaweedFS deployment bridge 2181510 was
+triggered only to create its applicable child 681687 and refresh the merged-result
+app preview; app-up 2181540 has not been triggered. The chart correction is pushed
+as `7c02fdc1d8e3b89deefad20b2e9f76ad4c03cff2`, preserving the unchanged September
+recovery manifests. Chart pipeline 681691 passed. Its independent source review
+confirmed the implementation and raised one low documentation timing finding;
+the retention window is six days, with capture count dependent on timing.
+The correction round passed and validated against the canonical review schema at
+chart head `0349ae568061a9fec32a9a4dc63768ed678039f4`; all findings are empty.
+Source pipeline 681692 passed at that head. No policy or executable source changed.
+
+Cluster verification is now blocked by the sandbox: an Azure token refresh fails
+with `Operation not permitted: /Users/rschlae/.azure/msal_token_cache.json.lockfile`.
+The earlier cached token allowed read-only preflight; refresh now needs a cache write
+outside current writable roots. Approval policy is never, so escalation is not
+available here. No secret/cache copy, alternate identity, or cluster workaround
+was attempted. Finish current source and CI evidence; hold live apply/chart merge
+until host Azure cache refresh and scoped cluster verification work again. After
+capability is restored, resume this same plan at merged SeaweedFS preview review,
+app-up 2181540, then live class/whitelist verification before chart merge.
+No live October apply, scheduled capture, retention fixture or restore has occurred.
+PRD and upstream v1.10.4 assessment remain behind STG acceptance.
+
+
+The merged-result SeaweedFS preview job 2181539 passed at STG `30935bd6`, again
+showing one class create and one AppProject update, no deletes/replacements.
+The parent watcher completed; app-up 2181540 is held. The chart source gate is
+passed, but !125 remains draft/unmerged pending live prerequisite verification.
+Both CI watchers and both Claude review processes have terminated, and the
+planner/documentation children are closed. No runtime or port-forward was started.
+The final plan checkpoint is documentation only, reusing unchanged source checks
+and the passing final review. No exact fixture UIDs or future capture deadline exist
+yet because no live fixture or CronJob was created. After access recovery, record
+those values when the actual STG rollout occurs and continue this same sequence.
