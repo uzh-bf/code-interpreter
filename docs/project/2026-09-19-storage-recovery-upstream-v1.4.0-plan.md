@@ -1454,8 +1454,35 @@ current owned inventory, then verify this fixture's content and recorded backend
 handle are reclaimed by the scheduler. Never substitute a backdated name or manual
 deletion for genuine aging and retention proof.
 
-There is no supported future completion callback attached to this task. No watcher
-or automation is left running; explicit resumption at those deadlines is required.
+On 12 October the user authorized automatic follow-ups in this same task and
+conditional PRD continuation after full STG acceptance. Two native, one-time
+heartbeat automations are active, attached to task
+`01a0af87-a812-7f02-86dc-bce93f7bf58f`:
+
+| Follow-up | Europe/Zurich (CEST) | UTC | Automation ID |
+| --- | --- | --- | --- |
+| Actual scheduled capture, same-day reuse, isolated restore and consumer verification | 13 October 2026, 04:20 | 02:20 | `stg-scheduled-capture-and-restore-verification` |
+| Pre-run inventory, genuine aged retention/backend reclamation, then conditional PRD rollout | 19 October 2026, 04:05 | 02:05 | `stg-retention-verification-and-conditional-prd-rollout` |
+
+The retention follow-up starts before the 04:15 local scheduled run so it can
+record expected victims and the protected floor from the complete inventory.
+If execution starts after that run without pre-run evidence, hold PRD and report
+the missing proof. Use a supported bounded watcher through the 04:45 local run
+deadline; record actual scheduled-run ownership and freshness rather than accepting
+an earlier `lastSuccessfulTime`. There is no continuously running local watcher.
+
+Both automation records were read back as active with one occurrence and the
+intended task attachment. Their prompts resume this plan and existing source
+owners, preserve the fixture and historical recovery resources, persist sanitized
+receipts, and notify only meaningful results, failures or required user action.
+The 13 October follow-up cannot clear the genuine-aging gate early. The 19 October
+follow-up proceeds with the approved PRD sequence only after every STG acceptance
+gate passes, preserving required human release approval and the hold on unrelated
+promotion changes. PRD prerequisites must be applied and verified before its
+auto-synced chart package is merged.
+
 PRD source promotion/deployment and the subsequent upstream v1.10.4 assessment
-remain behind full STG acceptance. This is a time/continuation hold with STG's
-schedule active, not completion of the snapshot package and not a new approval gate.
+remain behind full STG acceptance. This is a scheduled continuation hold with
+STG's snapshot schedule active, not completion of the snapshot package and not a
+new generic approval gate. The upstream continuation remains assessment and
+planning only; no upstream rollout is authorized by these follow-ups.
