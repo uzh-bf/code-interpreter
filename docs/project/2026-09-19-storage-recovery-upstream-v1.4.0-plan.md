@@ -1318,3 +1318,44 @@ passing final review, the successful merged-result prerequisite preview and the
 blocked live gate. Its squash/delete flags are explicitly false. The source
 branches and governing plan are pushed; no reviewer, watcher or test runtime is
 left running. Next dependency remains restored Azure cache-write capability.
+
+### Azure cache repair diagnosis and resume condition — 2026-10-12
+
+The user explicitly authorized repairing Azure cache access and continuing the
+approved STG verification, then conditional PRD promotion. Authority is recovered;
+the remaining blocker is the execution environment's filesystem restriction.
+
+Fresh `az account show --query '{state:state}' -o json` fails before authentication
+with `PermissionError: [Errno 1] Operation not permitted:
+'/Users/rschlae/.azure/az.sess'`. Metadata inspection shows normal user ownership
+and no stale `msal_token_cache.json.lockfile`. Azure CLI 2.90.0 source loads
+`az.sess` with a one-hour maximum age and writes it when expired; its MSAL token
+cache also uses the same configuration directory. The current sandbox permits
+only `/Users/rschlae/.azure/commands`, not the parent configuration directory.
+Removing a lock or changing Unix file modes would not fix this sandbox denial.
+No credentials were printed, copied or relocated, and no client configuration or
+credential files were modified.
+
+The required external capability is a session that permits Azure CLI writes to
+`/Users/rschlae/.azure`, including session/cache files and their lock files.
+The current session cannot grant that permission: its approval policy is `never`.
+An external token refresh alone is not a durable repair because later CLI session
+expiry or token refresh can require another denied write. Resume the same approved
+plan after that capability is available; no renewed rollout approval is needed.
+
+Fresh forge evidence confirms df-cloud STG remains
+`30935bd6ccdfce9d171cfcb8f66042133ec7eba1`. SeaweedFS child pipeline 681687 has
+successful build 2181538 and preview 2181539; app-up 2181540 remains manual.
+helm-charts main remains `ae07cc3473e0513ecaddd4081e7882d09453ffdb`; MR !125 is
+draft/open at `12d81f05940b1709ceb3134b697def9d3e29bc20`, with successful pipeline
+681693 and both squash/source-branch-removal flags false. Both task clones are
+clean and remote-aligned. No live apply, fixture, scheduled capture or restore was
+performed in this repair attempt; current runtime health remains unverified.
+
+Resume by verifying `kubectl --context aks-stg-apps --request-timeout=10s get
+--raw=/readyz`, refreshing source/CI evidence, and reviewing the exact merged
+preview before app-up 2181540. Verify the live snapshot class and AppProject
+whitelist before the chart merge. Then follow the approved real scheduled capture,
+creation-time retention, isolated restore and consumer E2E acceptance sequence.
+PRD remains conditional on complete STG acceptance, including genuine retention
+aging beyond six days. No watcher or runtime remains active.
