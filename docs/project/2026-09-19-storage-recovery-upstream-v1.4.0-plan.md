@@ -1046,3 +1046,179 @@ After the recorded human release approval (roland.schlaefli) on df-cloud !607 an
 - PRD E2E on v1.4.1 passed: cold 270668 ms, warm 251 ms, exact-byte downloads, timeout SIGKILL 137, three deletes verified 404, 11 requests, zero failures. Receipt: 2026-09-21-prd-v141-e2e.json.
 
 The release process kept upstream history (merge commits only), cut no fork tags or releases, and carried every revision through GitOps pins.
+
+## 2026-10-12 continuation: scheduled snapshots, then upstream assessment
+
+### Approval summary
+
+The user approved continuing the scheduled-snapshots package in STG and then PRD,
+followed by an assessment and plan for upstream v1.10.4. Persist this continuation
+before execution. Approval mode: executable batch for the snapshot delivery;
+direction-only for the subsequent upstream assessment and integration plan.
+
+The snapshot design and verification contract remain in the existing helm-charts
+plan, `project/2026-09-21-seaweedfs-scheduled-snapshots-plan.md`, on branch
+`rs/seaweedfs-scheduled-snapshots`. This section governs the October continuation
+and records its cross-repository order without duplicating that implementation.
+The later instruction "snapshots only for now" remains binding: no HA topology,
+blob export, replication change, filer-store migration, or production Alertmanager
+deployment belongs to this package.
+
+The approved conditional sequence is to refresh and review the existing source,
+land and apply the STG prerequisites in df-cloud !610, land helm-charts !125,
+prove scheduled backup, retention reclamation, isolated restore and CodeAPI
+acceptance in STG, then deliver and verify the corresponding PRD package. Preserve
+required human reviews, including the recorded GitLab PRD release approval. A
+failed condition blocks its dependent step. No new generic proceed is required.
+
+### Verified baseline and boundaries
+
+- Fork main: `53ce639ccfc54ccf5fd449a6b07a1bd77da06089`; CI and image build
+  passed. This adds two Helm commits above the September v1.4.1 merge. No open
+  fork PRs, fork releases or fork tags were found on 12 October.
+- Upstream now resolves to `LibreChat-AI/code-interpreter`; latest published
+  release is v1.10.4 from 6 October. September's "latest v1.4.1" claim is historical.
+- df-cloud STG and PRD branches configure CodeAPI chart revisions as STG
+  `8eb246c5c0b3286f03fed7e32185e01b7a661d45` and PRD
+  `e0b8c4409c337789d8fb07e5c5665bc2879c4fc3`. Current helm-charts image pins
+  for both environments remain `e0b8c440`; source pointers are not runtime proof.
+- df-cloud !610 is draft/open at `0b91a34df745463d6cefcb16bcbd0e8a84babf63`;
+  its latest pipeline is canceled. helm-charts !125 is draft/open at
+  `38558fc72442b92eaf8ba0279a0c7a303a920e20`; its pipeline passed.
+- September E2E and recovery receipts prove the September rollout. October
+  rollout decisions require current environment evidence and applicable previews.
+
+### Execution details and ownership
+
+1. **Refresh the snapshot source and reviews.** Reuse the two existing task
+   worktrees and MRs. Fetch targets, preserve local work, assess target drift and
+   integrate only when it affects readiness. Reuse unaffected passing reviews;
+   review material corrections and close the recorded planning concerns. Run the
+   existing snapshot validation and render checks; refresh the df-cloud app
+   preview and deployment-pattern audit at the reviewed head. Confirm no broader
+   infrastructure or workload effects are included in the apply.
+2. **STG prerequisites and schedule.** After required checks/reviews pass, mark
+   the authorized snapshot MRs ready, merge !610 into STG and run its applicable
+   seaweedfs app-stack preview/apply through GitLab CI. Verify the added snapshot
+   class and AppProject whitelist live before merging !125 into helm-charts main.
+   Argo owns the workload rollout; Pulumi owns the class and AppProject. No live
+   patches or local Pulumi operations are authorized.
+3. **STG acceptance.** Execute the existing plan's least-privilege, actual
+   CronJob-run, same-day reuse, labeled retention-fixture, content/backend
+   reclamation, isolated fixture-bound restore and alert checks. Verify canaries
+   and authenticated CodeAPI artifact round trip. Clean up only synthetic test
+   objects and temporary drill resources created for this verification, recording
+   disk release. Correct the inherited Slice 5 fixture procedure: retention ages
+   snapshots by immutable `metadata.creationTimestamp`, not a date in the name.
+   Create a separately recorded, operator-approved synthetic fixture inventory and
+   allow it to age past the implemented six-day cutoff (roughly seven daily restore
+   points in healthy operation). Derive expected victims and
+   the three-ready survivor floor from the entire current owned inventory before
+   a run; never assume the three-ready floor protects every genuine daily snapshot.
+   Do not change the retention window or relabel historical recovery snapshots.
+   Seed the isolated restore fixture before the selected real CronJob capture and
+   bind that receipt to the resulting snapshot name, UID and timestamp. Use the
+   existing `project/seaweedfs-recovery/drill.yaml` operator manifest.
+4. **PRD after STG acceptance.** Prepare a dedicated PRD chart package and scoped
+   df-cloud prerequisite promotion using the normal STG-to-PRD release path, with
+   current PRD previews and required recorded human release approval. If that
+   promotion contains unrelated changes, hold its dependent branch for explicit
+   disposition; do not invent a selective promotion or merge an unrelated broad
+   release. Apply the seaweedfs PRD prerequisite stack and verify the class and
+   AppProject whitelist live before merging the PRD chart MR, since its main branch
+   automatically syncs. Preserve the release approval gate.
+   Repeat the applicable snapshot/retention/restore and CodeAPI acceptance checks.
+   Keep STG running if PRD is held or fails. Avoid unrelated broad promotion MRs.
+5. **Upstream assessment after snapshot acceptance.** Compare v1.10.4 with fork
+   main and the retained patches, identify compatibility and deployment changes,
+   and persist `docs/project/upstream-v1.10.4-integration-plan.md` in this same root. It must
+   preserve upstream history and use GitOps revisions with no fork stable tags or
+   releases. This step authorizes assessment and planning; a new release rollout
+   requires the concrete plan and its environment-specific gates.
+
+The existing snapshot test portfolio remains authoritative. CodeAPI acceptance
+adds one consumer-boundary obligation using the existing synthetic E2E harness;
+upstream planning adds source-diff, patch-disposition and plan-review obligations,
+with no new runtime tests until a concrete integration change is approved.
+
+| Continuation slice | Owner | Dependency | Acceptance |
+| --- | --- | --- | --- |
+| Snapshot source/review refresh | main; planner owns plan challenge | persisted continuation | current branch checks, applicable previews and review disposition |
+| STG prerequisite and chart delivery | main | source gates green | exact merged heads, successful app apply, class/whitelist, Argo receipt |
+| STG runtime and retention acceptance | main | STG delivery | real schedule, genuine fixture age, reclamation, isolated restore, consumer checks |
+| PRD prerequisite promotion | main | STG accepted | normal release approval/preview/apply, live prerequisites before chart merge |
+| PRD chart parity | bounded source executor | STG accepted, prerequisite source settled | existing validation for PRD, reviewed MR |
+| PRD runtime acceptance | main | PRD prerequisites and chart accepted | same evidence boundary as STG |
+| Upstream v1.10.4 assessment and plan | main; bounded researcher if useful | snapshot package accepted | patch disposition and persisted reviewed plan |
+
+The main session owns integration, authority, secret handling, live changes and
+final proof. Execution mode: standard; the exact runtime model identifier is not
+available to prove membership in the skill's solo allowlist.
+
+### Acceptance and recovery
+
+The snapshot package completes only when both environments have an accepted real
+scheduled backup, ready restore point, retention and backend-reclamation evidence,
+isolated restore proof, passing consumer artifact checks and reviewed rollout
+receipts. Then the upstream assessment completes with a persisted reviewable plan.
+Neither a green source pipeline nor an Argo healthy status alone meets acceptance.
+
+The original snapshot plan owns retention rules, workload identity, rollback
+branches and restore procedure, with the fixture correction above overriding its
+backdated-name arithmetic. For scheduler/RBAC/network failures, fix or suspend
+only the affected schedule through its source owner. For failed reclamation, keep
+new backups working where safe and preserve victim names/content/handle evidence;
+backend cleanup is separately gated. For isolated restore or consumer failures,
+keep the working schedule active, preserve failure evidence, and hold PRD rather
+than disabling successful backups. Preserve the live storage PVC, existing object
+data and recovery points. Do not delete the retained September snapshot,
+its Azure handle, or old recovery PVCs/Jobs as cleanup under this continuation.
+Such historical-resource deletion needs its own exact-target authority.
+
+### Working context and progress
+
+Reuse these paths; do not duplicate active ownership:
+
+- CodeAPI governing-plan clone: `/Users/rschlae/Git/klicker/code-interpreter/trees/storage-reliability-investigation`,
+  branch `rs/storage-rollout-receipts`.
+- helm-charts: `/Users/rschlae/Git/df/helm-charts/trees/rs/seaweedfs-scheduled-snapshots`,
+  branch `rs/seaweedfs-scheduled-snapshots`, existing plan in `project/`.
+- df-cloud: `/Users/rschlae/Git/df/df-cloud/trees/rs/seaweedfs-snapshot-class`,
+  branch `rs/seaweedfs-snapshot-class`.
+
+If the existing infrastructure worktrees cannot be written under this sandbox,
+use an explicitly recorded temporary checkout of the same remote task branch under
+`/private/tmp`, without changing audience or creating a competing branch. The old
+worktrees remain inspection copies; one writable checkout owns each branch. The
+canonical snapshot plan stays under helm-charts `project/` in that checkout and
+ships with its existing MR. This is a filesystem constraint, not a new delivery lane.
+
+Scheduled-run continuation: use one bounded Kubernetes Job watch per pending run,
+with a deadline of the next 02:15 UTC schedule plus 30 minutes and receipts under
+the implementing repository's `project/_local/reviews/`. Use a bounded watch again
+when the recorded retention fixtures become eligible, no later than their six-day
+cutoff plus the next schedule plus 30 minutes. Do not leave a watcher duplicating an
+active run. This API session has no established callback for those future deadlines;
+if a watch cannot deliver a supported completion event, checkpoint the exact fixture
+UIDs/timestamps, deadline and next command, stop the watcher, and require explicit
+resumption of this same task. The main session remains the resume owner. This is a
+continuation-capability hold, never passing evidence. Do not substitute a manual Job
+for the required actual CronJob-controlled run or silently claim aged reclamation.
+
+Status: continuation approved 12 October; persistence and preflight underway.
+The CodeAPI plan clone is writable and fetched. The two existing infrastructure
+worktrees are read-only under this session's filesystem policy. Azure authentication
+failed with the old `/tmp/azcfg` profile; the normal host account reports Enabled,
+so existing host credentials were checked: both cluster APIs respond and STG
+app-codeapi/app-seaweedfs are Synced/Healthy. STG has only the retained manual
+September snapshot and no scheduled-snapshot CronJob. The current STG snapshot
+validation passed on 12 October. No live October apply has been performed.
+
+Planning review: native read-only planner approved the October continuation after
+one correction round. The five initial findings were verified and accepted:
+creation-time fixture aging, explicit PRD prerequisite ordering, bounded scheduled
+continuation, failure-specific recovery, and complete owners/test obligations.
+The implemented cutoff is six days, with a three-ready floor; no policy was changed.
+Writable sandbox copies are under
+`/private/tmp/codeapi-snapshots-20261012.MXrwGT/{helm-charts,df-cloud}`, on the same
+two MR branches. These are the sole source writers for this continuation.
