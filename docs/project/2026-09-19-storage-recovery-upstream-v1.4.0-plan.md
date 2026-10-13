@@ -1774,10 +1774,111 @@ claim. Three passing trials are bounded acceptance evidence, not an SLA estimate
 
 Progress: exact-source mapping complete; native planner approved round 2 after
 bounded observers and ownership were specified. The optional trusted AGY opposing
-pass approved the same draft; its terminal receipt is required before crediting
-that pass. Configuration-only correction needs one slice risk review and final
+pass approved the same draft and exited successfully. Configuration-only correction needs one slice risk review and final
 review; no dedicated simplifier is required for three scalar settings and affected
 comments, with no control-flow or abstraction change. Implementation stays with
 main because the single overlay edit costs less than dispatch overhead. PRD remains held. The snapshot
 correction and earlier operator restore receipts remain valid; actual scheduled
 capture and aged retention cannot be replaced by this cold-start work.
+
+
+Cold correction source/live checkpoint: [Helm MR 144](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/144)
+merged without squash as `4eae4a767611a69fdc367aa0b48a04a2e525bc52`, with
+parents `e20be146e64cabfba65c347ffbce07f9a38c1c38` and
+`fbdbe250fb1efe4d3506fb6c5a2fed5d5dc82e3b`. Source branch remains. Pipelines
+682285 and 682312 passed secret detection. Exact pinned-chart rendering showed
+only the three intended environment settings changed; correct-namespace server
+dry-run passed. Existing control-plane PodSecurity warnings were unchanged by
+this scalar correction. Independent slice review passed after its initial
+progress-only reply was rejected; trusted Claude final source review passed
+canonical schema validation after its closing reflection shape was corrected.
+These are source go/no-go verdicts, not cold-start acceptance.
+
+At 07:04:45Z Argo was Synced/Healthy at the exact values revision. Both API and
+worker had JOB_TIMEOUT=480000 and one Ready updated replica; the manifest TTL
+was 540 and egress TTL900. There are no deployed CodeAPI Ingress resources;
+the historical Compose nginx settings are outside the tested Service path.
+The old spot node was naturally deleted. First trial started with zero desired
+and current runners, no runner pods and no KVM nodes. Its synthetic request
+uses the existing scoped Infisical JWT mapping and 600000 ms HTTP budget.
+KEDA created runner UID `e43ceb5c-3d70-411b-8314-c725e9d72876` and triggered a
+new spot node at 07:05:22Z. The trial is pending; neither a first success nor the
+remaining two cold trials may be assumed from this deployment receipt. Evidence
+is in ignored `docs/project/_local/reviews/2026-10-13-cold-start-receipts/`.
+
+
+### Fresh-node trial exposed a registry dependency — 13 October 2026
+
+The first corrected-budget trial failed transport before a response. Node v24
+fetch has a separately documented 300-second headers deadline; AbortSignal600000
+alone does not remove that ceiling. The original error cause was not retained,
+so this client diagnosis is supported by timing and documentation rather than a
+recorded UND_ERR_HEADERS_TIMEOUT. Extend the existing diagnostic harness to record
+only duration and an allowlisted transport enum and use node:http for the exact
+loopback /v1/exec POST, preserving fresh JWT, destination guard, redirect rejection,
+AbortSignal600000 and a 2MiB response bound. Other requests retain fetch. A trusted
+executor owns only those two ignored harness files; main retains live authority.
+
+The new Node UID `2626e309-5ed9-4511-9799-e5f6e8f6e559` became Ready at 07:07:09Z,
+but smarter-device-manager was ImagePullBackOff. Its anonymous token endpoint
+returned HTTP503; independent metadata-only HTTP verification reproduced503.
+Without the device plugin, the node advertised no smarter-devices/kvm capacity,
+so the runner could not schedule. PRD declares the identical GitLab image and
+currently has zero device-plugin pods because its pool is idle; warm readiness
+cannot clear this shared dependency. The registry recovered during the bounded
+300-second readiness watcher, but the failed cold trial remains failed.
+
+This evidence requires a second scoped GitOps correction within the user's
+approved cold-execution repair: replace only the STG device-plugin image in
+`codeapi/companion/stg/smarter-device-manager.yaml` with the upstream official
+`ghcr.io/smarter-project/smarter-device-manager@sha256:228f7f44594a3182571559e62f2e3fe8a3f26180fb5dd7fc0cb7bf7d22a5bbcd`.
+Upstream's own Helm values and DaemonSet use this repository and v1.20.12.
+Registry metadata verifies that immutable multiarch index and amd64 manifest
+39a0675c, source revision482e65a3, Apache2.0 and versionv1.20.12. The binary is
+not byte-identical to the legacy GitLab artifact: record this as an official
+image replacement, not a proven mirror. Main must review its provenance,
+configuration interface and KVM registration before delivery. No image is
+published, no new registry credentials, privileges, mounts, owners, node pools
+or capacity are introduced. Recovery is a declarative source revert; the old
+GitLab dependency's current availability is not a durable recovery guarantee.
+
+Use branch `rs/codeapi-device-plugin-registry` from fresh Helm origin/main in
+the existing sole writer. Main owns this one-line implementation and STG rollout;
+a native planner reviews the new contract, then independent slice/final source
+reviews precede exact-head CI merge. Kustomize rendering and correct-namespace
+server dry-run must show only the image reference changes. Verify the live
+DaemonSet image, Ready plugin and allocatable40 KVM devices. The original eight-
+minute API/worker budgets, guest limits, manifest540, egress900 and replica-owner
+contract remain binding. The repaired test's local synthetic checks must prove
+abort, delayed response, redirect rejection and response bound without keys.
+
+Restart acceptance as three independent zero-runner trials, including a new
+naturally recycled Node UID and an actual sandbox image download after this
+registry correction. Preserve every failed receipt and classify cached-node
+successes separately. Use one bounded watcher for the waker's natural zero
+transition (1800 seconds), then node deletion (1200 seconds), never force either.
+Timeout holds the dependent gate without repeating observation indefinitely.
+PRD still waits for cold acceptance, actual 14 October capture/restore, genuine
+19 October retention/reclamation and the existing release-review sequence. This
+repair broadens the owning source surface from timeout values to its failed node
+plugin dependency; it does not broaden publication, secret or production authority.
+
+
+Second-correction progress: the native planner approved the new registry contract.
+Trusted executor changed only the two ignored harness files; its actual extracted
+transport functions passed 32 local synthetic checks, independently rerun by main.
+The long POST uses node:http with the same destination/JWT guard, abort budget,
+redirect rejection and 2MiB body bound; sanitized failure duration/code recording
+preserves secret handling. This changes the probe, not deployed consumers.
+A consumer's own five-minute socket limit would still need explicit alignment.
+
+[Device-plugin MR145](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/145)
+passed source CI682334, independent slice review and canonical-schema-valid Claude
+source final review. The source/config interface is unchanged, including the
+relative config path; the live allocatable40 check will prove it. The existing
+ConfigMap devicePermissions key is ignored by both binary schemas; the existing
+chmod init container supplies0666. Do not expand this repair into removing that
+pre-existing key. Main independently retrieved the old GitLab manifest after
+503 recovery; a reviewer's single401 result does not establish a permanent new
+authentication requirement. Oldregistry availability remains an explicit recovery
+limitation. Only the STG image string changed; no image was republished.
