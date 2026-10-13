@@ -1461,7 +1461,7 @@ heartbeat automations are active, attached to task
 
 | Follow-up | Europe/Zurich (CEST) | UTC | Automation ID |
 | --- | --- | --- | --- |
-| Actual scheduled capture, same-day reuse, isolated restore and consumer verification | 13 October 2026, 04:20 | 02:20 | `stg-scheduled-capture-and-restore-verification` |
+| Corrected actual scheduled capture, same-day reuse, isolated restore and consumer verification | 14 October 2026, 04:20 | 02:20 | `stg-scheduled-capture-and-restore-verification` |
 | Pre-run inventory, genuine aged retention/backend reclamation, then conditional PRD rollout | 19 October 2026, 04:05 | 02:05 | `stg-retention-verification-and-conditional-prd-rollout` |
 
 The retention follow-up starts before the 04:15 local scheduled run so it can
@@ -1589,3 +1589,85 @@ scheduled run on 14 October, explicitly anchored to 02:20 UTC (04:20 Zurich),
 with acceptance deadline 02:45 UTC. Record the genuine scheduled snapshot UID
 and creation time before the final fixture-bound restore. Continue the existing
 19 October genuine retention verification and conditional PRD path.
+
+### Correction deployed; operator restore accepted — 2026-10-13
+
+[Chart correction MR 143](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/143)
+merged without squash as `e20be146e64cabfba65c347ffbce07f9a38c1c38`, preserving
+parents `5805fdba11917f8e59e1785e0659ffcb5b574d51` and reviewed task head
+`d5b624496551ac35b347288050a7595c13fbd415`. Its source branch remains. The net
+package touches only the STG snapshot script and its existing validation script:
+the production target-variable rename and complete-run synthetic regression.
+The worker and independent reviewer each demonstrated the regression failing
+against the old script and passing against the correction. STG validation,
+shell syntax and server-side dry-run passed. Simplifier advice reduced mock list
+serialization while preserving all assertions; the independent slice review and
+schema-validated trusted final review passed with no blocking findings.
+
+Source [pipeline 682254](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/pipelines/682254)
+and merged-result [pipeline 682259](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/pipelines/682259)
+passed their secret-detection jobs. These pipelines do not run the complete
+snapshot validation; that check and the independent regression proof ran locally.
+Argo reached the exact merge commit, Synced/Healthy, and the live ConfigMap script
+matched the reviewed source byte for byte. No local Pulumi or live ConfigMap patch
+was used. The daily schedule, retention policy, RBAC and live SeaweedFS PVC/image
+were unchanged by the correction.
+
+Approved operator verification after deployment:
+
+- `seaweedfs-snapshot-check-20261013` created ready snapshot
+  `seaweedfs-auto-20261013`, UID `5c941e3f-37a4-4576-b404-bb2138ab7b89`, at
+  `2026-10-13T06:15:33Z`. Its receipt at `06:15:54Z` confirms the correct target.
+  Bound content is `snapcontent-5c941e3f-37a4-4576-b404-bb2138ab7b89`.
+- `seaweedfs-snapshot-reuse-20261013` succeeded at `06:16:00Z`; the snapshot UID
+  and creation time stayed identical. Both Jobs were operator-created from the
+  CronJob template; they do not satisfy the genuine scheduled-run gate.
+- Isolated Job `seaweedfs-drill-20261013`, UID
+  `974724cc-c4db-4a14-b6a8-2f1459fcba64`, completed at `06:18:20Z`. Its verifier
+  recovered the seeded fixture's exact bytes and metadata from that snapshot;
+  digest `0731caab145c084ccf2cba17a2ae540320ef0bc83d8d7e0760fce5628b210219`
+  matched. A new write/read/delete round trip succeeded on the isolated copy.
+- Temporary restore PVC UID `41b94ad1-d31b-4098-a5c5-0159b24b7de8`, PV
+  `pvc-41b94ad1-d31b-4098-a5c5-0159b24b7de8` and its recorded Azure disk were
+  released after recording the Delete reclaim policy and exact claim identity.
+  The bounded Kubernetes/Azure deletion watchers passed; an independent Azure
+  read returned `ResourceNotFound` at `06:20:14Z`. Only newly created drill and
+  operator verification Jobs were deleted. The captured snapshot, retention
+  fixture and all historical September recovery resources remain.
+
+The post-correction consumer probe initially failed cold execution with HTTP 504;
+upload succeeded, and its sole input was deleted with a verified 404 afterward.
+The original harness drained the error body, so the backend error code is unknown.
+Scoped logs did not identify a matching synthetic run or establish its cause.
+A diagnostic harness in the existing ignored receipt area adds duration and only
+an allowlisted lowercase error enum on failure; raw error payloads and credentials
+are suppressed. Its rerun passed all 11 requests, three synthetic objects, exact
+downloads, SIGKILL/137 timeout behavior, three deletes and input-absence proof.
+First execution took 351 ms and warm execution 815 ms. This fast rerun proves the
+available execution path recovered; it does not prove cold-start reliability or
+explain the first failure. Programmatic cancellation remains outside this harness.
+Both storage canaries succeeded at `06:25:07Z`.
+
+Consumer receipts:
+`docs/project/_local/reviews/2026-10-13-stg-snapshot-correction-e2e.json` and
+`docs/project/_local/reviews/2026-10-13-stg-snapshot-correction-diagnostic-e2e.json`.
+Sanitized capture/reuse, fixture-bound restore, exact disk release, canary and
+review receipts are persisted alongside the earlier failure under
+`docs/project/_local/reviews/2026-10-13-stg-snapshot-receipts/`. Secret scope stayed
+at the approved `codeapi-stg` read mapping. The owned port-forward stopped and
+ports 13112/19090 have no listeners; no watcher, child or test process remains.
+
+The source defect and preliminary restore are resolved. Genuine daily capture
+and a restore bound to its resulting UID remain scheduled for 14 October, followed
+by genuinely aged retention/content/backend reclamation on 19 October. Both
+native follow-ups were updated and read back with explicit UTC starts, active
+status and the original task attachment. Their prompts now preserve this deployed
+correction, both E2E outcomes and the requirement for representative cold-start
+evidence. PRD remains held until those checks and consumer reliability pass, then
+the existing approved prerequisite-first normal release sequence applies.
+
+Durable lesson: helper-only tests and a green process-success metric missed the
+interaction between inventory and backup creation. The full-run regression now
+checks the observable new snapshot and stable reuse identity. Live acceptance
+must independently bind the expected date, snapshot UID and creation time to the
+actual controlled Job; its success timestamp alone is insufficient.
