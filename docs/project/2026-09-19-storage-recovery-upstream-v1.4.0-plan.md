@@ -1556,3 +1556,36 @@ readable key and no writable names; an isolated temporary uv cache avoided an
 unwritable default cache without changing settings or secret scope. Both owned
 port-forwards stopped successfully and ports 13112/19090 have no listeners.
 Consumer health does not clear the failed backup gate.
+
+### Approved snapshot correction and timed continuation — 2026-10-13
+
+The user explicitly approved fixing the snapshot defect, correcting follow-up
+timing, verifying capture/restore in STG and proceeding with PRD after every check
+passes. This continues the existing executable batch and its required reviews,
+source ownership and PRD release gate. The original six-day retention and genuine
+aging acceptance remain binding. Execution mode remains standard.
+
+Correction owner: main changes only the script's persistent target name in
+`seaweedfs/stg/snapshot-schedule.yaml`; one trusted native worker owns regression
+coverage in `seaweedfs/tests/validate.sh`. Reuse the existing sole-writer chart
+clone `/private/tmp/codeapi-snapshots-20261012.MXrwGT/helm-charts` on new branch
+`rs/seaweedfs-snapshot-target`, based on current main
+`5805fdba11917f8e59e1785e0659ffcb5b574d51`. Main owns automation, delivery,
+integration, secret handling and live proof. Acceptance includes the full script
+with a pre-existing owned fixture, correct fresh capture, correct same-day reuse,
+and rejection of mismatched conflicts; the old script must fail that regression.
+
+The 19 October heartbeat was updated successfully through the native automation
+tool and its stored record read back with explicit UTC start `20261019T020500Z`,
+one occurrence and the same task attachment. This is 04:05 Europe/Zurich and
+supersedes the unanchored recurrence. Its pre-run inventory and conditional PRD
+instructions remain intact. No automation file was edited directly.
+
+After the chart correction passes source checks and independent review, merge
+through GitLab and verify Argo's script revision. An approved operator rerun may
+prove today's capture/reuse and enable an isolated preliminary restore; it cannot
+replace the real CronJob gate. Reuse the capture heartbeat for the next daily
+scheduled run on 14 October, explicitly anchored to 02:20 UTC (04:20 Zurich),
+with acceptance deadline 02:45 UTC. Record the genuine scheduled snapshot UID
+and creation time before the final fixture-bound restore. Continue the existing
+19 October genuine retention verification and conditional PRD path.
