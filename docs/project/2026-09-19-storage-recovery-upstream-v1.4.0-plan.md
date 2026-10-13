@@ -1486,3 +1486,73 @@ remain behind full STG acceptance. This is a scheduled continuation hold with
 STG's snapshot schedule active, not completion of the snapshot package and not a
 new generic approval gate. The upstream continuation remains assessment and
 planning only; no upstream rollout is authorized by these follow-ups.
+
+### Scheduled capture failed acceptance — 2026-10-13
+
+The first actual scheduled Job ran within the expected deadline, but it did not
+capture today's data. Job `seaweedfs-snapshot-schedule-29864295`, UID
+`076dcc0d-8627-4d30-9962-8b5b58a93759`, has the expected CronJob controller owner
+`27bc0935-4a11-44ba-b2cc-8e2bff9d6300`. It started at `2026-10-13T02:15:00Z`
+and completed successfully at `02:15:06Z`. Its only snapshot receipt is
+`snapshot=seaweedfs-auto-20261001 readyToUse=true`, followed by
+`phase=complete status=ok`. The expected `seaweedfs-auto-20261013` does not exist.
+The inventory still contains the original retention fixture and September recovery
+snapshot with their recorded UIDs; no new capture appeared.
+
+Root cause is reproduced from the live ConfigMap script with synthetic API
+responses and no network access. `main` assigns today's name before inventory.
+`collect_owned_documents` calls `fetch_snapshot_document`, which assigns its
+argument to the same global shell variable `name`. The initial inventory therefore
+replaces today's name with the existing fixture's name. The create request uses
+that old name, receives a conflict, adopts the ready fixture and reports success.
+The reproduction emitted the old name in its create request while explicitly
+recording `expected_today=seaweedfs-auto-20261013`.
+
+The CronJob's `lastSuccessfulTime` and Prometheus
+`kube_cronjob_status_last_successful_time` both advance to `02:15:06Z`
+(`1791857706`). The scoped snapshot alert query returned no active alerts. These
+are process-success receipts and do not prove a fresh backup; this defect also
+prevents the age-of-success alert from detecting the missing capture. Argo remains
+Synced/Healthy at helm-charts `5805fdba11917f8e59e1785e0659ffcb5b574d51`.
+The snapshot script has no diff between the retained task branch and current main.
+
+The fresh scheduled-capture gate fails. Same-day reuse and the fixture-bound
+restore remain blocked on a genuine new scheduled snapshot; no operator snapshot
+or historical restore was substituted. No restore Job/PVC or disk was created,
+and no fixture or historical recovery resource was deleted. The existing schedule
+remains active for evidence and source-owned correction; it is not currently
+accepted as working backup coverage. PRD remains held.
+
+The next source correction must keep today's target in a variable that inventory
+helpers cannot overwrite, then exercise the complete run with an existing owned
+fixture. Validate both new capture and same-day reuse, with freshness tied to the
+expected snapshot UID/creation time. Deliver through the owning chart source and
+its applicable checks/review; never patch the live ConfigMap. After correction,
+prove a real subsequent CronJob capture before the isolated restore and PRD gates.
+
+The follow-up arrived at `2026-10-13T04:20:14.393Z` (06:20 Zurich), two hours after
+its intended local time. The stored recurrence has no timezone anchor. An attempted
+native update anchoring the 19 October follow-up to 04:05 Europe/Zurich was rejected
+with `MCP tool call requires approval, but approval policy is never`; no setting
+or automation file was edited to bypass that rejection. The existing 19 October
+automation remains active with its original unanchored recurrence, so its intended
+pre-run timing is not verified. Correct the schedule through the native automation
+approval/settings capability before relying on it for the pre-run inventory; a
+late run must hold PRD rather than fabricate that evidence.
+
+Sanitized scheduled Job, logs, CronJob status, inventory, metric, alert, canary and
+offline reproduction receipts are in the existing ignored directory
+`docs/project/_local/reviews/2026-10-13-stg-snapshot-receipts/`.
+
+Independent consumer checks passed: both storage canaries last succeeded at
+`2026-10-13T04:26:07Z`; the authenticated synthetic CodeAPI probe completed with
+11 requests, three created objects and zero failures. Cold execution took
+270872 ms and warm execution 223 ms. Downloads matched expected bytes, timeout
+returned SIGKILL/137, all three deletes returned 200 and the harness verified
+input absence with 404. Programmatic cancellation remains skipped by this storage
+probe. Receipt: `docs/project/_local/reviews/2026-10-13-stg-snapshots-e2e.json`.
+The existing `codeapi-stg` profile remained authenticated with its sole approved
+readable key and no writable names; an isolated temporary uv cache avoided an
+unwritable default cache without changing settings or secret scope. Both owned
+port-forwards stopped successfully and ports 13112/19090 have no listeners.
+Consumer health does not clear the failed backup gate.
