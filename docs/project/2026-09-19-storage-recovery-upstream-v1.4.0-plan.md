@@ -1671,3 +1671,113 @@ interaction between inventory and backup creation. The full-run regression now
 checks the observable new snapshot and stable reuse identity. Live acceptance
 must independently bind the expected date, snapshot UID and creation time to the
 actual controlled Job; its success timestamp alone is insufficient.
+
+
+### Cold execution correction — approved continuation, 13 October 2026
+
+The user directly authorized investigating and fixing the cold HTTP 504, proving
+STG cold-start reliability, then proceeding with PRD only after every existing
+gate passes. This is an executable batch within the existing rollout. Execution
+mode remains standard. Main owns runtime evidence, integration and external
+effects; the trusted read-only sidecar owns the exact deployed timeout-path map.
+The planner reviews this derived contract before implementation.
+
+The deployed worker and API image is `e0b8c4409c337789d8fb07e5c5665bc2879c4fc3`;
+the separately pinned Helm chart is `8eb246c5c0b3286f03fed7e32185e01b7a661d45`.
+Debug those exact revisions. Sandbox pods live in `codeapi-sandbox`, separate
+from the control plane. At 06:16:04Z the synthetic wake created a pending runner;
+the spot pool began scaling from zero at 06:16:07Z, KVM scheduling completed at
+06:19:29Z, and the 1,348,411,050-byte image pull took 101.477 seconds. The runner
+started at 06:21:19Z, over five minutes after scheduling began. The configured
+worker budget is 300,000 ms; the API separately inherits the same default.
+The original 504 body was not retained, so its exact error remains unknown.
+This lifecycle establishes a deadline mismatch. An old-budget reproduction is
+optional because its original error body is unknown; corrected-budget acceptance
+depends on measured cold trials, never an inferred warm retry.
+
+#### Scope and sequence
+
+1. Freeze and review the owning GitOps correction before publication. The proposed
+   bounded budget is 480,000 ms for both the worker and explicitly configured API,
+   and 540 seconds for the signed execution manifest. Confirm the deployed source
+   accepts those values and leaves completion/cleanup headroom. Leave the 900-second
+   egress grant, guest execution limits, KEDA zero floor, node pools, image pins,
+   replica ownership and isolation controls unchanged. If source evidence requires
+   another behavior, resolve that before editing. Ordinary source revert is recovery.
+2. Use a dedicated `rs/codeapi-cold-start-budget` task branch from current Helm
+   `origin/main` in the existing temporary writer, separate from the snapshot branch.
+   Writer: `/private/tmp/codeapi-snapshots-20261012.MXrwGT/helm-charts`.
+   Touch only `codeapi/stg/values.yaml`;
+   prepare the corresponding PRD overlay only once STG acceptance passes. No live
+   deployment patch, manual scaling, node deletion or autoscaler ownership transfer.
+   Main owns the correction; configured slice and final reviewers cover deadline,
+   capability lifetime and cross-system effects. The deployed API completion wait
+   adds 70 seconds, yielding 550,000 ms; the synthetic HTTP budget is 600,000 ms.
+   Source rendering plus the
+   deployed timeout-path checks must demonstrate the old budget misses the observed
+   startup and the corrected worker/API/manifest budgets remain ordered.
+3. Publish and merge the reviewed STG correction with required CI/reviews, using
+   existing direct deployment authority. Preserve history and source branch; wait
+   for exact GitOps revision, Ready API/worker and one KEDA replica owner. Validate
+   successful guest timeout enforcement as well as artifacts and cleanup.
+4. Run three independent synthetic requests after observing runner replicas zero,
+   including at least one naturally recycled spot node with an uncached image.
+   Record node/runner identities and lifecycle times, HTTP duration and allowlisted
+   failure enum; all cold attempts must succeed without a retry. Use the existing
+   exact `codeapi-stg` Infisical read scope and synthetic-only harness, with bounded
+   HTTP budget covering the API completion wait. Let KEDA and the cluster autoscaler
+   provide idle transitions through bounded native watchers, never manual mutation.
+   A cached-node start or fresh session on a warm runner is insufficient alone.
+   Before each request, verify both desired and current runner replicas are zero
+   and the runner label selector returns no pods. Watch the existing spot Node
+   for deletion with `kubectl --context aks-stg-apps wait --for=delete node/<name>
+   --timeout=1200s`; the next node UID must be new and its Pod Pulling/Pulled events
+   must establish a real image download. Observe each scale-down with
+   `kubectl --context aks-stg-apps -n codeapi-sandbox wait
+   --for=jsonpath={.spec.replicas}=0 deployment/codeapi-sandbox-runner --timeout=420s`,
+   followed by the current-replica/pod precondition read. One attempt per gate;
+   timeout holds acceptance rather than restarting an unbounded observation.
+   The exact harness is `docs/project/_local/reviews/codeapi-stg-e2e-diagnostic-auth.mjs`,
+   importing `codeapi-v140-stg-e2e-diagnostic.mjs`; extend that ignored harness only
+   if evidence needs it. Its executable budget is `CODEAPI_TEST_HTTP_TIMEOUT_MS=600000`.
+   Stop owned port-forwards and watchers and delete only test-created objects.
+5. Keep the actual scheduled capture/fixture-bound restore gate on 14 October and
+   genuine aged retention/content/backend reclamation on 19 October. Update their
+   existing native follow-ups with verified cold receipts. Only after all gates
+   pass may the existing prerequisite-first PRD sequence proceed, including the
+   required human release approval and unrelated-release-delta hold. PRD rollback
+   uses the reviewed declarative recovery branch. No fork tags or PRD Alertmanager.
+
+Delegation Map: main owns the configuration correction, review integration,
+publication, STG rollout and live proof (steps 1–4). The completed trusted
+read-only sidecar owns only exact-source timeout mapping (step 1 prerequisite).
+The existing dated follow-ups own step 5, using the same plan and authority;
+required planner/slice/final reviewers are read-only and do not own external effects.
+
+Test portfolio: `none` for new configuration tests; reuse the exact-source timeout contract and Helm rendering for
+budget/lifetime consistency. Render the pinned chart extracted to
+`/private/tmp/codeapi-cold-start-20261013/helm/codeapi` with `helm template codeapi
+<chart> --namespace codeapi --values codeapi/stg/values.yaml`; compare only the
+API JOB_TIMEOUT, worker JOB_TIMEOUT and worker manifest TTL semantic delta,
+and assert no Secret or sandbox replica-owner change. `extend existing` for
+the ignored synthetic E2E harness only when needed for
+true-cold preconditions, bounded timing and sanitized errors. Guest timeout,
+artifact byte integrity and cleanup remain consequential live checks. The budget
+change preserves deployed `workers.ts` cancellation/revocation and deadline
+anchoring; existing `service/src/worker-error.test.ts` and `config.test.ts` are the unchanged
+source regression seams present at e0. Do not claim
+a new live worker-deadline-expiry test from the guest timeout result. Record that
+coverage limitation separately; the cold success result and completed queue response
+are the acceptance boundary for this repair. Add no
+runtime dependency, mirrored configuration unit tests or fabricated availability
+claim. Three passing trials are bounded acceptance evidence, not an SLA estimate.
+
+Progress: exact-source mapping complete; native planner approved round 2 after
+bounded observers and ownership were specified. The optional trusted AGY opposing
+pass approved the same draft; its terminal receipt is required before crediting
+that pass. Configuration-only correction needs one slice risk review and final
+review; no dedicated simplifier is required for three scalar settings and affected
+comments, with no control-flow or abstraction change. Implementation stays with
+main because the single overlay edit costs less than dispatch overhead. PRD remains held. The snapshot
+correction and earlier operator restore receipts remain valid; actual scheduled
+capture and aged retention cannot be replaced by this cold-start work.
