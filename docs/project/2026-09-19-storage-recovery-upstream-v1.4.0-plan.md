@@ -1802,8 +1802,8 @@ The old spot node was naturally deleted. First trial started with zero desired
 and current runners, no runner pods and no KVM nodes. Its synthetic request
 uses the existing scoped Infisical JWT mapping and 600000 ms HTTP budget.
 KEDA created runner UID `e43ceb5c-3d70-411b-8314-c725e9d72876` and triggered a
-new spot node at 07:05:22Z. The trial is pending; neither a first success nor the
-remaining two cold trials may be assumed from this deployment receipt. Evidence
+new spot node at 07:05:22Z. That trial subsequently failed, as recorded below;
+no cold success may be assumed from this deployment receipt. Evidence
 is in ignored `docs/project/_local/reviews/2026-10-13-cold-start-receipts/`.
 
 
@@ -1882,3 +1882,77 @@ pre-existing key. Main independently retrieved the old GitLab manifest after
 503 recovery; a reviewer's single401 result does not establish a permanent new
 authentication requirement. Oldregistry availability remains an explicit recovery
 limitation. Only the STG image string changed; no image was republished.
+
+### Cold-start live acceptance checkpoint — 13 October 2026
+
+Device-plugin MR 145 merged without squash as
+`717160fed338ace94a022e56cca604839f386595`, with parents `4eae4a76` and
+`d65d972b`. Its source branch remains. Merged-result pipeline 682336 passed
+secret_detection job 2184821. Both STG Argo applications reached that exact
+values/companion revision and were Synced/Healthy. The deployed API and worker
+retain JOB_TIMEOUT=480000, manifest TTL 540 seconds and egress TTL 900 seconds. The replacement DaemonSet
+was Ready and registered 40 KVM slots, including on newly provisioned nodes.
+
+Three independent zero-runner trials passed without an execution retry. Each
+precondition receipt records desired/current runner replicas 0, no runner pods,
+the exact GitOps revision and the Ready control plane. Each probe completed 11
+requests, exact-byte artifact downloads, cold and warm execution HTTP 200, guest
+SIGKILL/137 time-limit enforcement, three successful object deletes and input HTTP 404.
+
+| Receipt trial | Synthetic run UUID | Cold execution | Startup path |
+| --- | --- | --- | --- |
+| 2 | `6dca38e0-25ac-474c-a655-901e3a0cfdfd` | 270651 ms | Empty pool; new Node UID 1073dba2-3700-4026-87fb-78811dde5d83 |
+| 3 | `3957cbe6-b12e-4123-8ed0-5ec2122ad74d` | 36084 ms | Zero runners on the cached node |
+| 5 | `cce984c7-0480-4db1-af21-22d46f9b3d4e` | 269747 ms | Empty pool; new Node UID 00404879-0699-44ec-85cc-f352eafaf294 |
+
+Fresh runner UIDs were `3f038150-db2c-46ee-8470-8078fcc99d66` and
+`63415f3a-ef99-438d-b5ef-a45e83104a80`. Their actual 1,348,411,050-byte sandbox
+downloads took 72.319 s and 87.710 s. The upstream GHCR device plugin pulled in 1.770 s
+and 1.718 s and registered 40 slots on both new nodes. Trial 3's immediate lifecycle
+collection was missed during a session gap. The late live receipt correctly
+records natural scale-down; it is not the execution-time state. Scoped historical
+Prometheus pod metrics independently identify runner UID
+`238297ec-2642-4ede-b685-60bdf4542198`, created at 07:58:25Z on the recorded cached
+node. Its readiness sample was 0 at 07:59:00Z and 1 at 08:00:00Z; this bounds the
+observed metric and does not establish an exact Ready transition time.
+
+The earlier registry-blocked trial 1 remains failed and excluded from acceptance.
+Trial 4 stopped at health with loopback ECONNREFUSED after the owned port-forward
+disconnected; it submitted no execution and created no objects. That receipt is
+preserved. The restored tunnel was used for a new, independently identified
+trial 5; no failed execution was retried or counted as successful. The probe's
+39 local transport checks and focused independent correction review passed.
+The initial receipt parser expected summary status `ok`; the protocol is
+`passed`. Its correction required no live rerun and preserves the raw receipt.
+
+Both storage canaries succeeded at 10:55:07Z. All nine objects from the three
+accepted trials were deleted. The owned port-forward was stopped, and port 13112
+has no listener. The native waits and test processes completed; no manual pod,
+node or replica mutation occurred. Source/config and runtime receipts remain
+under ignored `docs/project/_local/reviews/2026-10-13-cold-start-receipts/`.
+
+Integrated Claude final review of the exact two-file range e20be146..717160fe
+and these synthetic receipts passed canonical schema validation with no findings.
+It reused the source reviews, accepted the three classified cold trials and
+preserved the PRD hold. Review: ignored `integrated-final-review.json`.
+Three successful trials provide bounded acceptance, not an SLA. The probe tests
+the authenticated Service path; it changes no deployed consumer socket settings.
+Guest timeout does not prove live worker-deadline expiry or cancellation.
+
+PRD remains held by the actual 14 October scheduled capture/fixture-bound restore
+and genuine 19 October retention/content/backend reclamation gates. The existing
+dated follow-ups retain their corrected UTC anchors and conditional PRD authority.
+After all STG gates pass, the dedicated PRD package must include parity for the
+API/worker 480000 ms budget, manifest TTL 540 seconds and the reviewed upstream GHCR plugin pin,
+alongside the snapshot schedule. Preserve normal df-cloud STG-to-PRD promotion,
+recorded human release approval, unrelated-delta hold and prerequisite-first
+ordering. This checkpoint does not authorize an early PRD rollout.
+
+Both existing native follow-ups were updated with the final cold receipts,
+failed-attempt exclusions, probe limitations and required PRD parity. Native
+success responses and file read-back confirm ACTIVE, same thread, and unchanged
+single-occurrence anchors: 14 October 02:20 UTC (04:20 Europe/Zurich), and
+19 October 02:05 UTC (04:05 Europe/Zurich). The latter starts before the 02:15 UTC
+retention run for the required victim inventory. No duplicate monitor, new goal
+or separate chat was created. Fresh KEDA/HPA ownership read-back confirms one
+ScaledObject-owned HPA per runner/waker, minima 0 and maxima 3/1.
