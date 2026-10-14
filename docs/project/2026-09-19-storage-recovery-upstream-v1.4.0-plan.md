@@ -2,15 +2,17 @@
 
 ## Current live checkpoint — 14 October 2026
 
-The CodeAPI-only PRD repair is deployed through approved MR !674 release7069d94
-and CI child683629. Values74296284, API/worker480000, manifest540 and the upstream
-GHCR device-plugin digest are verified live. Two full synthetic zero-runner
-trials passed. Main owns the remaining second fresh-node trial, now waiting for
-natural autoscaler node retirement; no manual scaling/deletion is permitted.
-See the [current production acceptance receipts](#production-cold-acceptance--14-october).
+**CodeAPI-only PRD rollout is complete and accepted.** Approved MR !674 release
+`7069d94` was applied through CodeAPI CI child `683629`; values `74296284`,
+API/worker timeout 480000 ms, manifest 540 seconds and the official upstream
+GHCR device-plugin digest are verified live. Three independent zero-runner
+synthetic E2E trials passed, including a fresh node with a real image download.
+Canonical independent final review passed. Main owns the later storage rollout.
+See the [production acceptance receipts](#production-cold-acceptance--14-october).
 PRD snapshots remain gated on the genuine 19 October retention/content/Azure
 reclamation check. Preserve its fixture, historical recovery resources and
-existing automation.
+existing automation. The obsolete MR !675 and its source branch remain intact;
+its branch protection and CI rerun were skipped with explicit user approval.
 
 ## Historical close-out checkpoint — superseded by approval below
 
@@ -2381,3 +2383,66 @@ current for the companion; its PRD companion files match reviewed74296284.
 The remaining verification stays main-owned because it requires secrets, exact
 production lifecycle binding and final proof; the final independent review uses
 only completed sanitized receipts.
+
+Acceptance-contract correction at16:09 UTC: approved step4 explicitly requires
+three independent zero-runner requests, including **at least one** naturally
+recycled node and uncached image pull. The two fresh nodes observed in STG are
+additional evidence, not an additional minimum. The earlier summary and main's
+second-fresh-node wait over-constrained that approved contract. Main stopped only
+its extra node watcher (session88350, exit130) before any third submission or
+object creation. No node, workload or data was changed. Full trial1 already
+proves the required fresh-node path at the deployed480000 budget. Proceed with
+the third independently observed zero-runner trial on the naturally idle cached
+node, then review all three receipts. This corrects an agent-added gate; it does
+not waive an approved condition or count preliminary old-budget evidence.
+
+#### CodeAPI PRD acceptance complete — 14 October, 16:14 UTC
+
+Full trial 3, UUID `cb148d0e-0e11-4c70-b2e8-26dba189264b`, passed the same
+11-request contract after a fresh zero-runner precondition: cold 36026 ms,
+warm 222 ms, exact 169/231-byte downloads, guest SIGKILL/137/TO, three successful
+deletes and input HTTP 404. Runner UID `6db22c5d-5cd2-4380-9721-099fbfbe8ff2`
+is distinct from both earlier trials. Its cached-node start is classified as
+such and satisfies the original contract alongside trial 1's fresh-node pull.
+All three trials used the deployed full budget; the preliminary old-budget
+trial is excluded. Across these trials: 33 requests, nine successful synthetic
+object deletes, three input-absence checks, no cold execution failure or retry.
+
+Trusted Claude Opus 5.5 at high effort completed the integrated final review and
+bounded methodology audit with canonical schema-valid PASS and no findings.
+Report: `docs/project/_local/reviews/2026-10-14-prd-cold-start-receipts/integrated-final-review.json`.
+The reviewer reused unchanged canonical source reviews and main's verified
+release-equivalence proof after its Bash tool reported `sandbox_apply` errors.
+This is an explicit source re-read limitation, not new source acceptance.
+The runtime audit directly checked all three sanitized trial/lifecycle receipts
+against approved step 4's minimum of one fresh node. Its final state evidence
+was trial 3's immediate postcondition; main separately verified newer live state
+at 16:14 UTC, after that review read. No source or deployed behavior changed.
+
+Final live health receipt: both PRD CodeAPI Applications are Synced/Healthy at
+the expected revisions. PRD CodeAPI storage canary succeeded at 16:14:06Z;
+STG CodeAPI at 16:14:07Z and Trypost at 16:14:06Z. PRD has one CodeAPI canary and
+no Trypost tenant/canary. The PRD snapshot schedule remains absent. STG retention
+fixture `seaweedfs-auto-20261001`, UID `8bff3818-a0c2-443e-933c-24b838e2d976`,
+remains Ready and unchanged, created 12 October at 15:33:02Z.
+The owned port-forward ended normally (exit 0); ports 13112, 13113 and 19090
+have no listeners. All owned probe, CI and lifecycle watcher processes ended;
+only the unnecessary extra node watcher was interrupted (exit 130). Natural
+KEDA/node-autoscaler lifecycle remains the owner of shared sandbox resources.
+
+Acceptance is bounded to the authenticated Service path. It proves artifact
+round trips and guest timeout enforcement, not an SLA, every client/ingress path,
+live worker-deadline expiry or programmatic cancellation. Existing upstream
+images/chart `e0b8c440` remain; no fork stable tag or release was created.
+The CodeAPI-only package reached its approved terminal condition. MR !675 is
+superseded and remains draft/open with its branch retained; cleanup is not part
+of this close-out. Recovery stays the reviewed source pin back to `c1edada` and
+CodeAPI-only CI apply, preserving the accepted plugin unless it regresses.
+
+Next action is the existing 19 October 02:05 UTC / 04:05 Zurich continuation.
+Verify real aged retention, content and Azure backend reclamation first, then
+refresh the original snapshot package's reviews, source/release/preflight and
+recorded human approval before its conditional PRD rollout. Preserve original
+owners, recovery branches, prerequisite order and historical resources. This
+CodeAPI acceptance does not clear or replace the storage gate. The native
+follow-up is updated to avoid repeating the completed CodeAPI release work.
