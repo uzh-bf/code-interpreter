@@ -456,8 +456,8 @@ spec:
             exec:
               command:
                 - /usr/local/bin/sandbox-runner-healthcheck.sh
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 5
+            periodSeconds: 5
             timeoutSeconds: 7
             failureThreshold: 1
           resources:
