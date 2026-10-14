@@ -2301,3 +2301,8 @@ other app, infrastructure, storage or Alertmanager action is authorized here.
 After that gate, acceptance requires live 480000/540, unchanged chart/images
 `e0b8c440`, representative zero-runner cold trials and complete synthetic E2E.
 The 19 October retention gate and all historical recovery resources remain.
+
+The user confirmed: "Use approved release !674 (Recommended)". This replaces
+the obsolete !675 gate and permits the same CodeAPI-only preview/apply and cold
+E2E from release 7069d94. Skip the now-unnecessary !675 protection/CI rerun.
+Keep !675 and its branch intact pending any separately requested cleanup.
