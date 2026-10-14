@@ -2169,25 +2169,46 @@ required representative cold trials. The reviewed PRD PEM/public-JWKS adapter
 uses only the existing approved key scope, keeps values in memory and reuses the
 unchanged reviewed bounded HTTP transport; syntax and its 39 local checks passed.
 
-The two-line df-cloud pin update and existing assertion are committed as
-`8669b301e93c2e760dd69319a91f3892a858507b` on
-`rs/codeapi-prd-cold-values` in its recorded task worktree, draft MR !673 to STG.
-Pinned Prettier checks and independent canonical source review passed. MR pipeline
-683336 and CodeAPI child 683337 must be refreshed before continuing. Parent
-helper build and infra preview passed; child helper job 2189439 started after
-930 seconds queued, with the CodeAPI preview still pending at the last receipt.
-No CodeAPI preview success or STG source merge is claimed. PRD still uses
-chart `e0b8c440` and values `c1edada`; no chart/image upgrade is needed for this
-timeout repair. All sanitized evidence is under
-`docs/project/_local/reviews/2026-10-14-prd-cold-start-receipts/`.
+The two-line df-cloud pin update and existing assertion were committed as
+`8669b301` on `rs/codeapi-prd-cold-values`. Independent canonical source review,
+pinned formatter checks, source MR pipeline 683336 and CodeAPI preview child
+683337 passed. MR !673 merged to STG without squash as
+`0ee5790abe6a49fa1690154c5c60ab5b0ca26382`, preserving its source branch. The STG
+preview's one Application update sets chart `8eb246c5`, already observed live;
+no STG app apply was run. PRD still uses chart/images `e0b8c440` and values
+`c1edada`; no chart/image upgrade is needed for this timeout repair. Sanitized
+receipts remain under `docs/project/_local/reviews/2026-10-14-prd-cold-start-receipts/`.
 
-Normal promotion still includes non-CodeAPI tree differences in
-`src/apps/outline/functions.ts`, `src/infra/index.ts`,
-`src/infra/observability.ts`, `src/infra/observability.test.ts`, and deletion of
-`project/2026-09-20-prd-seaweedfs-recovery-and-alerting.md`. They are inherited
-differences from external !659's merge resolution, not part of !673. The current
-approved sequence holds them for disposition and does not permit inventing a
-selective production promotion. Its unrelated-delta gate therefore remains.
+Correction to the earlier promotion diagnosis: a two-dot comparison showed seven
+file differences, but that compared tree states rather than changes since the
+shared merge base. Fresh merge-base and GitLab MR !674 diff checks show that the
+actual STG promotion changes only the two CodeAPI files. The other differences
+are PRD-specific overrides from !659's resolution. They must be preserved, but
+are not additional STG changes requiring a new scope approval. The selective
+release exception previously drafted is unnecessary and is withdrawn.
+
+MR !674 has conflicts only in the CodeAPI values pin and its existing assertion.
+The approved standing integration policy permits this bounded resolution. Main
+created `rs/codeapi-prd-cold-release` in
+`/private/tmp/codeapi-snapshots-20261012.MXrwGT/df-cloud/trees/codeapi-prd-cold-release`
+from current PRD `d48a6077`, merged full STG `0ee5790`, and resolved only those two
+pins to `74296284`. Merge candidate
+`28bd9c9f93cbbc79dae7081ce3197c517dcfdd41` retains both heads as parents and all
+STG history; its net diff from PRD is exactly two lines in the two CodeAPI files.
+Every other PRD file is unchanged. This is the conflict-resolved normal promotion
+candidate, not a selective cherry-pick or a protected-branch push.
+
+Draft MR !675 targets PRD with that exact merged result. Prettier checks passed;
+its independent merged-result review passed without findings after a canonical
+schema-format correction; native PRD CI previews are in progress.
+Recorded human release approval remains required. Complete those source/preview
+and release gates, merge without squash with branches retained, then apply only
+CodeAPI through its GitLab child pipeline. Verify actual values revision and
+480000/540 settings before completing representative cold trials and E2E.
+Recovery remains a reviewed source change back to `c1edada` and the same CodeAPI
+CI apply; preserve the independently accepted plugin unless it regresses.
+No additional scope approval is needed for this conflict resolution. No PRD
+values apply, snapshot apply or completed full-budget acceptance is claimed.
 
 Checkpoint cleanup: the owned PRD port-forward stopped, and ports 13112, 13113
 and 19090 have no listeners. The preliminary probe and local checks completed.
@@ -2196,4 +2217,6 @@ cancelled. PRD's CodeAPI storage canary succeeded at `10:24:06Z`, and both STG
 canaries at `10:24:07Z`. PRD has no scheduled snapshot CronJob. The existing
 19 October follow-up was updated through the native tool with the approved
 CodeAPI/snapshot separation, actual plugin acceptance, pending timeout pin and
-withheld scoped-release proposal. It keeps the same UTC time and retention gates.
+current merged-result release candidate. The earlier exception proposal is
+withdrawn: actual normal-promotion changes are CodeAPI-only. It keeps the same
+UTC time and retention gates.
