@@ -9,9 +9,9 @@ GHCR device-plugin digest are verified live. Three independent zero-runner
 synthetic E2E trials passed, including a fresh node with a real image download.
 Canonical independent final review passed. Main owns the later storage rollout.
 See the [production acceptance receipts](#production-cold-acceptance--14-october).
-PRD snapshots remain gated on the genuine 19 October retention/content/Azure
-reclamation check. Preserve its fixture, historical recovery resources and
-existing automation. Superseded MR !675 is now closed; its source branch
+The user has authorized PRD snapshots before aged-retention proof; the reviewed
+14 October amendment below moves that proof to monitored post-rollout checks.
+Keep the retention fixture and historical recovery resources. Superseded MR !675 is now closed; its source branch
 `rs/codeapi-prd-cold-release` and commit history are retained unchanged at
 `28bd9c9f`. Its branch protection and CI rerun were skipped with explicit
 user approval.
@@ -2505,3 +2505,119 @@ approval, unrelated promotion delta or preflight condition blocks progress,
 report the precise blocker. Preserve existing owners, recovery branches, the
 fixture and historical resources. CodeAPI is already finalized and !675 closed;
 its branch and history remain retained.
+
+### PRD snapshots before aged-retention proof — 14 October amendment
+
+Approval summary: the user requests skipping the pre-deployment retention check,
+rolling out production snapshots and monitoring retention afterward. Treat this
+as an executable change in ordering: move genuine aged-retention acceptance to
+a post-rollout obligation, not a claim that it passed. Capture, actual scheduled
+execution, same-day reuse, isolated fixture-bound restore and consumer E2E already
+passed in STG. CodeAPI PRD is finalized. Keep the implemented six-day cutoff,
+three-newest-ready floor, ownership/source validation, incremental Delete class,
+least-privilege identity and all historical Retain snapshots. No snapshot is
+manually deleted or backdated to simulate acceptance.
+
+Current PRD inventory has zero schedule-owned snapshots and one historical
+unowned Retain snapshot. A newly created PRD schedule snapshot cannot reach the
+six-day deletion cutoff before STG's 19 October check. This supports earlier
+backup coverage while retaining time to react before PRD's first aged prune.
+The separate never-ready cutoff is two days, so cleanup of failed snapshot
+objects can occur before 19 October and must be monitored separately. The
+residual risks are retained cost/resources if reclamation fails, or loss of
+eligible restore points if pruning behaves incorrectly; a successful capture
+alone does not prove either retention property. Inventory, survivor-floor and
+backend checks remain required afterward.
+
+Authority remains the existing approved PRD snapshot sequence, with this user
+requested gate moved afterward. Preserve recorded release approvals, focused
+reviews, actual PRD CI previews, prerequisite-first ordering and the hold on
+unrelated promotion changes. Do not merge current broad release !679. Source at
+already-approved PRD release `7069d94` already declares the scheduled Delete
+class and the required namespace whitelist; apply only its SeaweedFS app child
+if the fresh preview is scoped and required approval is recorded. Argo follows
+Helm main, so review and verify live prerequisites before merging the dedicated
+PRD chart. No infrastructure stack, Alertmanager, fork tag/release, CodeAPI image
+change or live patch is included.
+
+Execution details and acceptance:
+
+1. Main owns source/live refresh, secret boundaries, CI/forge effects, integration
+   and final proof. Native read-only planner challenges this exact amendment;
+   canonical source and final reviewers cover the immutable PRD package. Mode
+   remains standard. The small overlay copy stays main-owned because its edit
+   costs less than execution dispatch and verification; no algorithm is rewritten.
+2. Reuse existing applicable STG script and risk reviews. Prepare a task worktree
+   and branch `rs/seaweedfs-prd-snapshots` from current Helm main. Touch only
+   `seaweedfs/prd/snapshot-schedule.yaml`, its existing kustomization and snapshot
+   staleness rules in monitoring. Copy the corrected STG script byte-for-byte;
+   adapt only the PRD agent pool `apps` and API endpoint `10.200.4.4/32`, preserving
+   service API `10.240.0.1/32`. Exact paths are
+   `seaweedfs/prd/snapshot-schedule.yaml`, `seaweedfs/prd/kustomization.yaml` and
+   `seaweedfs/prd/monitoring.yaml`. Run `bash seaweedfs/tests/validate.sh prd`,
+   `bash seaweedfs/tests/validate.sh stg` and `kubectl kustomize seaweedfs/prd`.
+   Reuse existing algorithm/decision coverage because the script is identical;
+   no new maintained test or dependency is planned. Overlay/render/source-CI,
+   live restore and genuine post-rollout retention cover the changed seams.
+3. Inspect current release !674 approval and source-equivalence proof, then
+   trigger only the existing PRD SeaweedFS CI child on release `7069d94`.
+   Approve its app-up only after its actual preview shows the new scheduled
+   Delete class and namespace ServiceAccount/Role/RoleBinding whitelist, with
+   no unrelated desired changes, deletes or replacements. Verify those live.
+4. Publish/review the dedicated Helm MR, preserve merge history and source
+   branch, and merge only after CI, required reviews and prerequisites pass.
+   Confirm Argo revision, scheduler identity/RBAC/network policy, unchanged
+   SeaweedFS PVC/pod/image and healthy canaries. Freeze and validate the full
+   snapshot inventory before chart activation, not only before operator runs.
+   Record UID, label/name, PVC/class, readiness/deletion time, content/backend
+   identity, expected victims and protected survivors. Retention filters exact
+   ownership/name, age and readiness but does not revalidate candidate PVC/class;
+   hold on any mismatched candidate. Existing PRD inventory has no eligible
+   victims. Record historical UIDs and verify they survive every relevant run.
+5. Seed and read back a unique synthetic PRD object in existing codeapi-files
+   before capture, recording exact bytes/metadata and completion time. Execute
+   one bounded operator capture and same-day reuse under the deployed scheduler
+   identity. Bind an isolated 50 GiB restore to that exact capture UID/content.
+   A reused capture that predates the seed cannot satisfy restore acceptance:
+   preserve it and the seed, then use the next real scheduled capture with a
+   bounded next-day continuation instead of deleting/replacing the snapshot.
+   Reuse reviewed seed/drill procedures with unique owned resource names,
+   metadata and exact bytes; never print or persist credentials. Verify new
+   write/read/delete, both applicable canaries and scoped CodeAPI E2E. Clean up
+   only new drill resources/seed objects, prove temporary Azure disk release,
+   and stop owned tunnels/watchers. No production pod restart is planned.
+6. Save post-rollout monitoring before closing immediate rollout. Reuse the
+   existing native monitor at 02:05 UTC / 04:05 Zurich daily 15–22 October,
+   bounded to eight runs and removable early when obligations finish. Observe
+   each actual 02:15 scheduled run by 02:45 UTC, including first PRD execution,
+   the genuine 19 October STG fixture prune and PRD ready/non-ready aging windows.
+   Compute eligibility from real creation times with strict less-than cutoff
+   comparisons and protected-ready floor. An evening 14 October ready capture
+   first becomes eligible at the 21 October 02:15 run; failed-object cleanup
+   uses its distinct two-day window and may occur earlier. Preserve pre-run
+   inventories, owners, victims/survivors, historical UIDs and content/Azure
+   backend release. If STG proof fails or is missing on 19 October, suspend
+   future PRD scheduling through recovery before its first ready-aged prune.
+   Notify meaningful completion/failure/required action; stay quiet unchanged.
+7. On capture/restore regression hold dependent work and preserve evidence. On
+   unsafe victim selection, failed/missing retention proof or bad reclamation,
+   use a reviewed GitOps CronJob suspension on a recovery branch. Verify Argo
+   convergence, actual spec.suspend and active Jobs. Suspension also stops new
+   backups and does not stop a Job already running: report any ongoing deletion
+   immediately if stopping that Job exceeds existing authority; do not claim
+   suspension alone halted it. Preserve snapshots, cutoff/floor and historical
+   resources. Original declarative recovery branches and ownership remain.
+
+Terminal condition: PRD prerequisite/chart rollout and immediate capture/restore/
+consumer acceptance verified, with genuine scheduled/aged-retention checks
+explicitly pending under a saved monitored continuation; or a precise remaining
+source, approval, CI or runtime blocker. This amendment supersedes earlier
+instructions making 19 October retention a pre-production gate only. It does
+not supersede the actual retention test or its safety requirements.
+
+Amendment review: native read-only planner Herschel initially requested five
+corrections covering the two-day failed-object window, pre-activation inventory,
+seed ordering/reuse, bounded monitoring/recovery, and exact validation paths.
+Main accepted and verified those corrections. The same planner returned
+APPROVED on the revised amendment. The user's new ordering request supplies
+execution authority; internal review supplies no additional authority.
