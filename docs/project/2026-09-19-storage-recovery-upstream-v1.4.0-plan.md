@@ -2727,3 +2727,23 @@ Receipts: `docs/project/_local/reviews/2026-10-14-prd-snapshots/`, including
 `monitor-readback.json`. Main owns pending monitoring; no new goal/chat was
 created. Immediate rollout acceptance is complete; actual scheduling and
 aged-retention acceptance are explicitly pending under the saved continuation.
+
+Final receipt review covered `222e9bb..a69ed03` and supported immediate
+acceptance. One low advisory identified missing drill-Job UID deletion evidence
+in the aggregate cleanup receipt. Main closed it using the original guarded
+delete command and successful exec receipt, plus a fresh absence check;
+`drill-job-cleanup.json` now records UID `b777066c-5111-4988-a8ef-21aec078cac5`,
+and `operator-job-cleanup.json` accounts for all five owned Jobs. This was an
+evidence-only correction with no new runtime or source effect. Canonical review
+schema validation and `integrated-review-disposition.json` record no unresolved
+findings. Actual monitor instructions were read back and saved as
+`monitor-instructions-readback.txt`, confirming the scheduled-run, aging,
+backend-reclamation and suspension obligations.
+
+Final live inspection found Argo Synced/Healthy at newer Helm main `3992918`.
+Fresh fetch verified that it contains reviewed merge `eac2ef5` and has no change
+to the PRD SeaweedFS overlay. The live production PVC remains the recorded UID;
+the STG retention fixture remains Ready at its recorded UID. Historical PRD
+snapshot content UID, Retain policy and Azure backend were rechecked and
+preserved. Immediate rollout is finalized with the dated monitoring obligations
+remaining; no first-scheduled-run or genuine aged-retention success is claimed.
