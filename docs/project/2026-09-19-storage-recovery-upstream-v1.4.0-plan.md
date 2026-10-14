@@ -2306,3 +2306,37 @@ The user confirmed: "Use approved release !674 (Recommended)". This replaces
 the obsolete !675 gate and permits the same CodeAPI-only preview/apply and cold
 E2E from release 7069d94. Skip the now-unnecessary !675 protection/CI rerun.
 Keep !675 and its branch intact pending any separately requested cleanup.
+
+#### CodeAPI-only production apply — 14 October, 15:39 UTC
+
+The replacement release gate is cleared by the user's explicit confirmation and
+MR !674's recorded approval. Release 7069d94 includes the reviewed source and
+full STG history. Its CodeAPI/shared build and CI inputs match reviewed candidate
+28bd9c9f; the other apps promoted externally are outside this task's effects.
+Main played only `deploy-app-prd: [codeapi]` bridge 2190404. Child 683629's helper
+build 2190804 and preview 2190805 passed. Exact preview: one in-place CodeAPI
+Application values revision update `c1edada` to `74296284`, 41 unchanged resources,
+no creates/deletes/replacements and no other changed property. After inspecting
+that diff, main played only app-up 2190806; it is running. Infrastructure and
+SeaweedFS jobs remain untouched. MR !675 remains draft/open with its branch
+retained; its now-unnecessary protection/CI repair was skipped as approved.
+
+Read-only baseline confirms zero runners, no sandbox nodes, and one KEDA-owned
+HPA per sandbox deployment (min 0, max 3 for runner / 1 for pool waker). The full
+budget observer asserts API/worker 480000, manifest 540, egress 900, chart/images
+e0b8c440 and values74296284, the reviewed plugin digest, zero desired/current/ready
+runners and no runner Pods before each accepted cold trial. The reviewed probe
+transport is unchanged; keys/tokens remain in memory via the existing exact PRD
+Infisical scope. Deployment and functional acceptance are still pending.
+
+Apply 2190806 passed in 172.887 seconds at 15:42:06Z. Argo is Synced/Healthy at
+`[e0b8c440,74296284]`; API and worker rollout checks and the full budget observer
+passed. The CI template performs a real Pulumi state refresh before up: six
+refresh records changed, including existing read resources and companion state.
+The final up updated two CodeAPI Applications. Besides the intended values pin,
+it reasserted the companion's explicit `allowEmpty:false` default after refresh;
+its source path/revision, prune/self-heal/retry and KEDA ignore policy remain.
+The companion diff also contains managedFields bookkeeping. No source revision,
+plugin, workload image or additional app changed through that second update.
+Sanitized property-key and actual companion-spec receipts distinguish this from
+the earlier one-update preview. No create, delete or replacement occurred.
