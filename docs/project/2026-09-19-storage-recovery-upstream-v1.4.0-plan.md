@@ -2984,3 +2984,47 @@ the median readiness gate remain pending. Main owns this runtime and the
 loopback13112 port-forward; no production source or rollout change is made
 until all STG and existing release gates pass. Active process/receipt details
 are saved in the ignored startup receipt directory's active-execution-state.json.
+
+#### STG startup acceptance complete; PRD preparation and connectivity hold
+
+STG runtime checks completed on 14 October at22:52:31Z. Three independent
+zero-runner cold E2Es and one retained-runner E2E passed all44 requests, including
+exact artifact bytes, guest SIGKILL137, twelve synthetic deletes and input404.
+Cold execution times were270060ms on a new node, then11574ms and11710ms on the
+cached node. Container-start-to-Ready was8/6/6seconds, median6seconds. Warm
+execution samples were192-854ms. The first runner retained its UID across a
+six-minute idle interval. All three real idle expiries reached zero after
+1200.51/1200.66/1200.81seconds from scaler lastActiveTime; final Pod cleanup
+completed and all desired/current/ready runner counts were zero.
+
+The original verifier ended with a telemetry assertion after its long-lived
+Pod watch disconnected. During recovery the original18-row stream was
+accidentally truncated; it is not presented as preserved or continuous.
+Exact-UID historical readiness/restart metrics, independent point receipts and
+a separately named final recovery watch establish no observed readiness flap
+or restart. The independent correction audit passed with sampled-evidence
+limits. The5second range grid repeats scrapes; it cannot disprove sub-scrape
+transients. The earlier31second baseline is a PRD sample, not a same-cluster
+controlled experiment, and fresh-node provisioning still dominates total time.
+
+The original failure remains stg-verifier-initial-failure.json. Main recorded
+the accepted substitution separately in stg-runtime-acceptance.json after
+2026-10-15-recovered-evidence-methodology-audit.md passed. These sanitized ignored
+receipts live under trees/startup-readiness/docs/project/_local/reviews/
+2026-10-14-startup-rollout/. Their claim is bounded STG acceptance, not an SLA.
+
+At22:59:53Z the existing localhost:6443 Kubernetes tunnel refused connections.
+The user was asked to restore their existing tunnels; no new connection was
+established. Both owned port-forwards and all owned watchers have stopped.
+Latest live preflight and PRD runtime verification require restored connectivity.
+
+PRD preparation uses rs/codeapi-startup-prd in df-cloud and
+rs/codeapi-prd-idle-keepalive in Helm. Four actual PRD source-policy tests passed
+in the existing isolated Node20.16.0 environment; the rendered Helm delta is
+only cooldown300 to1200. Merge the PRD chart pin into stg after source review,
+CI and the actual scoped STG preview pass; it leaves STG desired state unchanged.
+Production effects require the actual PRD preview, fresh live preflight,
+recorded human release approval and a fresh disposition of the whole release
+delta. Helm main auto-syncs PRD, so its merge is held by those same gates.
+Use normal stg-to-prd promotion and only the CodeAPI child. Preserve source
+history/branches, images, capacity, replica ownership and snapshot monitoring.
