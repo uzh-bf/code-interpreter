@@ -2877,3 +2877,62 @@ Documentation: [KEDA 2.17 scaling contract](https://keda.sh/docs/2.17/reference/
 [AKS storage](https://learn.microsoft.com/en-us/azure/aks/concepts-storage),
 [ACR Artifact Streaming](https://learn.microsoft.com/en-us/azure/aks/artifact-streaming)
 and [Azure retail price API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices).
+
+### Approved startup improvement — 14 October, STG source checkpoint
+
+The user approved persisting and implementing twenty-minute idle retention and
+earlier readiness in STG, cold-start/artifact E2E verification, then conditional
+PRD adoption. The reviewed executable plan was pushed before implementation:
+[canonical startup plan](https://github.com/uzh-bf/code-interpreter/blob/rs/codeapi-startup-readiness/docs/project/2026-10-14-cold-start-latency-plan.md).
+Working branch rs/codeapi-startup-readiness is in the existing task clone's
+trees/startup-readiness worktree. Native planner round2 approved; focused
+slice review and integrated Claude Opus5.5 source review completed. A stale
+existing STG exact-revision test assertion was corrected. The review's progress
+document advisory was addressed; canonical JSON validation passed after a
+format-only enum correction.
+
+[Readiness PR35](https://github.com/uzh-bf/code-interpreter/pull/35) implements
+runner readiness initial delay30->5 and period10->5, plus chart0.3.3 metadata.
+Immutable chart candidate isb3c2e223653ff7e81a69aca4e05bfe846d5322ec; later
+headbdef8f0 updates only plan progress. All-object actual-STG20/PRD14 render
+parity permits only approved probe fields and chart labels. Existing healthcheck,
+bridge-pairing and block-root checks passed. The dependent four revision and
+replica-policy tests pass in an isolated Node20.16.0/pnpm9.7.0 container with
+the checked-out helper build. New container dependencies are retained under
+ignored df-cloud project/_local/startup-runtime-deps; generated packageManager
+and original tracked local dependency links were restored, leaving source clean.
+
+[Helm MR160](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/160)
+merged without squash at644f30e8f8c2792b14c9a817c34989c743fa568a, branch retained.
+Source pipeline683819 and merged pipeline683831 passed. STG companion is
+Synced/Healthy at that merge; actual runner cooldown1200 and unchanged HPA
+stabilization300 were verified. Existing ScaledObject UID
+4773a956-451b-40c4-ae0a-4d7a4841cfe2 and exact Argo/KEDA replica ownership persist.
+The ordinary first reconciliation stayed cached; the approved native Argo
+refresh exposed the merged revision and GitOps completed reconciliation.
+
+[df-cloud MR683](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/683)
+is draft at7c8d0465509672ab0af84c7c3838b531f378ea9a, changing only the STG chart
+pin and existing test assertion plus plan pointer. Its actual MR pipeline683825
+and CodeAPI child683826 are pending behind STG runner work. Earlier branch-only
+preview683821/child683822 was superseded/cancelled by the correction push; it
+is not acceptance. GitHub current-head Linux CI is running. No readiness source
+merge, df-cloud merge/apply, CodeAPI secret read or new execution has occurred.
+The actual codeapi/kvm=true node selector confirms an empty STG KVM pool.
+
+A bounded ignored helper prepares three cold artifact E2Es, one six-minute
+same-UID reuse E2E and genuine twenty-minute expiry with native Pod/zero watches.
+Its independent operational review corrected failed-receipt preservation and
+the real node selector before execution. Main also enforces fresh node creation,
+actual Pulling/Pulled evidence, complete watch coverage and no readiness flap.
+No runtime acceptance is claimed before it runs against the deployed candidate.
+New receipts are under trees/startup-readiness/docs/project/_local/reviews/
+2026-10-14-startup-rollout/. Runtime and secret access remain main-owned.
+
+PRD source, cooldown, images, capacity and snapshot policy are unchanged.
+[Release MR679](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/679)
+contains fresh unrelated Dify source changes and no recorded approved_by entry;
+the existing recorded-human-release and unrelated-promotion holds remain.
+Continue source CI/preview, scoped STG apply and runtime acceptance first; then
+prepare exact PRD adoption subject to those gates. Existing snapshot monitoring
+continues with its previous owners and recovery obligations. No new goal/chat.
