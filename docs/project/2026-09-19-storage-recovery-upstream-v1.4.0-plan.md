@@ -1956,3 +1956,91 @@ single-occurrence anchors: 14 October 02:20 UTC (04:20 Europe/Zurich), and
 retention run for the required victim inventory. No duplicate monitor, new goal
 or separate chat was created. Fresh KEDA/HPA ownership read-back confirms one
 ScaledObject-owned HPA per runner/waker, minima 0 and maxima 3/1.
+
+### Actual scheduled capture and restore accepted — 14 October 2026
+
+The corrected daily scheduler, exact-capture recovery and post-capture consumer
+gate passed. This clears the 14 October gate; genuine aged retention on 19 October
+and the existing PRD release prerequisites remain pending. Earlier operator
+captures remain preliminary evidence, separate from this actual scheduled run.
+
+Fresh Helm main is `21c0ae065083bb46b604a8b31fcd3739c65fbf09`; its SeaweedFS and
+CodeAPI paths have no delta from reviewed `717160f`. The live snapshot script is
+byte-identical to that source and contains the corrected `target_snapshot_name`.
+SeaweedFS, CodeAPI and companion Argo applications are Synced and Healthy at that
+revision; CodeAPI retains chart `8eb246c5` and images `e0b8c440`. The full STG
+snapshot validation, including same-day HTTP 409 and ownership/PVC/class rejection
+regressions, passed against the unchanged reviewed source.
+
+- Actual CronJob-owned Job `seaweedfs-snapshot-schedule-29865735`, UID
+  `c825fd3b-af0d-410a-a679-6d9b84f3df0e`, was created at `02:15:00Z` and completed
+  at `02:15:25Z`, before the `02:45Z` deadline. Its owner is CronJob UID
+  `27bc0935-4a11-44ba-b2cc-8e2bff9d6300`. Logs confirm the expected snapshot and
+  successful completion. CronJob `lastSuccessfulTime` and its Prometheus metric
+  value `1791944125` independently match this completion.
+- Real snapshot `seaweedfs-auto-20261014`, UID
+  `81abd60c-801b-44aa-bcc5-643e3716393f`, was created at `02:15:02Z` and reports
+  ready, 50 GiB. Its content is
+  `snapcontent-81abd60c-801b-44aa-bcc5-643e3716393f`, with backend creation time
+  `02:15:05Z`. The source is `seaweedfs-data`, class
+  `seaweedfs-scheduled-snapshots`, with the schedule ownership label.
+- Same-day operator reuse Job `seaweedfs-snapshot-reuse-20261014`, UID
+  `371f019d-a818-4a72-a81d-ef6a58bdcb7f`, completed at `02:25:34Z`. It reused the
+  exact snapshot without changing UID or creation time. The unchanged script
+  adopts an existing target through its 409 path; logs report the ready target
+  rather than the HTTP status. Full-run regression validation independently
+  exercises that 409 and rejects mismatched ownership, source and class.
+- Isolated Job `seaweedfs-drill-20261014-scheduled-v1`, UID
+  `dee13120-79b4-4619-9da9-7815b19d67d4`, completed at `02:27:25Z`, restoring that
+  exact scheduled snapshot. It recovered the fixture seeded on 12 October before
+  capture: `trypost-media/synthetic-recovery/20261012-snapshots-v1`, exact bytes,
+  metadata and digest
+  `0731caab145c084ccf2cba17a2ae540320ef0bc83d8d7e0760fce5628b210219`.
+  A new write/read/delete succeeded on the isolated copy.
+- Temporary PVC UID `f14bce2d-e28e-4d6f-b3e2-f3ff10251a2a`, PV
+  `pvc-f14bce2d-e28e-4d6f-b3e2-f3ff10251a2a` and its recorded Azure disk were
+  released after checking the exact claim and Delete reclaim policy. Native
+  deletion waits passed; independent Azure `ResourceNotFound` and Kubernetes
+  absence checks confirmed release at `02:29:06Z`. The first receipt assertion
+  expected only `ResourceNotFound` while Azure initially returned equivalent
+  `NotFound`; the follow-up read resolved this without repeating deletion.
+
+Cluster-level changes: only the approved temporary restore PVC/Job and same-day
+reuse Job were created and then removed. The scheduled capture, seeded object,
+retention fixture UID `8bff3818-a0c2-443e-933c-24b838e2d976`, previous captures and
+historical September recovery resources remain. No managed deployment changed.
+
+Post-capture CodeAPI E2E UUID `8cbf4614-e5ae-40e5-88db-30108ed6a59c` passed all
+11 requests through the authenticated Service path, using only the existing
+`codeapi-stg` read scope and fresh in-memory synthetic tokens. Both API and worker
+retain `JOB_TIMEOUT=480000`, manifest 540 seconds and egress 900 seconds.
+Starting from zero desired/current/ready runners, cold execution succeeded in
+270314 ms, warm execution in 263 ms. A new node UID
+`4bf1979f-070c-4b04-94dd-b5661161baa8` exposed 40 KVM slots; its sandbox image pull
+was 1,348,411,050 bytes in 79.359 seconds. The reviewed upstream GHCR device-plugin
+pin pulled successfully in 1.726 seconds. Exact-byte output downloads, guest
+SIGKILL/137 timeout enforcement, three deletes and input 404 passed. Existing
+probe/review evidence applies: both harness hashes are unchanged. This adds one
+independent cold trial; it does not establish an SLA, every consumer socket path,
+programmatic cancellation or live worker-deadline expiry.
+
+Both storage canaries last succeeded at `02:31:07Z`. The scoped SeaweedFS alert
+query returned no active alerts. The owned port-forward stopped; ports 13112 and
+19090 have no listeners, and all started verification watchers completed.
+Sanitized receipts remain in the existing ignored root:
+`docs/project/_local/reviews/2026-10-14-stg-snapshot-receipts/`.
+
+The completed 14 October capture follow-up was deleted through the native
+automation tool. The existing retention follow-up was updated with this accepted
+scheduled capture, restore, disk release and additional cold-start evidence.
+Native success and read-back confirm ACTIVE, the same chat, and the unchanged
+single occurrence on 19 October at 02:05 UTC (04:05 Europe/Zurich), before the real
+02:15 UTC retention run. It must record the full owned inventory, expected victims
+and three-ready floor before that run, then prove genuine aged snapshot/content
+and Azure backend reclamation. No retention window was shortened and no fixture
+was manually deleted. PRD stays held until that proof and the existing approved
+normal STG-to-PRD release sequence pass, including recorded human release approval,
+the unrelated-promotion-delta hold and prerequisites before chart auto-sync.
+Its dedicated chart package must carry the snapshot fix, API/worker 480000,
+manifest 540 and the reviewed upstream GHCR plugin pin. Existing owners, reviews
+and recovery branches remain; there is no new goal, separate chat or early rollout.
