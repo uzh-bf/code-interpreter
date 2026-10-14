@@ -1,5 +1,17 @@
 # Storage recovery and upstream v1.4.0 integration
 
+## Current live checkpoint — 14 October 2026
+
+The CodeAPI-only PRD repair is deployed through approved MR !674 release7069d94
+and CI child683629. Values74296284, API/worker480000, manifest540 and the upstream
+GHCR device-plugin digest are verified live. Two full synthetic zero-runner
+trials passed. Main owns the remaining second fresh-node trial, now waiting for
+natural autoscaler node retirement; no manual scaling/deletion is permitted.
+See the [current production acceptance receipts](#production-cold-acceptance--14-october).
+PRD snapshots remain gated on the genuine 19 October retention/content/Azure
+reclamation check. Preserve its fixture, historical recovery resources and
+existing automation.
+
 ## Historical close-out checkpoint — superseded by approval below
 
 Source integration is complete; the environment rollout remains blocked and
@@ -2340,3 +2352,32 @@ The companion diff also contains managedFields bookkeeping. No source revision,
 plugin, workload image or additional app changed through that second update.
 Sanitized property-key and actual companion-spec receipts distinguish this from
 the earlier one-update preview. No create, delete or replacement occurred.
+
+#### Production cold acceptance — 14 October
+
+Full trial1 UUID `65f1e69f-3452-47ff-80ba-080b54419edb` passed all 11 requests
+from an empty pool: cold270851ms, warm289ms, exact169/231-byte downloads, guest
+SIGKILL137/TO, three HTTP200 deletes and input404. New node UID
+`6ea75ec0-8213-41ee-8931-0c2ce10b977d` joined at15:46:16Z, advertised40 KVM slots
+and pulled the1,348,411,050-byte sandbox image in75.984s. The reviewed plugin
+pulled in1.701s, was Ready, and had zero restarts. Pre, mid and immediate post
+receipts bind execution to runner UID `1f86da60-3353-4b94-a9c2-9bc168763182`.
+
+Full trial2 UUID `2d05067e-50da-49ce-9c4c-afed5de2fd17` passed the same11-request
+contract after natural scale-to-zero and old-pod deletion: cold68673ms, warm207ms.
+Precondition has zero desired/current/ready runners and no runner Pods; the
+cached node UID is unchanged and the new runner UID is
+`89298593-3eca-4954-bffc-e0157ab5816e`. Exact downloads, guest timeout enforcement,
+three successful deletes and input404 passed. Argo returned Synced/Healthy.
+
+The final trial waits for deletion of that exact node through a native kubectl
+watch bounded at2400s, then asserts zero nodes and zero runners before submitting
+one execution through the unchanged reviewed probe. The longer observation bound
+accounts for existing waker1200s and runner300s cooldowns plus node-autoscaler
+retirement; it changes no scale setting, capacity, resource or retention policy.
+A warm retry does not clear a failed cold submission. No final acceptance is
+claimed until that trial and the integrated review pass. Source main90ca9c1 is
+current for the companion; its PRD companion files match reviewed74296284.
+The remaining verification stays main-owned because it requires secrets, exact
+production lifecycle binding and final proof; the final independent review uses
+only completed sanitized receipts.
