@@ -2220,3 +2220,29 @@ CodeAPI/snapshot separation, actual plugin acceptance, pending timeout pin and
 current merged-result release candidate. The earlier exception proposal is
 withdrawn: actual normal-promotion changes are CodeAPI-only. It keeps the same
 UTC time and retention gates.
+
+#### Production preview authentication failure — 14 October
+
+PRD CodeAPI child pipeline 683376 built the helpers successfully, then preview
+job 2189635 failed before evaluating the stack. Sanitized diagnostics report
+`There are no active accounts` from Azure and Pulumi's fallback demand for
+`PULUMI_ACCESS_TOKEN` in a non-interactive login. No deployment plan or production
+apply resulted. Adding a Pulumi Cloud token is not the remedy: this project uses
+its existing Azure-backed CI login configuration.
+
+Scoped GitLab metadata confirms server 19.4.2 and that candidate branch
+`rs/codeapi-prd-cold-release` is unprotected, while `stg`, `prd` and the existing
+`release/prd-*` pattern are protected. GitLab requires protected source and target
+branches, same-project membership and eligible triggering-user permissions for
+MR pipelines to receive protected variables/runners. The unprotected candidate
+does not meet that requirement. This explains the observed missing CI login
+configuration; the failure is not evidence against the CodeAPI timeout source.
+Existing protection and variable policies have not been changed. The failure,
+branch-status and canonical review receipts are preserved in the ignored root.
+MR !675 also has zero recorded approvals; its custom release job requires one.
+
+The PRD plugin remains deployed and functionally accepted on the new-node trial.
+The timeout values remain at 300000/360. Snapshot rollout remains gated on the
+19 October check. No production values, infrastructure or SeaweedFS apply is
+claimed. Both the CI trust-boundary repair and recorded release approval are
+required before continuing the dependent timeout deployment.
