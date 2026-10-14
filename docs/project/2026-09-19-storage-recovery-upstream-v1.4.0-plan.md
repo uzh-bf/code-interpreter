@@ -2476,3 +2476,32 @@ the STG retention fixture remains Ready at its recorded UID. The existing native
 follow-up retains 19 October 02:05 UTC / 04:05 Zurich and now records !675 as
 closed with its branch retained. Original storage owners, authority, reviews,
 recovery branches, retention policy and historical resources remain in force.
+
+#### Automatic snapshot rollout continuation — 14 October, 19:35 UTC
+
+The user explicitly requested automatic PRD snapshot rollout now if every check
+passes, with notification on completion or a blocker. This authorizes continuing
+the approved conditional sequence without another generic go-ahead; it does not
+waive the previously required genuine retention verification on 19 October or
+other recorded source, review, release, human-approval and preflight gates.
+
+Fresh live inspection finds fixture `seaweedfs-auto-20261001`, UID
+`8bff3818-a0c2-443e-933c-24b838e2d976`, Ready but only about 52 hours old.
+Its actual creation time is 12 October 15:33:02Z; the name is not its age.
+Six-day eligibility begins after 18 October 15:33:02Z. The first eligible real
+scheduled prune is 19 October 02:15 UTC / 04:15 Zurich, with the existing
+02:45 UTC / 04:45 Zurich acceptance deadline. The STG CronJob remains enabled
+at `15 2 * * *`, time zone `Etc/UTC`, with its recorded owner UID. Genuine aged
+retention, content deletion and Azure backend reclamation cannot pass today;
+PRD snapshot rollout remains held. No live resource was changed.
+
+Sanitized preflight receipt is
+`docs/project/_local/reviews/2026-10-14-stg-snapshot-receipts/prd-retention-preflight.json`.
+The existing 19 October 02:05 UTC / 04:05 Zurich follow-up retains its schedule
+and now explicitly continues through the original approved PRD rollout once all
+gates pass. Notify on completion, a material failure or required user action;
+keep unchanged/non-actionable status quiet. If a required recorded release
+approval, unrelated promotion delta or preflight condition blocks progress,
+report the precise blocker. Preserve existing owners, recovery branches, the
+fixture and historical resources. CodeAPI is already finalized and !675 closed;
+its branch and history remain retained.
