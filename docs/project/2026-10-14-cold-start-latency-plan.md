@@ -200,11 +200,39 @@ owned tunnels/watchers; no manual production pod/node deletion or live patch.
 
 ## Progress
 
-Native planner Pauli approved round2 after all four round1 findings were
-accepted: measurable readiness gain, pre-Helm PRD gates, bounded uninterrupted
-idle observations, and complete ownership/test portfolio. Approval recorded
-before implementation. Source implementation has not started. Test delta planned: zero new/changed/removed maintained tests; focused
-existing render/healthcheck contracts plus actual runtime acceptance.
-Terminal: verified STG and PRD adoption with sanitized receipts, committed/pushed
-checkpoints and owned-process cleanup; or a precise remaining source/review/CI/
-release-authority/runtime blocker after independent authorized work is complete.
+The plan was approved by native planner Pauli in round2 and persisted/pushed
+at7b7227f before implementation. All four round1 findings were accepted.
+Application readiness is implemented atb3c2e22 in [PR35](https://github.com/uzh-bf/code-interpreter/pull/35);
+STG retention isd61fa91 in [Helm MR160](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/160);
+the STG pin and its existing protocol assertion are7c8d046 in
+[df-cloud MR683](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/683).
+
+Source renders for actual STG20 and PRD14 objects differ only in approved
+probe timings and chart labels. Existing healthcheck, bridge and block-root
+checks passed. Parsed ScaledObject parity and Kustomize passed; live Argo
+replica ignores, RespectIgnoreDifferences and one HPA per target were verified.
+The focused independent slice review's stale-STG-pin finding was accepted and
+corrected. Test portfolio amendment: one existing exact-revision assertion
+updated, no new or deleted maintained tests. Native local TS execution exposed
+inconsistent pre-existing shared dependency links; an isolated pinned Node20 /
+pnpm9 container now builds matching helpers and runs the real existing test.
+
+Integrated Claude Opus5.5 source review found no behavioral defect, with a low
+advisory to update this checkpoint, now addressed. Its first result had an
+invalid autofix enum; format-only correction and canonical validation pending.
+Hosted Linux CI, actual GitLab scoped previews and container test are pending.
+No source merge or deployment has occurred for this package. STG cold,
+retention and genuine-expiry acceptance remain pending.
+
+Fresh remote refresh preserved unrelated Dify changes, advancing the task
+bases to Helm527f092 and df-cloud stg2897f59 without changing CodeAPI.
+[Release MR679](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/679)
+currently carries those unrelated Dify changes and has no recorded approved_by
+review. The PRD hold remains; source preparation and STG may continue.
+
+Substantive diff: application3 additions/3 deletions, Helm1/1, df-cloud2/2;
+project documents excluded. Mechanical cross-repository timing package is
+floor-exempt; no simplifier is armed without a complexity signal.
+Runtime and recovery sequence above remain binding. Terminal remains verified
+STG/PRD adoption with sanitized receipts and owned-process cleanup, or a precise
+remaining CI/release/runtime blocker after independent authorized work.
