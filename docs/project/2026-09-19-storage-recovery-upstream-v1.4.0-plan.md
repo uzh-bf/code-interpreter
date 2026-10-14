@@ -2246,3 +2246,58 @@ The timeout values remain at 300000/360. Snapshot rollout remains gated on the
 19 October check. No production values, infrastructure or SeaweedFS apply is
 claimed. Both the CI trust-boundary repair and recorded release approval are
 required before continuing the dependent timeout deployment.
+
+##### Exact CI repair — approved; superseded candidate on refresh
+
+Protect only the already reviewed candidate branch `rs/codeapi-prd-cold-release`
+at unchanged SHA `28bd9c9f93cbbc79dae7081ce3197c517dcfdd41`, using an exact-name
+rule, direct pushes disabled, Maintainer merge access (40) and force pushes
+disabled. This makes that verified source eligible for existing protected PRD
+CI resources while preserving the current rules for every other branch. It is
+a new CI trust-boundary action, separate from the already approved source merge
+and CodeAPI rollout. It grants no new secret-store scope and changes no CI
+variable, project-wide setting, script or production resource.
+
+Main verifies the unchanged reviewed SHA and creates that exact rule only after
+the user approves this action. Start a fresh MR !675 pipeline at the same SHA so
+GitLab evaluates the protected-resource context anew; preserve the failed run.
+If access still fails, hold rather than widening variable exposure or toggling
+project settings. After canonical source review, actual PRD preview showing only
+the CodeAPI Application values-pin update, and recorded human release approval
+pass, the existing authority covers a history-preserving merge, CodeAPI-only CI
+apply and full E2E/representative cold trials. Restore the prior values pin through
+the approved declarative recovery path on a regression. Terminal condition is
+full PRD CodeAPI acceptance or its precise remaining gate. The 19 October storage
+sequence, existing owners, source branches and historical resources remain.
+
+Planner review: APPROVED; native read-only planner Beauvoir reviewed this exact
+CI protection proposal. The user explicitly approved that exact protection and fresh CI run on
+14 October. Before mutation, the required remote refresh found a newer release;
+the protection action is held while its relevance is resolved.
+
+#### Concurrent release refresh — 14 October, 15:30 UTC
+
+The user approved exact-name protection of `rs/codeapi-prd-cold-release`, a fresh
+MR !675 pipeline, and CodeAPI-only rollout after its recorded approval. No policy
+mutation or pipeline rerun has occurred. Refresh found that MR !674 was already
+approved and merged independently at `7069d94c8c09857addb0da2798629df93b176c28`.
+It carries the exact reviewed CodeAPI values pin `74296284` and preserves full
+STG history. One actual GitLab approval is recorded; production pipeline 683524
+is successful. These external actions are not claimed as this task's work.
+
+A non-mutating merge-tree check of !675 into current PRD yields the identical
+PRD tree: !675 is now redundant. Its GitLab diff still lists historical PRD
+overrides relative to the newer common ancestor; neither merging it nor running
+its old candidate preview is necessary to deliver CodeAPI. Source branch/head
+`28bd9c9f` remains intact and unprotected. The user was asked to confirm using the
+already approved !674 release instead of the now-superseded named !675 gate.
+
+The actual PRD Application remains at values `c1edada`, API default/worker
+300000 and manifest 360. All five control-plane deployments are Ready, and
+the independently accepted device plugin is deployed. Main prepares only the
+CodeAPI child preview from release 7069d94 / parent 683524; app-up remains held
+until that preview passes and the replacement release gate is confirmed. No
+other app, infrastructure, storage or Alertmanager action is authorized here.
+After that gate, acceptance requires live 480000/540, unchanged chart/images
+`e0b8c440`, representative zero-runner cold trials and complete synthetic E2E.
+The 19 October retention gate and all historical recovery resources remain.
