@@ -2145,3 +2145,55 @@ The isolated PRD consumer verification will use the existing approved
 `codeapi-prd` Infisical profile and documented signing-key mapping; no new scope
 or secret configuration is authorized or needed. Snapshot source, schedule,
 retention fixture and 19 October follow-up remain in the separate storage phase.
+
+#### CodeAPI PRD checkpoint and proposed scoped release exception
+
+Helm MR !151 merged without squash as
+`74296284bd3a814e901762f7e5796933cd96f3c2`, preserving source branch
+`rs/codeapi-prd-cold-start` and source commit `5e765285`. Source CI 683325 and
+merged CI 683330 passed secret detection; current PRD chart lint/render and
+companion Kustomize render passed. The independent canonical Claude final review
+passed without findings. The PRD companion adopted this revision, is Synced and
+Healthy, and the device manager's observed generation and digest match source.
+
+Preliminary PRD synthetic E2E UUID `e3adb607-43f9-4fd0-9ad7-33b8508832f8` passed
+all 11 requests, exact-byte downloads, guest timeout SIGKILL/137, three deletes
+and input 404. Cold execution took 270707 ms, warm 264 ms, after confirmed zero
+desired/current/ready runners and no nodes. New Node UID
+`4b7e9ecc-9415-4231-938c-7e70d124e8b4` exposed 40 KVM slots. The actual plugin
+image pulled in 1.760 seconds, became Ready and had zero restarts; the sandbox
+pulled 1,348,411,050 bytes in 77.458 seconds. This proves functional plugin startup
+on PRD. The API/worker budget remains the old 300000 default/setting and manifest
+TTL 360; this trial does not prove the complete 480000/540 rollout or replace its
+required representative cold trials. The reviewed PRD PEM/public-JWKS adapter
+uses only the existing approved key scope, keeps values in memory and reuses the
+unchanged reviewed bounded HTTP transport; syntax and its 39 local checks passed.
+
+The two-line df-cloud pin update and existing assertion are committed as
+`8669b301e93c2e760dd69319a91f3892a858507b` on
+`rs/codeapi-prd-cold-values` in its recorded task worktree, draft MR !673 to STG.
+Pinned Prettier checks and independent canonical source review passed. MR pipeline
+683336 and CodeAPI child 683337 must be refreshed before continuing. Parent
+helper build and infra preview passed; child helper job 2189439 started after
+930 seconds queued, with the CodeAPI preview still pending at the last receipt.
+No CodeAPI preview success or STG source merge is claimed. PRD still uses
+chart `e0b8c440` and values `c1edada`; no chart/image upgrade is needed for this
+timeout repair. All sanitized evidence is under
+`docs/project/_local/reviews/2026-10-14-prd-cold-start-receipts/`.
+
+Normal promotion still includes non-CodeAPI tree differences in
+`src/apps/outline/functions.ts`, `src/infra/index.ts`,
+`src/infra/observability.ts`, `src/infra/observability.test.ts`, and deletion of
+`project/2026-09-20-prd-seaweedfs-recovery-and-alerting.md`. They are inherited
+differences from external !659's merge resolution, not part of !673. The current
+approved sequence holds them for disposition and does not permit inventing a
+selective production promotion. Its unrelated-delta gate therefore remains.
+
+Checkpoint cleanup: the owned PRD port-forward stopped, and ports 13112, 13113
+and 19090 have no listeners. The preliminary probe and local checks completed.
+The local CI watcher stopped at the release-scope decision; remote CI was not
+cancelled. PRD's CodeAPI storage canary succeeded at `10:24:06Z`, and both STG
+canaries at `10:24:07Z`. PRD has no scheduled snapshot CronJob. The existing
+19 October follow-up was updated through the native tool with the approved
+CodeAPI/snapshot separation, actual plugin acceptance, pending timeout pin and
+withheld scoped-release proposal. It keeps the same UTC time and retention gates.
