@@ -2044,3 +2044,104 @@ the unrelated-promotion-delta hold and prerequisites before chart auto-sync.
 Its dedicated chart package must carry the snapshot fix, API/worker 480000,
 manifest 540 and the reviewed upstream GHCR plugin pin. Existing owners, reviews
 and recovery branches remain; there is no new goal, separate chat or early rollout.
+
+### Earlier PRD cold-execution rollout — approved 14 October
+
+Approval summary: decouple the verified CodeAPI cold-execution repair from the
+snapshot retention acceptance gate. The six-day wait verifies automated deletion
+of aged snapshots and Azure backend reclamation. It adds no direct evidence for
+CodeAPI execution budgets or device-plugin availability. Promote only those
+CodeAPI fixes before 19 October, with existing release reviews and environment
+checks. Keep the production snapshot schedule, pruning and storage prerequisites
+in their existing gated package. This changes rollout ordering; it does not waive
+the retention test or authorize the unrelated changes in a platform release.
+
+Approval mode: executable batch. The user explicitly approved the CodeAPI-only
+PRD rollout, E2E and cold-start verification on 14 October, keeping production
+snapshots gated on the 19 October retention check. Existing owners and reviews
+remain. Main owns the source package,
+cross-repository integration, all release effects, secrets and final PRD proof;
+the configured read-only planner challenges this amendment before presentation.
+
+The exact Helm source scope is `codeapi/prd/values.yaml`: API `JOB_TIMEOUT=480000`,
+worker `jobTimeout=480000`, and manifest TTL 540 seconds; and
+`codeapi/companion/prd/smarter-device-manager.yaml`: the reviewed upstream GHCR
+digest `228f7f44594a3182571559e62f2e3fe8a3f26180fb5dd7fc0cb7bf7d22a5bbcd`.
+Preserve guest limits, egress TTL, images, replica ownership and existing security
+configuration. Include only comments made inaccurate by those changes. Use a
+purpose-named `rs/` worktree and draft MR based on fresh Helm main, existing
+native render/check tooling, prior applicable risk reviews and an integrated
+review of the PRD delta.
+
+Live PRD CodeAPI values are pinned to Helm revision `c1edada3950f7d2dc5760ee559706d125cacdf34`
+and its chart to `e0b8c440`; the companion follows Helm `main`. Consequently,
+merging the proposed Helm package makes the plugin correction eligible for Argo
+reconciliation, while timeout/manifest values require the later df-cloud pin
+promotion. Treat the
+Helm merge as a production deployment gate: complete the PRD plugin diff review,
+render validation, baseline health and declarative rollback preflight before it.
+The two rollout steps have independent receipts; plugin acceptance does not prove
+the timeout values are deployed. Confirm those Application revisions before any
+mutation, compare the pinned chart with STG's reviewed
+`8eb246c5`, and include only demonstrated dependencies in the source plan. Source
+publication is followed by updating the PRD values pin in df-cloud via
+its normal STG-to-PRD release path and GitLab CI preview/apply. Promotion !659 was
+draft during planning and has since merged externally as `d48a6077`. A fresh
+comparison still contains unrelated deltas across seven files; this task has no
+authority to promote those remaining changes. Preserve the existing release owner, required
+recorded human approval and merged-result previews. Hold the dependent rollout
+if unrelated deltas lack explicit disposition; do not invent a selective release,
+direct PRD push, local Pulumi operation or live Kubernetes patch.
+
+After the applicable source and deployment gates pass, merge the Helm package
+without squash and preserve source branches. Verify actual Argo revision,
+DaemonSet digest and readiness before recording plugin acceptance or proceeding
+to timeout promotion; a merged source revision alone does not clear that gate.
+Then, after a clean applicable CI preview and recorded release approval, promote
+the PRD values pin and apply only the approved CodeAPI app stack through GitLab CI.
+Verify exact Argo revisions, Ready control-plane pods, timeout/TTL values and
+device-plugin digest. Run the approved
+synthetic PRD artifact E2E and cold-start checks using existing exact Infisical
+scopes, fresh in-memory tokens, bounded requests and natural scale-to-zero; do not
+manually remove runners or nodes. Reuse the existing STG cold-start acceptance
+contract for representative zero-runner trials, exact downloads, guest timeout
+enforcement and synthetic-object cleanup. Observe both storage canaries, stop
+owned tunnels/watchers, and persist sanitized receipts in this artifact root.
+No new tests are planned; run the existing source/render and synthetic acceptance
+checks. No application runtime is required merely to prepare the package.
+
+A failed PRD acceptance holds subsequent work. Restore the exact prior plugin
+manifest through an ordinary reviewed Helm revert, and restore any changed
+chart/values pins through the reviewed df-cloud recovery source and the same
+approved release path; never use rollout undo. The rollback covers only this
+package's fields and preserves unrelated Helm changes. Terminal
+condition: verified PRD CodeAPI acceptance, recorded rollback if necessary, or
+a precise release/review/promotion blocker with the scoped package preserved.
+
+The 19 October 04:05 Zurich follow-up remains responsible for the original aged
+retention proof and later snapshot package. Update
+that follow-up with actual CodeAPI progress so it does not repeat completed work.
+Production automated snapshot creation/deletion, fork releases/tags, PRD
+Alertmanager, historical cleanup and unrelated platform promotion remain outside
+this amendment. Approval of this ordering does not authorize unresolved unrelated
+release changes or bypass required human review.
+
+Progress, start of approved execution: the planner approved this ordering after
+correcting the distinction between a main-following source and actual Argo
+adoption. The source patch preview and review are under the ignored
+`docs/project/_local/reviews/2026-10-14-prd-cold-rollout-proposal/`. A fresh fetch
+now shows df-cloud !659 merged externally as `d48a6077`; PRD's current chart and
+values are still `e0b8c440` and `c1edada`, while the companion is Synced/Healthy
+at Helm main `21c0ae0`. Remaining STG-to-PRD drift spans seven files and still
+requires explicit disposition before a normal promotion can merge. This task
+does not take ownership of that external release or its unrelated deltas.
+
+Working paths: Helm implementation owns the task worktree
+`/private/tmp/codeapi-snapshots-20261012.MXrwGT/helm-charts/trees/codeapi-prd-cold-start`
+on `rs/codeapi-prd-cold-start`, based on fresh main. Main owns forge actions,
+live verification, source integration and exact release gates. A trusted bounded
+executor owns only the two named Helm files and returns the checked patch.
+The isolated PRD consumer verification will use the existing approved
+`codeapi-prd` Infisical profile and documented signing-key mapping; no new scope
+or secret configuration is authorized or needed. Snapshot source, schedule,
+retention fixture and 19 October follow-up remain in the separate storage phase.
