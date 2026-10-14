@@ -2936,3 +2936,51 @@ the existing recorded-human-release and unrelated-promotion holds remain.
 Continue source CI/preview, scoped STG apply and runtime acceptance first; then
 prepare exact PRD adoption subject to those gates. Existing snapshot monitoring
 continues with its previous owners and recovery obligations. No new goal/chat.
+
+#### STG startup candidate adopted; runtime acceptance in progress
+
+[Readiness PR35](https://github.com/uzh-bf/code-interpreter/pull/35) merged without
+squash atb53af0e3833f2b9a03036e87c9d56842bad0ca2f. Source CI38637122542 and
+merged CI38639022004 each passed all10 checks; merged and tested trees match.
+[df-cloud MR683](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/683)
+merged without squash atcbd45a947d23dd768186bf4ec808939a85aa4cfa after actual
+MR CodeAPI preview2191834 and source pipeline683825 passed. All three source
+branches were explicitly read back and retained.
+
+Only CodeAPI bridge2192005 in merged STG pipeline683839 was played, yielding
+child683843. Actual merged app preview2192023 showed one Application chart-pin
+update and41 unchanged resources, with no creates/deletes/replacements.
+Scoped app-up2192024 passed at21:36:18Z in168.938seconds. Its real refresh
+updated seven state records; up updated two Applications. The companion
+reasserted explicit allowEmpty:false, which equals its prior omitted false
+default. Source, retry, prune/self-heal and exact replica ownership remained;
+the actual policy comparison normalizes omission on both sides. No namespace
+or Service provider mutation was part of the up.
+
+Argo main and companion are Synced/Healthy. Main chart source isb3c2e22; actual
+values revision50868c2 contains only unrelated Dify changes after reviewed
+Helm merge644f30e, with an empty codeapi-path diff. Live runner readiness is
+5/5seconds with timeout7 and existing healthcheck; liveness60/30/7, imagee0b8c440,
+cooldown1200, burst stabilization300 and replica ownership match the plan.
+STG infra preview separately reported existing NetworkSecurityGroup securityRules
+drift. No infra apply was played. New df-cloud stg0855a20 is also Dify-only
+after this package, with no CodeAPI source delta; the exact approved child
+was retained instead of following the moving branch watcher.
+
+First cold E2E UUID4e3fc46f-9ff8-4c42-9e19-ee4331074ebf passed11 requests: cold
+270060ms, warm218ms, exact downloads, guestSIGKILL137, three synthetic deletes
+and input404. Real precondition at21:39:38Z was zero desired/current/ready
+runners and no runner Pods; the correct codeapi/kvm=true selector returned no
+nodes. New nodeUIDe0fe612c-e6db-4bb4-bc0a-faed55bfade8 was created21:40:43Z.
+RunnerUID0b1d238f-f9a9-418c-b931-1faba8d9b5ee pulled the same1,348,411,050-byte
+runtime image in77.571seconds, started21:43:36Z and became Ready21:43:44Z:8seconds,
+versus prior31-32seconds. This single phase measurement is preliminary; total
+fresh-node latency varies with provisioning/pull time and is not an SLA gain.
+
+The bounded ignored verifier is still running. It began the first genuine
+six-minute idle observation at21:44:23Z, with scaler lastActiveTime21:44:13Z.
+Same-UID reuse, real twenty-minute expiry, two more independent cold trials and
+the median readiness gate remain pending. Main owns this runtime and the
+loopback13112 port-forward; no production source or rollout change is made
+until all STG and existing release gates pass. Active process/receipt details
+are saved in the ignored startup receipt directory's active-execution-state.json.
