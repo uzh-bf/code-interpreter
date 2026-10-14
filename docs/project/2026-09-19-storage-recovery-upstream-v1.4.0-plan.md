@@ -11,6 +11,10 @@ Canonical independent final review passed. Main owns the later storage rollout.
 See the [production acceptance receipts](#production-cold-acceptance--14-october).
 The user has authorized PRD snapshots before aged-retention proof; the reviewed
 14 October amendment below moves that proof to monitored post-rollout checks.
+PRD snapshot source and prerequisites are now deployed and immediate operator
+capture/reuse, exact fixture restore, Azure disk release and CodeAPI E2E passed.
+The first real daily PRD run remains due 15 October; aged retention stays pending.
+See the [PRD snapshot acceptance](#prd-snapshot-immediate-acceptance--14-october-2026) below.
 Keep the retention fixture and historical recovery resources. Superseded MR !675 is now closed; its source branch
 `rs/codeapi-prd-cold-release` and commit history are retained unchanged at
 `28bd9c9f`. Its branch protection and CI rerun were skipped with explicit
@@ -2621,3 +2625,105 @@ seed ordering/reuse, bounded monitoring/recovery, and exact validation paths.
 Main accepted and verified those corrections. The same planner returned
 APPROVED on the revised amendment. The user's new ordering request supplies
 execution authority; internal review supplies no additional authority.
+
+### PRD snapshot immediate acceptance — 14 October 2026
+
+The user approved moving genuine aged-retention acceptance after production
+rollout. The reviewed amendment was committed and pushed as `222e9bb` before
+execution. Native planner corrections were accepted and the revised amendment
+passed. Retention policy and historical resource preservation are unchanged.
+
+**Cluster-level changes:** only the SeaweedFS app child of already-approved
+[df-cloud release MR !674](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/674)
+was applied, at PRD release `7069d94`. Child pipeline
+[683744](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/pipelines/683744)
+preview `2191337` showed exactly one class create and one AppProject whitelist
+update, no deletes or replacements. Apply `2191338` passed. The incremental
+Delete class `seaweedfs-scheduled-snapshots`, UID
+`f2599cd3-209c-4f71-b5a7-2fd35913d409`, and namespace ServiceAccount/Role/RoleBinding
+permissions were verified live before chart activation. No unrelated release
+promotion or infrastructure stack was applied.
+
+[Helm MR !156](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/156)
+merged without squash at `eac2ef5caef41c3e92b978ee2caf01bc26b3e770`;
+source branch `rs/seaweedfs-prd-snapshots` remains at reviewed
+`7f58a395b1ec9af1308082ddce164a0b0d9e02bd`. The worktree fast-forwarded to fresh
+main `5690799` before editing because main advanced during preparation; its
+unrelated podcast changes are baseline only. Net delivery is exactly three
+PRD overlay files, 875 added lines, of which 846 are the existing reviewed
+schedule copied mechanically. Only node pool `apps` and API endpoint
+`10.200.4.4/32` differ from STG outside the byte-identical script. Existing
+26/50-hour staleness rules were copied; no new algorithm, dependency or maintained
+test was added. Existing STG algorithm/risk reviews apply unchanged; the trusted
+Claude Opus 5.5 integrated source review passed canonical schema validation
+with no findings or denied tool access. Mechanical copy required no simplifier.
+Existing `seaweedfs/tests/validate.sh` checks for PRD and STG, PRD Kustomize
+render, script equality and diff hygiene passed. Source secret-detection
+pipeline `683746` and merged pipeline `683750` passed.
+
+Argo `app-seaweedfs` was Synced/Healthy at the merge revision. The restricted
+ServiceAccount, exact live script, namespace Role and binding, network policy,
+actual node/API settings and enabled `02:15 Etc/UTC` CronJob were verified.
+PRD CronJob owner UID is `8018aa17-a4a6-4955-8b89-bcfb56dd92e9`. Prometheus exports
+its creation metric and loaded both staleness rules with health `ok`, inactive.
+The live storage PVC UID `970fc522-b1ca-4328-8593-31b2628d77b6` and storage pod
+UID `9f292bc9-8a7c-4f01-a4f7-f5ac4574147b` remained unchanged, Ready with zero
+restarts. Pre-activation inventory had zero owned automatic captures and no
+eligible victims. Historical unowned Retain snapshot
+`seaweedfs-recovery-20260920`, UID `bf9a535d-14ca-4853-a363-2f9b21d35938`, and
+its content/backend were recorded and survived capture and reuse.
+
+Synthetic fixture `synthetic-recovery/20261014-prd-snapshots-233813` in the
+existing `codeapi-files` bucket was seeded and read back at `20:02:53Z`, with
+57 exact bytes, recovery metadata and SHA-256
+`bb3fc77676e6b63d76bfa9c28d1a1a3f9eb8fb67662a3bf547a17b0cc7f81e21`.
+The bounded operator Job used the deployed scheduler identity. It created
+`seaweedfs-auto-20261014`, UID `a0839849-c42f-423d-9d7d-96d170a5a2fe`, at
+`20:07:31Z`, Ready. Its bound content is
+`snapcontent-a0839849-c42f-423d-9d7d-96d170a5a2fe`; Azure confirmed the matching
+50 GiB incremental snapshot succeeded. Same-day rerun retained exactly that
+UID and creation time. Both operator Jobs completed successfully; neither
+claims the actual CronJob scheduled-run gate.
+
+The isolated 50 GiB restore bound to that exact capture recovered all bytes
+and metadata, then passed new write/read/delete. Only the newly owned seed
+object and five temporary operator Jobs, restore PVC and PV were removed.
+Seed cleanup verified HTTP 404. Restore PVC UID
+`dc1a763d-88f1-4c1d-9cbb-f3c47a206627`, PV UID
+`9f5a1cc0-5070-452d-8191-c1527671fd36`, and temporary Azure disk
+`pvc-dc1a763d-88f1-4c1d-9cbb-f3c47a206627` were recorded. Kubernetes deletion,
+Azure deleted-wait and subsequent `ResourceNotFound` confirmed release.
+The new backup and historical resources remain preserved.
+
+Scoped production CodeAPI artifact E2E passed all 11 requests: cold execution
+340517 ms, warm 230 ms, exact 169/231-byte artifact downloads, guest SIGKILL 137,
+three successful synthetic deletes and input 404. The unchanged reviewed probe
+used existing Infisical `codeapi-prd`, exact readable `CODEAPI_JWT_PRIVATE_KEY`
+only, injecting the key in memory without printing or saving it. A new runner
+was observed during this request; it has no separate pre-submit empty-pool
+receipt, so the three earlier independent zero-runner trials remain the cold
+reliability proof. Coverage is the authenticated Service path, not every client
+or ingress SLA, worker-deadline expiry or cancellation. Both STG canaries and
+the applicable PRD CodeAPI canary were fresh and successful. The owned
+port-forward on 13113 was stopped and absence of a listener verified.
+
+The existing native follow-up was updated and read back ACTIVE for 02:05 UTC /
+04:05 Zurich daily 15–22 October, eight bounded runs, in this same chat. First
+real PRD scheduled-run acceptance is due 15 October at 02:15 UTC, bounded by
+02:45 UTC. STG genuine fixture prune/content/Azure reclamation remains due
+19 October. The PRD operator capture's ready-age cutoff is after 20 October
+20:07:31Z; its first eligible real daily prune is 21 October, subject to the
+three-ready floor. Two-day never-ready cleanup is monitored separately. If
+19 October STG proof fails or is missing, use reviewed GitOps suspension before
+PRD's first ready-aged prune; preserve active-Job visibility and original
+recovery branches. The schedule can be suspended only with the recovery
+checks described in the amendment; suspension does not cancel an active Job.
+
+Receipts: `docs/project/_local/reviews/2026-10-14-prd-snapshots/`, including
+`source-final-review.json`, `source-verification.json`, `prerequisite-live.json`,
+`chart-live.json`, `capture-snapshot.json`, `capture-content.json`,
+`capture-azure-backend.json`, `reuse.log`, `restore.log`,
+`restore-disk-release.json`, `seed-cleanup.log`, `immediate-acceptance.json` and
+`monitor-readback.json`. Main owns pending monitoring; no new goal/chat was
+created. Immediate rollout acceptance is complete; actual scheduling and
+aged-retention acceptance are explicitly pending under the saved continuation.
