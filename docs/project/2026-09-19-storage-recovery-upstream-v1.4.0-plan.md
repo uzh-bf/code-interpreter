@@ -2747,3 +2747,133 @@ the STG retention fixture remains Ready at its recorded UID. Historical PRD
 snapshot content UID, Retain policy and Azure backend were rechecked and
 preserved. Immediate rollout is finalized with the dated monitoring obligations
 remaining; no first-scheduled-run or genuine aged-retention success is claimed.
+
+### Cold-start latency investigation — 14 October 2026
+
+Scope: the user requested investigation of the 340517 ms production cold start
+and reliable ways to reduce it. This is a read-only runtime/source investigation
+and a persisted assessment, not approval to change capacity, images, schedules,
+probes or production configuration. No new CodeAPI execution/load, CodeAPI
+secret read, node change, deployment, replay or follow-up automation was
+performed for this investigation. The existing restricted Jev profile injected
+only its checker credential in memory for public citation checks. Existing
+snapshot verification automation remains active.
+
+Source and live state were refreshed. The running sandbox image remains
+`e0b8c4409c337789d8fb07e5c5665bc2879c4fc3`, PRD values `74296284`, companion
+main `3992918`, AKS 1.34.8 and KEDA `2.17.3-20`. Both environments use a
+`Standard_D4ds_v5` Spot KVM pool, min zero/max one, AzureLinux with a 64 GiB
+managed OS disk and kubelet storage on that disk. Both KEDA runners scale to
+zero after 300 seconds; pool-wakers after 1200 seconds; polling is already five
+seconds. Each Deployment has one KEDA-owned HPA and its exact Argo replica ignore
+with `RespectIgnoreDifferences=true`. This is intentional scale-to-zero behavior,
+not evidence that Argo is overriding KEDA. The previous deadline repair allowed
+cold provisioning to finish inside 480000 ms; it did not optimize provisioning.
+
+The latest synthetic request UUID `6fb8e52e-4886-48e0-add7-f885911f58bc` took
+340.517 seconds. Events were recovered by its recorded Pod UIDs even after the
+runner retired. Historical kube-state-metrics bound the same runner UID
+`cc9991ea-0fe6-4d77-a124-6f621f1862b8` to creation, container start and readiness.
+The new node UID is `8f3eab40-b853-48b4-a895-50eb6080f707`. The autoscaler emitted
+an actual sandbox pool `0->1` transition at 20:08:04Z. The request breakdown is:
+
+| Phase | UTC evidence | Time |
+| --- | --- | --- |
+| Pending Pods to node schedulable / waker assigned | 20:07:54 to 20:10:23.893 | 149.9 s |
+| KVM plugin availability and runner assignment | to 20:11:03.748 | 39.9 s |
+| Image pull/unpack | 20:11:04 to 20:12:38; kubelet reports 94.153 s | 94.2 s |
+| Container creation and Ready transition | start 20:12:50, Ready 20:13:21 | 43 s |
+| Remaining activation, routing and completion time | request lacks absolute endpoint timestamps | about 13.5 s |
+
+Pod creation to Ready is exactly 327 seconds in the historical metrics. The
+actual guest code ran for 101 ms. The reported image size is 1,348,411,050 bytes;
+this is a kubelet/runtime image-size observation, not a measured network payload
+or throughput. Fresh-node acceptance earlier that day took 270.851 seconds,
+including a 75.984-second pull of the same image. Cached-node zero-runner trials
+took 68.673 and 36.026 seconds; already-ready runner calls took 207–289 ms, with
+230 ms in this latest test. These are bounded synthetic samples, not percentile
+or SLA estimates. The additional six-minute request has retrospective node/pod
+provenance; it does not invent a pre-submit empty-pool receipt for that test.
+
+The deployed chart readiness probe has a fixed 30-second initial delay and
+10-second period, at `helm/codeapi/templates/worker-sandbox-deployment.yaml:454`.
+Observed container-to-Ready gaps were 31–32 seconds across these trials. Some of
+that gap may overlap real guest initialization: removing the entire 30 seconds
+is not yet proven safe or achievable. The deployed guest/rootfs image bundles
+Python, Node, Bun and scientific packages in a read-only ext4 root; package init
+is baked into the image rather than a live shared package PVC. The HTTP backend
+already retries only pre-connection refusals, with 500 ms backoff and the same
+absolute deadline/body; it must retain that safe replay boundary. A blocking
+heavy-import warmup before the guest listener would add work to this trivial
+request's startup path and is not justified by the measured fixture.
+
+Recommended options, requiring a separately approved implementation package:
+
+1. Align the runner's idle keep-alive with the existing 20-minute pool-waker
+   window, preserving one KEDA owner and guarded queue scaling. At 20:29:14Z,
+   PRD had zero runners but one Ready waker, illustrating the current paid-node /
+   cold-runner gap. This can avoid cached-node restarts for intermittent use,
+   with likely limited additional VM uptime while that same node is already
+   held; measure actual node retirement before promising zero extra cost. It
+   cannot prevent a full cold start after a longer idle period.
+2. Replace the fixed readiness waiting floor with earlier checks of the same
+   health condition, using a bounded startup probe where needed to protect slow
+   guest boot from liveness restarts. Candidate initial check around 1–5 seconds
+   is an experiment, not a shipped setting or latency promise. Up to roughly
+   25 seconds may be recoverable if the guest is already healthy; verify actual
+   listener timing, health and no premature routing or restart churn first.
+3. For consistently fast PRD first requests after long idle, retain a warm
+   runner on dedicated on-demand KVM capacity; keep STG scale-to-zero for cold
+   recovery coverage and optionally retain Spot for burst work. A warm Spot
+   runner is cheaper but remains evictable and cannot guarantee capacity.
+   Changing the existing Spot pool's priority in place is unsupported; an
+   on-demand baseline needs a separately staged pool/migration, updated runner,
+   waker and device-plugin placement, the same taints/KVM isolation and rollback.
+   One on-demand node reduces Spot risk but is not high availability. Keeping
+   only a warm node leaves the measured 36–69-second runner startup path.
+4. Optimize the true cold recovery path separately: measure final OCI layers,
+   remove only proven build/cache redundancy without losing runtimes/modules,
+   and test ephemeral node OS storage. The current infrastructure loop explicitly
+   uses managed OS disks for every standalone pool; an eventual disk option must
+   be scoped to the KVM pool instead of changing all pools. A pre-pull on an
+   already warm node can help; a DaemonSet on a new node alone cannot remove VM
+   provisioning. ACR Artifact Streaming requires a Premium ACR and supported
+   integrated pulls, so it is not a flag that accelerates the current GHCR image.
+   Registry migration or extra paid service is not included in this assessment.
+
+Public Switzerland North Linux D4ds_v5 compute rates retrieved on 14 October:
+Spot USD 0.055255/hour (~40.34 per 730-hour month), regular USD 0.299/hour
+(~218.27/month). These are public compute-only run rates, not the contractual or
+incremental bill. Disk, network, tax and other services are excluded; Spot rate
+and capacity vary. A business-hours warm baseline can reduce paid hours, while
+requests outside the window still incur full cold provisioning. No spend or
+capacity change has been made.
+
+Any implementation should begin in STG and compare the same authenticated
+synthetic artifact workload across ready-runner, cached-node/zero-runner,
+fresh-node/uncached-image and idle-return conditions. Keep every sample, use
+at least three comparable trials per relevant condition, retain exact download
+and cleanup checks plus guest SIGKILL enforcement, and verify cross-session
+workspace isolation and unchanged privilege/security settings. Test scaler and
+node-loss recovery without manually disrupting production, and prove KEDA/Argo
+ownership plus return-to-floor behavior. Keep the 480000/540/900 deadline/manifest/
+egress budgets until independent evidence justifies changing them. Do not count
+an unmeasured candidate as a performance gain or a warm retry as a cold success.
+
+Evidence: ignored `docs/project/_local/reviews/2026-10-14-cold-start-performance/`
+contains `cold-timeline.json`, `latest-cold-run-events.json`,
+`latest-cold-historical-metrics.json`, `scoped-live-scaling.json`,
+`azure-nodepool-config.json`, `idle-runner-node-gap.json`,
+`warm-baseline-cost-comparison.json` and investigation dispositions. Main owned
+live/infra/docs/cost synthesis; a separate trusted native source explorer mapped
+the deployed boot/image path and corrected its initial warmup recommendation
+against main's recovered measurements. The source explorer completed and closed;
+no runtime was started. Three public-only citation checks deferred; main checked
+the corresponding official source passages directly, with no advisory pass claimed.
+
+Documentation: [KEDA 2.17 scaling contract](https://keda.sh/docs/2.17/reference/scaledobject-spec/),
+[Kubernetes startup/readiness probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/),
+[AKS Spot limitations](https://learn.microsoft.com/en-us/azure/aks/spot-node-pool),
+[AKS storage](https://learn.microsoft.com/en-us/azure/aks/concepts-storage),
+[ACR Artifact Streaming](https://learn.microsoft.com/en-us/azure/aks/artifact-streaming)
+and [Azure retail price API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices).
