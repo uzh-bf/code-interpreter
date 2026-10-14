@@ -11,8 +11,10 @@ Canonical independent final review passed. Main owns the later storage rollout.
 See the [production acceptance receipts](#production-cold-acceptance--14-october).
 PRD snapshots remain gated on the genuine 19 October retention/content/Azure
 reclamation check. Preserve its fixture, historical recovery resources and
-existing automation. The obsolete MR !675 and its source branch remain intact;
-its branch protection and CI rerun were skipped with explicit user approval.
+existing automation. Superseded MR !675 is now closed; its source branch
+`rs/codeapi-prd-cold-release` and commit history are retained unchanged at
+`28bd9c9f`. Its branch protection and CI rerun were skipped with explicit
+user approval.
 
 ## Historical close-out checkpoint — superseded by approval below
 
@@ -2446,3 +2448,31 @@ recorded human approval before its conditional PRD rollout. Preserve original
 owners, recovery branches, prerequisite order and historical resources. This
 CodeAPI acceptance does not clear or replace the storage gate. The native
 follow-up is updated to avoid repeating the completed CodeAPI release work.
+
+#### CodeAPI release close-out — 14 October, 19:26 UTC
+
+The user explicitly requested closing superseded MR !675 while retaining its
+branch and history. Fresh GitLab and Git checks confirmed approved release
+!674 remains merged at `7069d94c8c09857addb0da2798629df93b176c28`; merging !675
+would produce an identical PRD tree. Host `glab mr close 675` closed only that
+MR. Read-back confirms state `closed`, no merge commit, and source branch
+`rs/codeapi-prd-cold-release` retained at unchanged commit
+`28bd9c9f93cbbc79dae7081ce3197c517dcfdd41`. No branch deletion, protection,
+rewrite, merge or CI rerun occurred. Historical open/draft descriptions above
+are superseded by this closure.
+
+Fresh runtime checks at 19:26 UTC confirm both PRD CodeAPI Applications remain
+Synced/Healthy at the accepted revisions, all five control-plane deployments
+are Ready, API/worker timeout is 480000 ms, manifest TTL is 540 seconds and
+egress TTL is 900 seconds. The prior three passing cold E2E trials and canonical
+review remain applicable; unchanged deployed behavior needs no duplicate test.
+Sanitized closure and health receipts are `mr675-closure.json` and
+`mr675-closeout-health.json` under the existing ignored receipt directory.
+
+The CodeAPI rollout and its release administration are finalized. PRD snapshots
+remain held until the genuine 19 October verification and original subsequent
+release/preflight gates pass. The PRD snapshot schedule is still absent, and
+the STG retention fixture remains Ready at its recorded UID. The existing native
+follow-up retains 19 October 02:05 UTC / 04:05 Zurich and now records !675 as
+closed with its branch retained. Original storage owners, authority, reviews,
+recovery branches, retention policy and historical resources remain in force.
