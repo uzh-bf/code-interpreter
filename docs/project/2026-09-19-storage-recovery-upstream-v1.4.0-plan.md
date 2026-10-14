@@ -3028,3 +3028,76 @@ recorded human release approval and a fresh disposition of the whole release
 delta. Helm main auto-syncs PRD, so its merge is held by those same gates.
 Use normal stg-to-prd promotion and only the CodeAPI child. Preserve source
 history/branches, images, capacity, replica ownership and snapshot monitoring.
+
+#### Production startup package and corrected connectivity
+
+The previous connectivity hold was too broad. STG's existing tunnel on port 6443 is
+unavailable after completed acceptance, but PRD's existing tunnel on port 6453 is
+available. PRD baseline preflight passed: both CodeAPI Applications are
+Synced/Healthy, API and service worker are Ready with budgets 480000/540/900,
+the reviewed prior chart and image pins remain, and each sandbox target has
+one KEDA-owned HPA with exact Argo replica ignores. The runner and KVM node
+pools are empty. This is preflight evidence, not candidate PRD adoption.
+
+[PRD chart-pin MR684](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/684)
+targets stg at b160575b008de2f699baa57a0b4f15be2e48d498.
+[PRD keepalive MR161](https://gitlab.uzh.ch/uzh-bf/cloud/helm-charts/-/merge_requests/161)
+targets main at 157699e73123fb8a22f38214740a924beb32eb29. Both branches are
+pushed with squash/source-branch deletion disabled. Integrated Claude Opus5.5
+source review passed the complete two-repository package without findings;
+the later docs-only connectivity correction was inspected by main and leaves
+that result and actual source-policy tests valid. The scoped 13-axis deployment
+pattern audit found no ownership or pattern violation.
+
+Helm source pipeline 683865 passed secret detection. Actual pre-MR scoped STG
+preview 2192184 passed with 42 unchanged resources; its four refresh-preview
+state differences were read-only and no refresh/apply was played. Current
+MR source pipeline 683870 and CodeAPI child 683871 passed; actual MR preview
+2192210 also showed42 unchanged resources. MR684 merged without squash at
+3f618476c617dca1752c80a3577123e252e027b9. The source branch remains at b160575.
+Merged and tested trees are identical at 0e4c2cae. Only the PRD map entry changes,
+so STG desired state is unchanged; no additional STG apply was played.
+
+The full candidate release diff has five paths. The unrelated Dify source
+delta changes only DIFY_STG_VALUES_TARGET_REVISION; both call sites select it
+only for env===stg, leaving PRD on main. Its other change is documentation.
+The source check establishes that delta as inert for PRD at the recorded SHAs;
+the actual PRD preview below confirms the intended CodeAPI change. The recorded GitLab approval
+gate for [release MR679](https://gitlab.uzh.ch/uzh-bf/cloud/df-cloud-klickeruzh/-/merge_requests/679)
+requires one approved_by record; its current count is zero. Chat authorization
+does not replace that repository check. No human reviewer was requested.
+
+The normal release now points to3f618476. Actual PRD CodeAPI child 683876
+passed, including app-preview 2192261: only the main Application chart source
+changes e0b8c440 to b3c2e22, with 41 unchanged and no creates/deletes/replacements.
+The only changed value is the intended targetRevision source pin.
+The prospective history-preserving merge into prd7069d94 produces exactly the
+tested source tree; there are no additional merged-result paths. PRD infra
+preview 2192255 passed; no infra apply was authorized or played. Automatic checks on merged-source STG pipeline 683874 completed; its remaining
+manual operations were not played.
+
+Production release pipeline 683875 fails only its required recorded-approval
+job 2192259: "Release merge request requires 1 approval(s), but has 0. Approve
+the MR and retry this job." The user was asked to record that approval directly
+on the now reviewable release MR679. Its description carries the exact source,
+STG evidence, PRD preview, unrelated-delta disposition and scoped recovery.
+No human reviewer or notification was requested from anyone else.
+
+Keep Helm's auto-syncing PRD MR161 merge and all production applies held on
+this concrete GitLab approval gate. Final live readback confirms PRD remains
+Synced/Healthy at chart e0b8c440 and cooldown300; the candidate is not deployed.
+All owned port-forwards and local runtime/CI watchers have ended. The existing
+PRD tunnel is user-owned and was left available. Sanitized final receipt is
+prd-final-approval-hold.json in the ignored startup receipt directory.
+
+After an actual approval is recorded, retry only the failed approval job on
+this exact release head, verify required CI and the current whole-release
+range, refresh PRD live preflight, then execute the already approved normal
+release and held Helm merge without squash or branch deletion. Play only the
+merged PRD CodeAPI child after its actual preview. Complete the approved PRD
+cold/warm/six-minute same-UID reuse/genuine20-minute expiry, artifact E2E,
+health/canary checks and owned cleanup. The next lifecycle observer must use
+unique receipt paths and preserve original evidence if a watch reconnects.
+STG tunnel restoration does not reopen accepted STG trials. Existing recovery
+branches and snapshot follow-ups retain their owners and authority. No new
+goal, chat, release tag, capacity increase or unrelated apply is introduced.
