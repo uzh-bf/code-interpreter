@@ -3101,3 +3101,56 @@ unique receipt paths and preserve original evidence if a watch reconnects.
 STG tunnel restoration does not reopen accepted STG trials. Existing recovery
 branches and snapshot follow-ups retain their owners and authority. No new
 goal, chat, release tag, capacity increase or unrelated apply is introduced.
+
+#### 15 October: first real PRD scheduled capture passed; STG access blocked
+
+The actual 02:15 UTC PRD CronJob run completed at 02:15:24Z, before the 02:45
+acceptance deadline. Job seaweedfs-snapshot-schedule-29867175 has UID
+2c265e45-7360-4c18-9466-4d01cc12dfd4, controller owner UID
+8018aa17-a4a6-4955-8b89-bcfb56dd92e9 and the exact scheduled-timestamp annotation
+2026-10-15T02:15:00Z. Native Job event observation covered creation through
+Complete. Its log reports today's snapshot Ready and phase=complete status=ok.
+This was the CronJob execution; no operator Job or replacement capture was made.
+
+Fresh capture seaweedfs-auto-20261015 has UID
+7efc582d-2b0f-4458-86c0-42eae209ae28, created 02:15:01Z. It is Ready with content
+snapcontent-7efc582d-2b0f-4458-86c0-42eae209ae28, content UID
+20852141-099a-405b-a859-6c4aa8a401bb, the expected PVC/class and a matching
+Succeeded incremental Azure backend on the original SeaweedFS disk. CronJob
+lastScheduleTime is 02:15:00Z; lastSuccessfulTime and the Prometheus successful
+time metric both advanced to 02:15:24Z. The 26/50-hour alert rules are loaded,
+healthy and inactive. Actual post-capture CodeAPI storage-canary Job
+codeapi-storage-canary-29867176 completed at 02:16:06Z under its original owner.
+
+The pre-run inventory was frozen before 02:15 with exact names, UIDs,
+creation times, ownership, PVC/class, deletion/readiness, contents and Azure
+backends. The live script equals fetched Helm main 50868c2, whose PRD overlay
+has no delta from the reviewed snapshot merge. At the scheduled start, the
+strict six-day/two-day cutoffs were 9 October/13 October 02:15 UTC, with the
+newest-three-ready floor. Predicted victims were empty; none were deleted.
+Post-run checks preserved the exact 14 October operator snapshot UID/content/
+backend and September historical Retain snapshot UID/content/backend. Two
+owned Ready snapshots now exist and both are protected. No never-ready
+candidates were present, so their deletion branch remains unproven. Future
+cutoff-boundary cases must account for the actual prune-time window, since
+the script samples current time after waiting for today's capture to be Ready.
+
+STG's existing localhost:6443 tunnel refused connections throughout this
+follow-up. Its pre-run Kubernetes inventory, actual 15 October scheduled
+Job/capture and both storage canaries could not be verified. The exact recorded
+12 October retention-fixture Azure backend still exists Succeeded; that does
+not prove its current Kubernetes ownership or today's scheduled acceptance.
+Restoration of the existing user tunnel is required. No new cluster connection
+was established. PRD's existing port 6453 remained usable. All owned native
+watchers completed; no port-forward, seed, restore or cluster mutation was made.
+
+Sanitized receipts are in ignored docs/project/_local/reviews/
+2026-10-15-snapshot-schedule-monitor/, including frozen pre/post inventories,
+actual Job events/log, scheduled-capture-acceptance.json, Azure identities,
+successful-time metric, post-capture canary and the STG access blocker.
+The existing monitor remains ACTIVE on its same UTC 02:05 daily 15-22 October
+schedule. Its saved prompt now records this first actual PRD success and
+distinguishes the separately held CodeAPI startup package. Genuine STG aged
+pruning on 19 October and PRD aging from 21 October remain pending with their
+original floor, recovery obligations and owners. This snapshot follow-up did
+not act on the separate release approval or startup Helm MR.
