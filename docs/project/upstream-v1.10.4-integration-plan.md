@@ -147,25 +147,41 @@ and existing replay ledger are the documentation artifacts.
    Build and publish all existing commit-addressed fork images; prove the frozen
    upstream commit and prior fork baseline are ancestors.
 3. **Staging software rollout — main.** First complete the separately governed
-   STG ready-capacity acceptance on the old software. In df-cloud change only
-   the STG chart revision in `src/apps/codeapi/functions.ts` and applicable
-   existing function tests. In helm-charts change `codeapi/stg/values.yaml`
-   commit-image tags and the explicit inactive-bridge settings above. Render
-   before either merge; land values only after all referenced images exist,
-   then apply the df-cloud CodeAPI app stack to adopt the new chart. Verify full
-   source previews and recovery pins, apply through GitLab CI and Argo, and
+   STG ready-capacity acceptance on the old software. Before merging new values,
+   use the separately agreed deployment route to pin the existing Application's
+   values source to its verified baseline commit. Confirm unchanged chart,
+   images, health and convergence. STG follows values `main`, so merging values
+   before this freeze could deploy new images with the old chart.
+
+   In helm-charts change `codeapi/stg/values.yaml` commit-image tags and the
+   explicit inactive-bridge settings above. Render the baseline pair and the
+   proposed new chart/values pair before either merge; land values only after
+   all referenced images exist and the baseline freeze is verified. In df-cloud
+   change the STG chart and values revisions in `src/apps/codeapi/functions.ts`
+   and applicable existing function tests. Through the agreed deployment route,
+   adopt both tested immutable revisions in one update to the existing
+   Application. Preserve Pulumi ownership and all other Application fields.
+   Verify full source previews and recovery pins, Argo convergence, and
    prove exact deployed digests/revisions and external replica ownership. Run the
    existing reviewed artifact and first-after-idle probes against the upgraded
    revision, exact synthetic download/reuse, guest timeout, cleanup and canaries.
    When changed, exercise actual cancellation independently of timeout. New pipe
    runtime must execute the synthetic guest correctly under existing isolation.
+
+   After acceptance, restore STG's existing values-`main` tracking only when a
+   fresh comparison proves that its CodeAPI values match the tested commit and
+   the Application has no active operation. Confirm the resolved revision and
+   unchanged workloads afterward. A changed values tree holds this restoration
+   for review; it cannot silently introduce an unrelated promotion. Neither the
+   freeze nor restoration grants host deployment authority or CI cluster access.
 4. **Production release and closeout — main.** Review the entire normal stg-to-prd
    promotion delta and require its recorded human approval. Hold unrelated
    effects. Promote the exact accepted source/image/chart: the PRD revision
    entry in df-cloud `src/apps/codeapi/functions.ts` and the corresponding image
    tags/inactive-bridge settings in helm-charts `codeapi/prd/values.yaml`.
    Complete source previews and image availability before the values merge and
-   protected CodeAPI app apply, with the same prerequisite ordering as STG.
+   adopt the tested chart/values revisions together through the agreed deployment
+   route. Keep PRD values immutable, with the same prerequisite ordering as STG.
    Stop on any unapproved path/delta, missing recovery pin or failed acceptance.
    Repeat the staging-accepted synthetic
    consumer/artifact and idle-floor checks; do not evict production nodes or
@@ -240,6 +256,9 @@ planned; screenshots do not apply.
 Record the prior verified chart/image/application pins privately before each
 rollout. Recover a failed application through an ordinary source/GitOps revert
 branch for that environment after the same required checks and release approval.
+Restore the verified chart and values pair together through the agreed route;
+do not expose a mixed pair during recovery. Keep a failed STG upgrade pinned
+until its verified baseline is restored before considering values-`main` tracking.
 Preserve accepted node/runner capacity, storage and snapshots unless that exact
 component caused the regression. A failed staging gate blocks production.
 
@@ -261,8 +280,8 @@ The bounded assertion passes repeated runs and rejects a retained synthetic
 pipe. Native supervisor-policy, pipe relay and DNS checks pass. The packaged
 broker correction preserves normal exit at clean EOF while incomplete frames
 and active errors still fail once. Local packaged guest checks and repeated
-cancellation/orphan cleanup checks pass. Hosted platform CI and the integrated
-final review remain blocking; source merge and publication are held.
+cancellation/orphan cleanup checks pass. The integrated source review has passed.
+Hosted platform CI remains blocking; source merge and publication are held.
 
 The CI access constraint and source-derived logging-test reuse were approved by
 the same Astra planner as a focused plan amendment. No test file was added;
