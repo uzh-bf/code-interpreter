@@ -187,6 +187,13 @@ synthetic descriptor. A persistent leak must still fail. No fixed sleep, new
 module or new maintained test file is needed. Run the focused test repeatedly,
 then the full API suite and native sandbox checks before accepting this change.
 
+### Explicit source CI execution
+
+The source CI workflow also accepts an explicit manual dispatch of its existing
+checks on the task ref. This supplies a supported execution path when no pull
+request run is created. It adds no live environment access or new job authority.
+The fork release job remains disabled and deployment remains separately gated.
+
 ### Test portfolio
 
 | Risk | Obligation and primary seam | Distinct acceptance |
