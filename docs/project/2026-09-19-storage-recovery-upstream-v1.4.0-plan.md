@@ -1,5 +1,124 @@
 # Storage recovery and upstream v1.4.0 integration
 
+## Approved continuation: ready capacity and latest upstream integration — 16 October 2026
+
+### Approval summary
+
+The user approved updating this plan with Astra, executing it with one native
+goal, and bringing Code Interpreter to the latest stable upstream release.
+The release lookup resolves to [v1.10.4](https://github.com/LibreChat-AI/code-interpreter/releases/tag/v1.10.4).
+Refresh that lookup before freezing the integration target and again before
+production readiness. A later release is assessed explicitly; do not silently
+move a tested target during rollout.
+
+Deliver the already approved ready-Spot baseline first, staging then production,
+with the existing human production release approval. Prepare the upstream patch
+assessment independently, then integrate and verify the frozen upstream release
+through the same environment order. Keep the two runtime changes separately
+observable so a failure has a clear recovery target. Continue the existing
+snapshot-retention monitor independently; elapsed-age proof is not a prerequisite
+for these changes unless it exposes an actual storage regression.
+
+Preserve the current consumer API, issuer-bound authentication, values-free and
+nonfatal telemetry, artifact storage, KVM isolation, resource ceilings and GitOps
+ownership. Retain only fork patches that remain necessary, merge upstream history
+without squash, and publish only the existing commit-addressed build artifacts.
+The fork creates no stable tags or releases. Optional new upstream capabilities
+stay disabled unless required for compatibility and already within approved
+scope. A new identity, data destination, ownership model, increased capacity,
+unrelated promotion effect, or unresolved compatibility regression holds its
+dependent action for a concrete decision.
+
+Finish when both environments have accepted the ready floor and the tested
+upstream-derived application revision, source and deployed pins agree, consumer
+and artifact checks pass, recovery revisions are recorded privately, and owned
+test processes are stopped. Passing source CI alone does not satisfy this goal.
+The existing human production review remains required; this continuation grants
+no substitute approval or authority to notify reviewers.
+
+### Execution and ownership
+
+Main owns the goal, integration, secrets, forge actions, infrastructure effects,
+release ordering and final proof. Astra owns the read-only challenge of this
+amendment and the derived upstream plan. Execution mode remains standard.
+
+1. **Persist and review before execution.** Review this amendment with the existing
+   Astra planner. Record dispositions in the ignored review directory, inspect
+   staged content, commit and push only this intended documentation checkpoint on
+   the existing receipts branch, then create the requested native goal. Preserve
+   previous plans, approvals, reviews and recovery branches.
+2. **Complete ready capacity.** Follow the single detailed contract in the
+   existing df-cloud `project/2026-10-15-codeapi-ready-spot-plan.md`, including its
+   exact-ETag correction. Use the reviewed protected CI path, fresh source/live
+   preflight and exact-target program-disabled refresh. Node and Pulumi state
+   acceptance precede the Helm runner floor. Another guarded execution failure
+   holds dependent actions for one evidence-backed diagnosis; add verifier
+   machinery only for a reproduced defect. Require continuous idle beyond
+   twenty minutes, first-request and artifact acceptance, three Ready-path samples,
+   bounded scale-out and return to one. Production follows accepted staging,
+   reviewed promotion delta and recorded human release approval. Existing Spot
+   node ceiling one and runner ceiling three remain unchanged.
+3. **Assess and integrate upstream.** Inventory the actual fork delta against the
+   frozen release and disposition every retained patch as upstream-equivalent,
+   still required, or obsolete. Persist the concrete compatibility matrix and
+   reviewed execution details in `docs/project/upstream-v1.10.4-integration-plan.md`
+   in this same artifacts root before source integration. Reuse an existing
+   matching worktree or create a task worktree from current fork main. The
+   assessment may run while capacity CI waits. It authorizes no premature
+   application rollout. Merge the exact upstream tag locally with history intact,
+   resolve conflicts against the explicit contracts above, and keep unrelated
+   feature work outside the package. The inventory explicitly covers tenant
+   isolation, signed runner requests, package delivery and retry semantics as well
+   as the listed consumer contracts. Schema migrations and changed trust
+   boundaries require a concrete scope decision before dependent live effects.
+4. **Verify and deliver the upstream package.** Run repository-native tests and
+   builds for changed seams, chart rendering with existing environment values,
+   image-build validation and focused independent risk/final reviews. Include
+   exact-token auth rejection, public versus sandbox wire contracts, external
+   storage/readiness, timeout/cancellation and telemetry failure behavior where
+   changed. Preserve the permanently disabled fork release workflow. Deliver a
+   draft PR to fork main, then use the approved history-preserving merge only
+   after required CI/reviews pass. Publish the existing commit-addressed images
+   through the repository workflow, and promote exact chart/image revisions
+   through GitLab CI and GitOps. No local Pulumi or live patches.
+5. **Accept staging, then production.** Verify desired and actual revisions,
+   workload readiness and replica ownership, first execution with the declared
+   capacity policy, authenticated upload/execute/download/reuse with exact
+   synthetic bytes, guest timeout enforcement and cleanup, and applicable storage
+   canaries. Verify cancellation if the upgraded path changes it; do not substitute
+   guest timeout for worker deadline or cancellation evidence. Test-portfolio
+   choices are extend-existing for consequential retained-patch regressions and
+   none for metadata or mechanical pins. Add a test only for an identified
+   unprotected behavior, with its path and risk named in the upstream plan.
+   Recover a failed
+   application revision through the prior verified GitOps pins, preserving the
+   accepted infrastructure floor and storage. Production repeats the accepted
+   fixture after its normal reviewed release approval. Hold unrelated release
+   deltas and any failed acceptance; a warm retry does not clear a failed sample.
+
+### Evidence, recovery and terminal conditions
+
+Operational findings, counts, identities, timings and receipts belong only in
+existing ignored local review directories. Tracked plans, PR/MR descriptions,
+commits and CI output describe source contracts and generic validation results.
+Keep the existing restricted Infisical profiles and exact read scopes; key values
+remain in memory. Use only existing user cluster connectivity and stop owned
+service port-forwards and bounded watchers after verification.
+
+The ready-capacity plan owns its infrastructure and Helm recovery branches.
+The upstream plan records prior application pins and a source/GitOps revert
+before rollout; application recovery does not undo unrelated capacity or storage.
+A failed gate holds only its dependent actions. Continue independent planning,
+source checks and the existing retention follow-ups. Preserve historical backup
+resources and the genuine retention fixtures, cutoffs and survivor floor.
+
+The finite goal is ready capacity plus the frozen latest-stable integration
+accepted in both environments. Retention follow-ups retain their own owner and
+schedule until their original obligations pass; completing this goal does not
+mark retention proof complete or delete that monitor. On a missing capability or
+human release approval, persist the exact blocker and next supported action;
+never label the deployment complete from a merge, preview or desired state.
+
 ## Current live checkpoint — 14 October 2026
 
 **CodeAPI-only PRD rollout is complete and accepted.** Approved MR !674 release
