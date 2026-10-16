@@ -11,7 +11,7 @@ on:
     # sync/** is included because the sync PR is opened by the GitHub Actions
     # bot, whose events don't trigger pull_request workflows — the push-event
     # runs on the branch satisfy the PR's checks instead.
-    branches: [main, 'sync/**']
+    branches: [main, 'sync/**', 'rs/upstream-v1.10.4']
   pull_request:
   workflow_dispatch:
 

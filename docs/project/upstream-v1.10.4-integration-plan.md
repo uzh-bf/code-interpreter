@@ -228,10 +228,19 @@ then the full API suite and native sandbox checks before accepting this change.
 
 ### Explicit source CI execution
 
-The source CI workflow also accepts an explicit manual dispatch of its existing
-checks on the task ref. This supplies a supported execution path when no pull
-request run is created. It adds no live environment access or new job authority.
-The fork release job remains disabled and deployment remains separately gated.
+The existing source CI checks also run on pushes to the exact
+`rs/upstream-v1.10.4` integration branch, with unchanged jobs and permissions.
+This route does not depend on pull-request event delivery or default-branch
+registration of a manual trigger. It adds no live environment access or new
+job authority. The fork release job remains disabled and deployment remains
+separately gated.
+
+Manual dispatch remains declared for use once its trigger is present on the
+default branch, as required by the [GitHub manual-run contract](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow?tool=cli).
+A trigger added only on the integration branch does not satisfy that condition.
+Require an actual hosted run before accepting CI; if the validated push creates
+none, preserve evidence and hold without widening the trigger or changing
+repository settings.
 
 ### Test portfolio
 
