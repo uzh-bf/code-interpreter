@@ -15,6 +15,10 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
     },
+    "./identity": {
+      "types": "./dist/identity.d.ts",
+      "import": "./dist/identity.js"
+    },
     "./worker": {
       "types": "./dist/worker.d.ts",
       "import": "./dist/worker.js"
@@ -61,7 +65,7 @@
     "typescript": "^5.5.4"
   },
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.21"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.75",

@@ -94,7 +94,11 @@ import {
   CODEAPI_BRIDGE_WORKSPACE_HEADER,
   resolveBridgeWorkerSelection,
 } from '../bridge/selection';
-import { isValidBridgeWorkerId, BRIDGE_WORKSPACE_PROGRAMMATIC_MAX_INPUT_FILES } from '../../../packages/code/src/protocol';
+import {
+  isValidBridgeWorkerId,
+  isValidLinkedWorktreeName,
+  BRIDGE_WORKSPACE_PROGRAMMATIC_MAX_INPUT_FILES,
+} from '../../../packages/code/src/protocol';
 import logger from '../logger';
 import {
   type ExecutionState,
@@ -317,7 +321,7 @@ function waitForExecutionState(
                 () =>
                     axios.get<BlockingPendingState>(
           `${env.TOOL_CALL_SERVER_URL}/sessions/${id}/pending`,
-          { headers: internalServiceHeaders() },
+          { maxRedirects: 0, headers: internalServiceHeaders() },
         ),
         'Get pending tool calls',
       );
@@ -518,6 +522,7 @@ async function handleReplayInitial(
     bridgeWorkerId?: string;
     workspaceId?: string;
     workspaceInstanceId?: string;
+    workspaceWorktree?: string;
   },
   cancellation: ReplayRequestCancellation,
 ): Promise<void> {
@@ -527,6 +532,7 @@ async function handleReplayInitial(
     bridgeWorkerId,
     workspaceId,
     workspaceInstanceId,
+    workspaceWorktree,
   } = params;
     const { code, tools, user_id, files } =
         req.body as t.ProgrammaticRequestBody;
@@ -684,6 +690,7 @@ async function handleReplayInitial(
     bridgeWorkerId,
     workspaceId,
     workspaceInstanceId,
+    workspaceWorktree,
     executionProfile: env.EXECUTION_PROFILE,
     executionProfileSource: env.EXECUTION_PROFILE_SOURCE,
     sandboxBackend: resolveReplayStateSandboxBackend({
@@ -1304,6 +1311,7 @@ router.post(
   let bridgeWorkerId: string | undefined;
   let workspaceId: string | undefined;
   let workspaceInstanceId: string | undefined;
+  let workspaceWorktree: string | undefined;
   if (continuation_token == null || continuation_token === '') {
     try {
       const bridgeSelection = resolveBridgeWorkerSelection({
@@ -1353,6 +1361,15 @@ router.post(
           tenantId: principal.tenantId,
           principalId: principal.userId,
         });
+      }
+      const requestedWorktree = rawBody.workspace_worktree;
+      if (requestedWorktree !== undefined) {
+        if (workspaceId == null || !isValidLinkedWorktreeName(requestedWorktree)) {
+          return res.status(400).json({
+            error: 'Invalid code workspace worktree',
+          });
+        }
+        workspaceWorktree = requestedWorktree;
       }
     } catch (error) {
       if (error instanceof BridgeWorkerSelectionError) {
@@ -1471,6 +1488,7 @@ router.post(
         bridgeWorkerId,
         workspaceId,
         workspaceInstanceId,
+        workspaceWorktree,
       }, cancellation);
     }
     if (workspaceId != null) {
@@ -1593,7 +1611,7 @@ async function handleBlocking(
             error_message: r.error_message,
           })),
                         },
-                        { headers: internalServiceHeaders() },
+                        { maxRedirects: 0, headers: internalServiceHeaders() },
                     ),
         'Submit tool results',
       );
@@ -1778,7 +1796,7 @@ async function handleBlocking(
           timeout,
           tools,
                         },
-                        { headers: internalServiceHeaders() },
+                        { maxRedirects: 0, headers: internalServiceHeaders() },
                     ),
         'Create Tool Call Server session',
       );

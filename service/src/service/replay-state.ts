@@ -120,6 +120,8 @@ export interface ExecutionState {
   workspaceId?: string;
   /** Selected conversation checkout retained across every replay iteration. */
   workspaceInstanceId?: string;
+  /** Selected linked-worktree lane retained across every replay iteration. */
+  workspaceWorktree?: string;
   /** Original queue/backend target retained across replay continuations. */
   sandboxBackend?: SandboxBackendName;
   /** Original producer profile retained so continuations use the same queue. */
@@ -798,6 +800,7 @@ export async function cleanupStaleExecutions(): Promise<number> {
 
           if (state.mode === 'blocking') {
             await axios.delete(`${env.TOOL_CALL_SERVER_URL}/sessions/${state.execution_id}`, {
+              maxRedirects: 0,
               headers: internalServiceHeaders(),
             })
               .catch(() => {});
@@ -833,6 +836,7 @@ export async function cleanupExecution(execution_id: string, mode: 'blocking' | 
     if (mode === 'blocking') {
       ops.push(
         axios.delete(`${env.TOOL_CALL_SERVER_URL}/sessions/${execution_id}`, {
+          maxRedirects: 0,
           headers: internalServiceHeaders(),
         }).catch(() => {}),
       );
