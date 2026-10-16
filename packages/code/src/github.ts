@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { createHash, createPrivateKey, sign } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { projectRemote } from './projects.js';
@@ -41,6 +41,8 @@ export interface GitHubAppCredentialProviderOptions {
   appId: string;
   /** Legacy fixed installation. Omit to resolve the installation per repository. */
   installationId?: string;
+  /** Opt in to all repositories granted to the resolved installation. */
+  tokenScope?: 'repository' | 'installation';
   privateKeyPath: string;
   apiUrl?: string;
   /** Git HTTPS hostname; non-public hosts default to the GHES /api/v3 base. */
@@ -52,6 +54,13 @@ export interface GitHubAppCredentialProviderOptions {
 
 const execFileAsync = promisify(execFile);
 const GITHUB_SHARED_REQUEST_TIMEOUT_MS = 30_000;
+const GITHUB_INSTALLATION_CACHE_MS = 2 * 60_000;
+
+class InstallationChangedError extends Error {
+  constructor(readonly installationId: string) {
+    super('GitHub App installation changed while issuing a token');
+  }
+}
 
 async function waitForShared<T>(
   promise: Promise<T>,
@@ -137,21 +146,54 @@ export async function gitHubRepositoryForDirectory(
   return repository;
 }
 
-/** Return the startup-bound repository for the admitted root containing cwd. */
-export function gitHubRepositoryForAdmittedDirectory(
+function admittedRepositoryEntry(
   cwd: string,
   repositories: ReadonlyMap<string, string | undefined>,
-): string | undefined {
-  for (const [root, repository] of repositories) {
+): readonly [string, string | undefined] | undefined {
+  let closest: readonly [string, string | undefined] | undefined;
+  for (const entry of repositories) {
+    const [root] = entry;
     const path = relative(root, cwd);
     if (
       path === '' ||
       (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
     ) {
-      return repository;
+      if (!closest || root.length > closest[0].length) closest = entry;
     }
   }
-  return undefined;
+  return closest;
+}
+
+/** Return the startup-bound repository for the admitted root containing cwd. */
+export function gitHubRepositoryForAdmittedDirectory(
+  cwd: string,
+  repositories: ReadonlyMap<string, string | undefined>,
+): string | undefined {
+  return admittedRepositoryEntry(cwd, repositories)?.[1];
+}
+
+/** Resolve a checkout repository only when its cwd remains inside an admitted root. */
+export async function gitHubRepositoryForCommand(
+  cwd: string,
+  repositories: ReadonlyMap<string, string | undefined>,
+  routing: 'admitted' | 'checkout',
+  host = 'github.com',
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const admitted = admittedRepositoryEntry(cwd, repositories);
+  if (!admitted) return undefined;
+  if (routing === 'admitted') return admitted[1];
+  let canonicalCwd: string;
+  try {
+    canonicalCwd = await realpath(cwd);
+  } catch {
+    signal?.throwIfAborted();
+    return undefined;
+  }
+  if (admittedRepositoryEntry(canonicalCwd, repositories)?.[0] !== admitted[0]) {
+    return undefined;
+  }
+  return gitHubRepositoryForDirectory(canonicalCwd, host, signal);
 }
 
 function base64UrlJson(value: unknown): string {
@@ -215,8 +257,14 @@ function createAppJwt(appId: string, privateKey: string, now: Date): string {
 
 export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
   private readonly cached = new Map<string, GitHubCredential>();
+  private readonly cachedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<GitHubCredential>>();
   private readonly installationIds = new Map<string, string>();
+  private readonly installationIdCachedAt = new Map<string, number>();
+  private readonly installationIdInFlight = new Map<
+    string,
+    Promise<{ id: string; jwt: string }>
+  >();
   private appLogin?: string;
   private appLoginInFlight?: Promise<string>;
   private actor?: GitHubCredential['actor'];
@@ -390,32 +438,80 @@ export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
 
   private async resolveInstallationId(
     repository: string,
-    jwt: string,
     signal?: AbortSignal,
-  ): Promise<string> {
-    if (this.options.installationId) return this.options.installationId;
+    jwt?: string,
+  ): Promise<{ id: string; jwt?: string }> {
+    if (this.options.installationId) {
+      return { id: this.options.installationId, jwt };
+    }
     const cached = this.installationIds.get(repository);
-    if (cached) return cached;
-    const { owner, name } = repositoryName(repository);
-    const response = await this.request(
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/installation`,
-      jwt,
-      signal,
-    );
-    if (!response.ok) {
-      throw new Error(
-        response.status === 404
-          ? `GitHub App is not installed for ${repository}`
-          : `GitHub App installation lookup failed with status ${response.status}`,
+    const now = (this.options.now ?? (() => new Date()))().getTime();
+    if (
+      cached &&
+      now - (this.installationIdCachedAt.get(repository) ?? 0) < GITHUB_INSTALLATION_CACHE_MS
+    ) return { id: cached, jwt };
+    const existing = this.installationIdInFlight.get(repository);
+    if (existing) return waitForShared(existing, signal);
+    const pending = (async () => {
+      const sharedSignal = AbortSignal.timeout(GITHUB_SHARED_REQUEST_TIMEOUT_MS);
+      const lookupJwt = jwt ?? await this.appJwt(
+        (this.options.now ?? (() => new Date()))(),
       );
+      const { owner, name } = repositoryName(repository);
+      const response = await this.request(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/installation`,
+        lookupJwt,
+        sharedSignal,
+      );
+      if (!response.ok) {
+        throw new Error(
+          response.status === 404
+            ? `GitHub App is not installed for ${repository}`
+            : `GitHub App installation lookup failed with status ${response.status}`,
+        );
+      }
+      const body = (await response.json()) as { id?: unknown };
+      if (!Number.isSafeInteger(body.id) || Number(body.id) <= 0) {
+        throw new Error('GitHub App installation response is invalid');
+      }
+      const id = String(body.id);
+      this.installationIds.set(repository, id);
+      this.installationIdCachedAt.set(
+        repository,
+        (this.options.now ?? (() => new Date()))().getTime(),
+      );
+      return { id, jwt: lookupJwt };
+    })();
+    this.installationIdInFlight.set(repository, pending);
+    const clearPending = () => {
+      if (this.installationIdInFlight.get(repository) === pending) {
+        this.installationIdInFlight.delete(repository);
+      }
+    };
+    void pending.then(clearPending, clearPending);
+    return waitForShared(pending, signal);
+  }
+
+  private async waitForCredential(
+    pending: Promise<GitHubCredential>,
+    signal: AbortSignal | undefined,
+    repository: string | undefined,
+    retried: boolean,
+  ): Promise<GitHubCredential> {
+    try {
+      return await waitForShared(pending, signal);
+    } catch (error) {
+      if (!(error instanceof InstallationChangedError) || retried || !repository) {
+        throw error;
+      }
+      // A shared mint can serve several repositories. Never pass its replacement
+      // installation's token to a repository whose grant has not been checked.
+      if (this.installationIds.get(repository) === error.installationId) {
+        this.installationIds.delete(repository);
+        this.installationIdCachedAt.delete(repository);
+      }
+      return this.getCredentialAttempt(signal, repository, true);
     }
-    const body = (await response.json()) as { id?: unknown };
-    if (!Number.isSafeInteger(body.id) || Number(body.id) <= 0) {
-      throw new Error('GitHub App installation response is invalid');
-    }
-    const installationId = String(body.id);
-    this.installationIds.set(repository, installationId);
-    return installationId;
   }
 
   async getCredential(
@@ -429,32 +525,46 @@ export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
       );
     }
     if (repository) repositoryName(repository);
+    return this.getCredentialAttempt(signal, repository, false);
+  }
+
+  private async getCredentialAttempt(
+    signal: AbortSignal | undefined,
+    repository: string | undefined,
+    retried: boolean,
+  ): Promise<GitHubCredential> {
+    signal?.throwIfAborted();
+    const installationScope = this.options.tokenScope === 'installation';
+    const installation = installationScope
+      ? await this.resolveInstallationId(repository ?? '', signal)
+      : undefined;
     const now = (this.options.now ?? (() => new Date()))();
-    const key = this.options.installationId ?? repository!;
+    const key = installation?.id ?? this.options.installationId ?? repository!;
     const cached = this.cached.get(key);
     if (
       cached?.expiresAt != null &&
-      cached.expiresAt.getTime() - now.getTime() > 5 * 60_000
+      cached.expiresAt.getTime() - now.getTime() > 5 * 60_000 &&
+      (!installationScope || now.getTime() - (this.cachedAt.get(key) ?? 0) < GITHUB_INSTALLATION_CACHE_MS)
     ) {
       return cached;
     }
     const existing = this.inFlight.get(key);
-    if (existing) return waitForShared(existing, signal);
+    if (existing) return this.waitForCredential(existing, signal, repository, retried);
     const pending = (async () => {
       const sharedSignal = AbortSignal.timeout(
         GITHUB_SHARED_REQUEST_TIMEOUT_MS,
       );
-      const jwt = await this.appJwt(now);
-      const scopedRepository = repository
+      const jwt = installation?.jwt ?? await this.appJwt(now);
+      const scopedRepository = !installationScope && repository
         ? repositoryName(repository).name
         : undefined;
-      const installationId = await this.resolveInstallationId(
+      const resolvedInstallationId = installation?.id ?? (await this.resolveInstallationId(
         repository ?? '',
-        jwt,
         sharedSignal,
-      );
+        jwt,
+      )).id;
       let response = await this.request(
-        `/app/installations/${installationId}/access_tokens`,
+        `/app/installations/${resolvedInstallationId}/access_tokens`,
         jwt,
         sharedSignal,
         {
@@ -462,18 +572,20 @@ export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
           headers: {
             'Content-Type': 'application/json',
           },
-          ...(this.options.installationId
+          ...(this.options.installationId || installationScope
             ? {}
             : { body: JSON.stringify({ repositories: [scopedRepository] }) }),
         },
       );
       if (!this.options.installationId && response.status === 404) {
+        if (installationScope) throw new InstallationChangedError(resolvedInstallationId);
         this.installationIds.delete(repository!);
-        const refreshedInstallationId = await this.resolveInstallationId(
+        this.installationIdCachedAt.delete(repository!);
+        const refreshedInstallationId = (await this.resolveInstallationId(
           repository!,
-          jwt,
           sharedSignal,
-        );
+          jwt,
+        )).id;
         response = await this.request(
           `/app/installations/${refreshedInstallationId}/access_tokens`,
           jwt,
@@ -483,7 +595,9 @@ export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ repositories: [scopedRepository] }),
+            ...(installationScope
+              ? {}
+              : { body: JSON.stringify({ repositories: [scopedRepository] }) }),
           },
         );
       }
@@ -521,6 +635,10 @@ export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
         actor,
       };
       this.cached.set(key, credential);
+      this.cachedAt.set(
+        key,
+        (this.options.now ?? (() => new Date()))().getTime(),
+      );
       return credential;
     })();
     this.inFlight.set(key, pending);
@@ -528,7 +646,7 @@ export class GitHubAppCredentialProvider implements GitHubCredentialProvider {
       if (this.inFlight.get(key) === pending) this.inFlight.delete(key);
     };
     void pending.then(clearPending, clearPending);
-    return waitForShared(pending, signal);
+    return this.waitForCredential(pending, signal, repository, retried);
   }
 }
 

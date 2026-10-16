@@ -343,6 +343,8 @@ export class NativeProcessWorkspaceCommandSandbox implements WorkspaceCommandSan
       homeDirectory,
       shellPath,
       programmaticFileUpstream,
+      linkedWorktree,
+      resources,
     } = this.options;
     await this.rpc(
       'prepare',
@@ -356,6 +358,8 @@ export class NativeProcessWorkspaceCommandSandbox implements WorkspaceCommandSan
           homeDirectory,
           shellPath,
           programmaticFileUpstream,
+          linkedWorktree,
+          resources,
           variables: this.options.maskedEnvironment?.variables,
         },
       },

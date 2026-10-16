@@ -33,6 +33,7 @@ import {
 } from './native-sandbox.js';
 import { restoreScratchTraversal } from './native-scratch.js';
 import { WorkspaceToolError } from './workspace.js';
+import { isWorkspaceToolResult } from './protocol.js';
 
 const request = {
   protocolVersion: 1 as const,
@@ -1355,12 +1356,149 @@ test('executes in the canonical workspace and bounds aggregate output', async t 
       operation: 'execute_command',
       workspaceId: 'primary',
       exitCode: 0,
-      stdout: '1234567890',
-      stderr: 'ab',
+      stdout: '123890',
+      stderr: 'abchij',
       truncated: true,
       timedOut: false,
     },
   );
+});
+
+test('retains real command summaries on both streams under the legacy combined budget', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'librechat-code-native-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const sandbox = new NativeSrtWorkspaceCommandSandbox({
+        workspaceRoot: root,
+        manager: fakeManager().manager,
+    });
+    t.after(() => sandbox.close());
+    const commandRequest = {
+        ...request,
+        maxOutputBytes: 256,
+        command:
+            "printf 'OUT\\n'; printf '%20000d' 0; printf '\\n42 tests passed\\n'; printf 'ERR\\n' >&2; printf '%20000d' 0 >&2; printf '\\nlate stderr summary\\n' >&2",
+    };
+    const result = await sandbox.execute(commandRequest);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.timedOut, false);
+    assert.equal(result.truncated, true);
+    assert.ok(result.stdout.startsWith('OUT\n'));
+    assert.ok(result.stderr.startsWith('ERR\n'));
+    assert.ok(result.stdout.endsWith('\n42 tests passed\n'));
+    assert.ok(result.stderr.endsWith('\nlate stderr summary\n'));
+    assert.ok(result.stdout.includes('bytes omitted'));
+    assert.ok(result.stderr.includes('bytes omitted'));
+    assert.equal(isWorkspaceToolResult(commandRequest, result), true);
+});
+
+test('partly filled command buffers retain final summaries regardless of stream order', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'librechat-code-native-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const sandbox = new NativeSrtWorkspaceCommandSandbox({
+        workspaceRoot: root,
+        manager: fakeManager().manager,
+    });
+    t.after(() => sandbox.close());
+    const summary = 'late stderr summary\n';
+    const quiet = `printf '%109d' 0; printf 'late stderr summary\\n'`;
+    const noisy = `printf '%20000d' 0`;
+    for (const [command, stream] of [
+        [`{ ${quiet}; } >&2; ${noisy}`, 'stderr'],
+        [`${noisy}; { ${quiet}; } >&2`, 'stderr'],
+        [`{ ${quiet}; }; ${noisy} >&2`, 'stdout'],
+        [`${noisy} >&2; { ${quiet}; }`, 'stdout'],
+    ] as const) {
+        const commandRequest = { ...request, command, maxOutputBytes: 256 };
+        const result = await sandbox.execute(commandRequest);
+        assert.ok(result[stream].endsWith(summary));
+        assert.equal(result.truncated, true);
+        assert.equal(result.exitCode, 0);
+        assert.equal(isWorkspaceToolResult(commandRequest, result), true);
+    }
+});
+
+test('quiet malformed command output is retained beside a noisy stream', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'librechat-code-native-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const sandbox = new NativeSrtWorkspaceCommandSandbox({
+        workspaceRoot: root,
+        manager: fakeManager().manager,
+    });
+    t.after(() => sandbox.close());
+    for (const [command, stream] of [
+        ["printf '%20000d' 0; printf '\\377\\377' >&2", 'stderr'],
+        ["printf '\\377\\377'; printf '%20000d' 0 >&2", 'stdout'],
+    ] as const) {
+        const commandRequest = { ...request, command, maxOutputBytes: 32 };
+        const result = await sandbox.execute(commandRequest);
+        assert.equal(result[stream], '\ufffd\ufffd');
+        assert.equal(result.truncated, true);
+        assert.equal(result.exitCode, 0);
+        assert.equal(isWorkspaceToolResult(commandRequest, result), true);
+    }
+});
+
+test('sandbox annotations survive full stdout and remain bounded when stderr is noisy', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'librechat-code-native-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const fake = fakeManager();
+    fake.manager.annotateStderrWithSandboxFailures = (_commandId, stderr) =>
+        stderr + '\n<sandbox_violations>\ndenied write\n</sandbox_violations>';
+    const sandbox = new NativeSrtWorkspaceCommandSandbox({
+        workspaceRoot: root,
+        manager: fake.manager,
+    });
+    t.after(() => sandbox.close());
+    for (const stderrCommand of ['', "printf '%20000d' 0 >&2;"]) {
+        const commandRequest = {
+            ...request,
+            maxOutputBytes: 512,
+            command: `printf '%20000d' 0; ${stderrCommand} true`,
+        };
+        const result = await sandbox.execute(commandRequest);
+        assert.ok(
+            result.stderr.endsWith(
+                '<sandbox_violations>\ndenied write\n</sandbox_violations>'
+            )
+        );
+        assert.equal(isWorkspaceToolResult(commandRequest, result), true);
+        assert.equal(result.truncated, true);
+    }
+    fake.manager.annotateStderrWithSandboxFailures = () => {
+        throw new Error('annotation unavailable');
+    };
+    const result = await sandbox.execute({
+        ...request,
+        maxOutputBytes: 128,
+        command: "printf '%20000d' 0; printf 'child failure' >&2",
+    });
+    assert.equal(result.stderr, 'child failure');
+});
+
+test('timeout settlement keeps late diagnostics, signal, and truncation without widening the result', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'librechat-code-native-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const sandbox = new NativeSrtWorkspaceCommandSandbox({
+        workspaceRoot: root,
+        manager: fakeManager().manager,
+    });
+    t.after(() => sandbox.close());
+    const commandRequest = {
+        ...request,
+        maxOutputBytes: 128,
+        timeoutMs: 100,
+        command:
+            "printf 'START\\n'; printf '%20000d' 0; printf '\\nlast progress\\n'; printf 'last failure' >&2; sleep 30",
+    };
+    const result = await sandbox.execute(commandRequest);
+    assert.ok(result.stdout.startsWith('START\n'));
+    assert.ok(result.stdout.endsWith('\nlast progress\n'));
+    assert.equal(result.stderr, 'last failure');
+    assert.equal(result.timedOut, true);
+    assert.equal(result.truncated, true);
+    assert.equal(result.exitCode, null);
+    assert.equal(result.signal, 'SIGKILL');
+    assert.equal(isWorkspaceToolResult(commandRequest, result), true);
 });
 
 test('rejects an escaping or unavailable command working directory', async t => {
@@ -1596,5 +1734,280 @@ test('cleans allocated command state exactly once on every execution exit', asyn
                 },
             );
     }
+  }
+});
+
+test('a linked worktree lane may write only shared Git storage and its own metadata', async t => {
+  const checkoutRoot = await realpath(await mkdtemp(join(tmpdir(), 'librechat-code-lane-')));
+  t.after(() => rm(checkoutRoot, { recursive: true, force: true }));
+  const commonGitDir = join(checkoutRoot, '.git');
+  const lane = join(checkoutRoot, '.worktrees', 'task-a');
+  const writableGitPaths = [
+    join(commonGitDir, 'objects'),
+    join(commonGitDir, 'refs'),
+    join(commonGitDir, 'worktrees', 'task-a'),
+  ];
+  await Promise.all(
+    [lane, ...writableGitPaths].map(path => mkdir(path, { recursive: true })),
+  );
+  const prepare = async (paths: string[], platform: NodeJS.Platform = 'linux') => {
+    const fake = fakeManager();
+    const sandbox = new NativeSrtWorkspaceCommandSandbox({
+      workspaceRoot: lane,
+      linkedWorktree: { checkoutRoot, commonGitDir, writableGitPaths: paths },
+      environment: { PATH: '/usr/bin' },
+      manager: fake.manager,
+      platform,
+    });
+    t.after(() => sandbox.close());
+    await sandbox.prepare();
+    return fake.config!;
+  };
+
+  const config = await prepare(writableGitPaths);
+  assert.deepEqual(config.filesystem.allowWrite.slice(0, 4), [lane, ...writableGitPaths]);
+  assert.ok(!config.filesystem.allowWrite.includes(commonGitDir));
+  assert.ok(config.filesystem.allowRead?.includes(commonGitDir));
+  // Deeper read denies make SRT re-bind each writable Git directory after the
+  // read-only bind of the common directory (Linux tmpfs re-binding order).
+  for (const path of writableGitPaths) {
+    assert.ok(config.filesystem.denyRead.includes(path), path);
+  }
+  assert.ok(!config.filesystem.denyRead.includes(join(commonGitDir, 'lfs')));
+  const darwin = await prepare(writableGitPaths, 'darwin');
+  for (const path of writableGitPaths) {
+    assert.ok(!darwin.filesystem.denyRead.includes(path), path);
+  }
+  const gitGuard = config.filesystem.allowRead?.find(path => path.includes('librechat-code-git-'));
+  assert.ok(gitGuard, 'lane Git guard must be readable');
+  assert.ok(!config.filesystem.allowWrite.includes(gitGuard));
+  assert.ok(config.filesystem.denyWrite.includes(gitGuard));
+  assert.equal((await stat(join(gitGuard, 'git'))).mode & 0o222, 0);
+
+  const probed = fakeManager();
+  const prober = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: lane,
+    linkedWorktree: { checkoutRoot, commonGitDir, writableGitPaths },
+    environment: { PATH: '/usr/bin' },
+    manager: probed.manager,
+  });
+  t.after(() => prober.close());
+  const dataDirectory = await prober.createExecutionDirectory();
+  await prober.executeProgrammatic(request, dataDirectory, undefined, { probe: true });
+  assert.ok(probed.customConfigSeenDuringWrap?.filesystem?.allowRead?.includes(commonGitDir));
+  assert.ok(!probed.customConfigSeenDuringWrap?.filesystem?.allowWrite?.includes(commonGitDir));
+  const probeGuard = probed.config?.filesystem.allowRead?.find(path => path.includes('librechat-code-git-'));
+  assert.ok(probeGuard);
+  assert.ok(probed.customConfigSeenDuringWrap?.filesystem?.allowRead?.includes(probeGuard));
+  assert.ok(probed.customConfigSeenDuringWrap?.filesystem?.denyWrite?.includes(probeGuard));
+
+  await assert.rejects(
+    prepare([commonGitDir]),
+    (error: unknown) =>
+      error instanceof WorkspaceToolError && error.code === 'REGISTRATION_INVALID',
+  );
+
+  const siblingMetadata = join(commonGitDir, 'worktrees', 'task-b');
+  await mkdir(siblingMetadata, { recursive: true });
+  await rm(join(commonGitDir, 'objects'), { recursive: true });
+  await symlink(siblingMetadata, join(commonGitDir, 'objects'));
+  await assert.rejects(
+    prepare(writableGitPaths),
+    (error: unknown) =>
+      error instanceof WorkspaceToolError && error.code === 'REGISTRATION_INVALID',
+  );
+});
+
+test('lane commands put the read-only Git guard ahead of the ordinary PATH', async t => {
+  if (process.platform === 'win32') return t.skip('lane Git guard requires POSIX');
+  const checkoutRoot = await realpath(await mkdtemp(join(tmpdir(), 'librechat-code-guard-')));
+  t.after(() => rm(checkoutRoot, { recursive: true, force: true }));
+  const commonGitDir = join(checkoutRoot, '.git');
+  const lane = join(checkoutRoot, '.worktrees', 'task-a');
+  const writableGitPaths = [join(commonGitDir, 'objects'), join(commonGitDir, 'worktrees', 'task-a')];
+  await Promise.all([lane, ...writableGitPaths].map(path => mkdir(path, { recursive: true })));
+  const fake = fakeManager();
+  let commandPath: string | undefined;
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: lane,
+    linkedWorktree: { checkoutRoot, commonGitDir, writableGitPaths },
+    environment: { PATH: '/usr/bin:/bin' },
+    manager: fake.manager,
+    spawnCommand(command, args, options) {
+      commandPath = options.env?.PATH;
+      return spawn(command, args, options);
+    },
+  });
+  t.after(() => sandbox.close());
+  const result = await sandbox.execute({ ...request, command: 'git --version' });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /git version/);
+  const guard = fake.config?.filesystem.allowRead?.find(path => path.includes('librechat-code-git-'));
+  assert.ok(guard);
+  assert.ok(commandPath?.startsWith(`${guard}:`));
+  await sandbox.close();
+  await assert.rejects(stat(guard), { code: 'ENOENT' });
+});
+
+test('linked worktree Git guard is removed when sandbox initialization fails', async t => {
+  if (process.platform === 'win32') return t.skip('lane Git guard requires POSIX');
+  const checkoutRoot = await mkdtemp(join(tmpdir(), 'librechat-code-failed-guard-'));
+  t.after(() => rm(checkoutRoot, { recursive: true, force: true }));
+  const commonGitDir = join(checkoutRoot, '.git');
+  const lane = join(checkoutRoot, '.worktrees', 'task-a');
+  const objects = join(commonGitDir, 'objects');
+  await Promise.all([lane, objects].map(path => mkdir(path, { recursive: true })));
+  const fake = fakeManager({ initializeError: new Error('init failed') });
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: lane,
+    linkedWorktree: { checkoutRoot, commonGitDir, writableGitPaths: [objects] },
+    manager: fake.manager,
+  });
+  await assert.rejects(sandbox.prepare(), /init failed/);
+  const guard = fake.config?.filesystem.allowRead?.find(path => path.includes('librechat-code-git-'));
+  assert.ok(guard);
+  await assert.rejects(stat(guard), { code: 'ENOENT' });
+  await sandbox.close();
+});
+
+test('linked worktree Git guard refuses Windows rather than admitting an unguarded lane', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'librechat-code-win-guard-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    linkedWorktree: {
+      checkoutRoot: root,
+      commonGitDir: join(root, '.git'),
+      writableGitPaths: [join(root, '.git', 'objects')],
+    },
+    platform: 'win32',
+    manager: fakeManager().manager,
+  });
+  await assert.rejects(sandbox.prepare(), (error: unknown) =>
+    error instanceof WorkspaceToolError && error.code === 'COMMAND_UNAVAILABLE' &&
+    /POSIX host/.test(error.message),
+  );
+  await sandbox.close();
+});
+
+test('non-lane roots deny their own executable Git metadata at initialization', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'librechat-code-gitmeta-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const gitDir = join(root, '.git');
+  await mkdir(join(gitDir, 'hooks'), { recursive: true });
+  await writeFile(join(gitDir, 'config'), '[core]\n');
+  await writeFile(join(gitDir, 'config.worktree'), '[core]\n');
+  // A submodule Git directory (identified by its HEAD file) and a nested one.
+  // This submodule has no config.worktree, so it is not denied one.
+  await mkdir(join(gitDir, 'modules', 'sub', 'modules', 'inner'), { recursive: true });
+  await writeFile(join(gitDir, 'modules', 'sub', 'HEAD'), 'ref: refs/heads/main\n');
+  await writeFile(join(gitDir, 'modules', 'sub', 'config'), '[core]\n');
+  await writeFile(
+    join(gitDir, 'modules', 'sub', 'modules', 'inner', 'HEAD'),
+    'ref: refs/heads/main\n',
+  );
+  // A linked worktree's per-worktree metadata: an existing commondir and
+  // config.worktree are both denied.
+  await mkdir(join(gitDir, 'worktrees', 'wt'), { recursive: true });
+  await writeFile(join(gitDir, 'worktrees', 'wt', 'commondir'), '../..\n');
+  await writeFile(join(gitDir, 'worktrees', 'wt', 'config.worktree'), '[core]\n');
+
+  const fake = fakeManager();
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    environment: { PATH: '/usr/bin', LANG: 'C.UTF-8' },
+    manager: fake.manager,
+  });
+  t.after(() => sandbox.close());
+  await sandbox.prepare();
+
+  const denyWrite = fake.config?.filesystem.denyWrite ?? [];
+  for (const relativePath of [
+    '.git/hooks',
+    '.git/config',
+    '.git/config.worktree',
+    '.git/modules/sub/hooks',
+    '.git/modules/sub/config',
+    '.git/modules/sub/modules/inner/hooks',
+    '.git/modules/sub/modules/inner/config',
+    '.git/worktrees/wt/config.worktree',
+    '.git/worktrees/wt/commondir',
+  ]) {
+    assert.ok(denyWrite.includes(join(root, relativePath)), relativePath);
+  }
+  // Deny-if-exists paths are skipped when absent: masking them with an empty
+  // bind would make Git read a broken redirect or config from every command.
+  assert.ok(!denyWrite.includes(join(gitDir, 'commondir')));
+  assert.ok(!denyWrite.includes(join(gitDir, 'modules', 'sub', 'config.worktree')));
+});
+
+test('ordinary root commands deny Git metadata created after initialization', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'librechat-code-gitmeta-late-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fake = fakeManager();
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    environment: { PATH: '/usr/bin', LANG: 'C.UTF-8' },
+    manager: fake.manager,
+  });
+  t.after(() => sandbox.close());
+  await sandbox.prepare();
+  const session = fake.config!.filesystem;
+  const gitDir = join(root, '.git');
+  assert.ok(!session.denyWrite.some(path => path.startsWith(gitDir)));
+
+  // The host initializes the repository and adds a submodule and a linked
+  // worktree while the worker keeps running.
+  await mkdir(join(gitDir, 'hooks'), { recursive: true });
+  await writeFile(join(gitDir, 'config'), '[core]\n');
+  await mkdir(join(gitDir, 'modules', 'late'), { recursive: true });
+  await writeFile(join(gitDir, 'modules', 'late', 'HEAD'), 'ref: refs/heads/main\n');
+  await mkdir(join(gitDir, 'worktrees', 'late'), { recursive: true });
+  await writeFile(join(gitDir, 'worktrees', 'late', 'commondir'), '../..\n');
+
+  const result = await sandbox.execute(request);
+  assert.equal(result.exitCode, 0);
+  const filesystem = fake.customConfigSeenDuringWrap?.filesystem;
+  for (const relativePath of [
+    '.git/hooks',
+    '.git/config',
+    '.git/modules/late/hooks',
+    '.git/modules/late/config',
+    '.git/worktrees/late/commondir',
+  ]) {
+    assert.ok(filesystem?.denyWrite.includes(join(root, relativePath)), relativePath);
+  }
+  // Only denyWrite differs from the session filesystem policy.
+  assert.deepEqual({ ...filesystem, denyWrite: session.denyWrite }, session);
+});
+
+test('a root command fails closed when its Git metadata cannot be inspected', async t => {
+  if (process.getuid?.() === 0) {
+    t.skip('directory permissions do not restrict root');
+    return;
+  }
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'librechat-code-gitmeta-denied-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const modules = join(root, '.git', 'modules');
+  await mkdir(modules, { recursive: true });
+  await writeFile(join(root, '.git', 'config'), '[core]\n');
+  const fake = fakeManager();
+  const sandbox = new NativeSrtWorkspaceCommandSandbox({
+    workspaceRoot: root,
+    environment: { PATH: '/usr/bin', LANG: 'C.UTF-8' },
+    manager: fake.manager,
+  });
+  t.after(() => sandbox.close());
+  await sandbox.prepare();
+
+  await chmod(modules, 0o000);
+  try {
+    await assert.rejects(
+      sandbox.execute(request),
+      (error: unknown) =>
+        error instanceof WorkspaceToolError && error.code === 'COMMAND_UNAVAILABLE',
+    );
+  } finally {
+    await chmod(modules, 0o700);
   }
 });

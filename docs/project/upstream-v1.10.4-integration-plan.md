@@ -32,6 +32,21 @@ trust boundaries, schema migration, identities, data destinations, increased
 capacity or unrelated release effects require a concrete decision before the
 dependent live action.
 
+## CI access constraint
+
+The user requires CI to have no Kubernetes cluster access. Source tests, image
+builds and cloud-only infrastructure checks remain eligible. This overrides
+any deployment step below that assumes the existing cluster-authenticated
+Pulumi app jobs can run. Keep those jobs held until an explicitly agreed
+deployment route satisfies this boundary. Do not install a Kubernetes client,
+fetch cluster credentials or substitute another cluster client in CI.
+
+The ready-capacity package has the same constraint: Azure policy and Pulumi
+state reconciliation belong on its cloud-only route; node, device and runner
+acceptance use existing host connectivity. The source integration remains
+independent. This constraint grants no new identity, permission, host cloud
+write or ownership migration.
+
 ## Execution details
 
 Main owns implementation, integration, secret handling, delivery and final proof.
@@ -165,7 +180,7 @@ and existing replay ledger are the documentation artifacts.
 | Issuer/tenant or signed worker regression | none: reuse service/src/auth/librechat-jwt.test.ts and existing bridge signature/tenant tests; preserve their cases unchanged. | Cross-entry and tenant negatives, legacy compatibility and current signature validation pass. |
 | Public/internal response mixing | extend existing: service/src/openapi-contract.test.ts for the incoming admission fields while preserving public/internal separation; existing router/type checks remain. | Public responses omit internal fields while new upstream admission fields remain valid. |
 | Lost completion, duplicate dispatch, deadline or cancellation failure | none: reuse queue-wait, job-cancellation, exec-timeout and sandbox-backend/http tests against the semantic merge. | Event lag recovers, refusal-only retry stays bounded, accepted/ambiguous requests are not replayed, caller abort and deadline remain distinct. |
-| Telemetry or logging failure leaks/breaks requests | extend existing: API/service logger tests for new pipe/job forwarding seams; reuse telemetry fault tests unchanged. | Sensitive synthetic sentinels are absent from output and telemetry failures preserve request behavior. |
+| Telemetry or logging failure leaks/breaks requests | none: reuse API/service central logger and telemetry fault tests; inspect new pipe/job forwarding call sites for a sink that bypasses them. | Sensitive synthetic sentinels are absent from output and telemetry failures preserve request behavior. |
 | New pipe runtime or sandbox permission regression | replace/consolidate: adopt upstream pipe/process/supervisor tests and remove only duplicated bridge timeout coverage; retain existing spec-guard smoke and image builds. | Pipe helpers and guests work under the actual built sandbox image and existing isolation. |
 | Argo ownership, storage or package initialization regression | none: reuse full chart/deployment tests, block_root_package_delivery.sh and file-server-readiness tests; render the current GitOps values and inactive-bridge contract. | Same intended owners/namespace/placement, correct package mode, external storage readiness and no unintended workload delta. |
 | Release metadata or mechanical pins | none: existing workflow schema/build, ancestry checks and exact revision verification suffice. | Fork release job stays inert; all images use the tested source commit. |
@@ -192,9 +207,18 @@ fixtures and recovery authority independently of this package.
 
 ## Progress
 
-Status: source assessment and merge simulation complete; semantic resolution,
-implementation, tests, source delivery and both environment acceptances remain.
-Required delivery layer is verified production rollout; none is claimed from
-this planning commit. Planning specialist approval is recorded privately before
-this plan is committed. The upstream source is frozen at the release commit
-above. Current live status and blockers are maintained only in ignored receipts.
+Status: the frozen upstream tree is reconciled, the nine conflicts are resolved
+and the replay ledger accounts for active fork behavior. API and service builds,
+focused fork-contract tests, the native service suite, isolated real-Redis
+admission checks, Node package checks and deployment configuration checks have
+passing source evidence. A qualified full API run exposed intermittent pipe
+cleanup timing; its focused reproduction passes and diagnosis remains open.
+Native image/guest checks, required reviews and hosted CI remain pending.
+
+The CI access constraint and source-derived logging-test reuse were approved by
+the same Astra planner as a focused plan amendment. No test file was added;
+the OpenAPI contract test now covers upstream workspace protocol routes and
+removes one prose assertion. Source delivery may use a draft PR with these
+remaining checks identified. Both environment acceptances remain outstanding.
+Required delivery layer is verified production rollout; no deployment is claimed
+from source verification. Current live status and blockers remain private.

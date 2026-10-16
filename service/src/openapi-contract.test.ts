@@ -95,7 +95,6 @@ describe('OpenAPI contract boundaries', () => {
   test('the public spec exposes the supported v1 routes', () => {
     const spec = loadSpec(publicSpecPath);
 
-    expect(spec.info.title).toContain('Public');
     expect(spec.servers?.[0]?.url.endsWith('/v1')).toBe(true);
     expect(Object.keys(spec.paths).sort()).toEqual([
       '/download/{session_id}/{fileId}',
@@ -107,7 +106,13 @@ describe('OpenAPI contract boundaries', () => {
       '/sessions/{session_id}/objects/{fileId}',
       '/upload',
       '/upload/batch',
+      '/workspace-tools/capabilities',
+      '/workspace-tools/requests',
+      '/workspace-tools/requests/{requestId}',
     ]);
+    expect(spec.paths['/workspace-tools/requests'].post).toBeDefined();
+    expect(spec.paths['/workspace-tools/requests/{requestId}'].get).toBeDefined();
+    expect(spec.paths['/workspace-tools/requests/{requestId}'].delete).toBeDefined();
   });
 
   test('the public request and response schemas match the service types', () => {

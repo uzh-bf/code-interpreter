@@ -12,6 +12,7 @@ import {
   isValidBridgeWorkerCapabilities,
   isValidBridgeWorkerId,
   isWorkspaceToolErrorCode,
+  WORKSPACE_EDIT_FILE_FEATURES,
 } from '../../../packages/code/src/protocol';
 import { BridgePairingError, RedisBridgePairingStore } from './pairing';
 import { BridgeStoreError, RedisBridgeStore } from './store';
@@ -310,6 +311,114 @@ export function createBridgeRouter(options: BridgeRouterOptions): Router {
     }
   }));
 
+  const untrustedRecoveryLimit = (operation: 'challenge' | 'recover'): RequestHandler =>
+    (req, res, next) => {
+      if (options.authMode !== 'paired' || !options.pairings.recoveryEnabled) {
+        next();
+        return;
+      }
+      // req.ip trusts X-Forwarded-For in our server. Use the connection peer so
+      // untrusted headers and arbitrary worker IDs cannot create new buckets.
+      void options.pairings.limitUntrustedRecovery(req.socket.remoteAddress ?? '', operation)
+        .then(() => next(), (error: unknown) => {
+          if (error instanceof BridgePairingError && error.code === 'RECOVERY_RATE_LIMITED') {
+            res.set('Retry-After', '60').status(429).json({ error: error.message, code: error.code });
+            return;
+          }
+          next(error);
+        });
+    };
+
+  router.post('/workers/:workerId/credentials/challenge', untrustedRecoveryLimit('challenge'), asyncRoute(async (req, res) => {
+    if (options.authMode !== 'paired' || !options.pairings.recoveryEnabled) {
+      res.status(404).json({ error: 'Machine recovery is disabled' });
+      return;
+    }
+    const workerId = req.params.workerId;
+    const body = isRecord(req.body) ? req.body : {};
+    if (
+      !validWorkerId(workerId) || !configuredWorker(workerId) ||
+      body.protocolVersion !== BRIDGE_PROTOCOL_VERSION ||
+      body.operation !== 'credential.challenge' ||
+      typeof body.serverId !== 'string' || body.serverId.length > 256 ||
+      body.workerId !== workerId ||
+      typeof body.timestamp !== 'string' || body.timestamp.length > 64 ||
+      typeof body.nonce !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.nonce) ||
+      typeof body.signature !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(body.signature)
+    ) {
+      res.status(400).json({ error: 'Invalid machine recovery challenge request' });
+      return;
+    }
+    try {
+      const challenge = await options.pairings.createRecoveryChallenge(
+        workerId,
+        {
+          operation: 'credential.challenge',
+          serverId: body.serverId,
+          workerId,
+          timestamp: body.timestamp,
+          nonce: body.nonce,
+        },
+        body.signature,
+      );
+      res.json({ protocolVersion: BRIDGE_PROTOCOL_VERSION, ...challenge });
+    } catch (error) {
+      if (error instanceof BridgePairingError) {
+        res.status(error.code === 'RECOVERY_RATE_LIMITED' ? 429 : 401)
+          .json({ error: error.message, code: error.code });
+        return;
+      }
+      throw error;
+    }
+  }));
+
+  router.post('/workers/:workerId/credentials/recover', untrustedRecoveryLimit('recover'), asyncRoute(async (req, res) => {
+    if (options.authMode !== 'paired' || !options.pairings.recoveryEnabled) {
+      res.status(404).json({ error: 'Machine recovery is disabled' });
+      return;
+    }
+    const workerId = req.params.workerId;
+    const body = isRecord(req.body) ? req.body : {};
+    if (
+      !validWorkerId(workerId) || !configuredWorker(workerId) ||
+      body.protocolVersion !== BRIDGE_PROTOCOL_VERSION ||
+      body.operation !== 'credential.recover' ||
+      typeof body.serverId !== 'string' || body.serverId.length > 256 ||
+      typeof body.enrollmentGeneration !== 'string' ||
+      !/^[A-Za-z0-9_-]{24}$/.test(body.enrollmentGeneration) ||
+      typeof body.challenge !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test(body.challenge) ||
+      typeof body.expiresAt !== 'string' || body.expiresAt.length > 64 ||
+      typeof body.signature !== 'string' ||
+      !/^[A-Za-z0-9_-]{86}$/.test(body.signature)
+    ) {
+      res.status(400).json({ error: 'Invalid machine recovery proof' });
+      return;
+    }
+    try {
+      const credential = await options.pairings.recoverCredential(
+        workerId,
+        {
+          operation: 'credential.recover',
+          serverId: body.serverId,
+          workerId,
+          enrollmentGeneration: body.enrollmentGeneration,
+          challenge: body.challenge,
+          expiresAt: body.expiresAt,
+        },
+        body.signature,
+      );
+      res.json({ protocolVersion: BRIDGE_PROTOCOL_VERSION, ...credential });
+    } catch (error) {
+      if (error instanceof BridgePairingError) {
+        res.status(error.code === 'RECOVERY_RATE_LIMITED' ? 429 : 401)
+          .json({ error: error.message, code: error.code });
+        return;
+      }
+      throw error;
+    }
+  }));
+
   router.post(
     '/workers/:workerId/revoke',
     adminAuth,
@@ -427,10 +536,15 @@ router.post(
         ],
         supportedWorkspaceWriteFileModes: ['replace', 'create'],
         supportedWorkspaceEditFileModes: ['single', 'batch'],
-        supportedWorkspaceEditFileFeatures: ['expected_base_sha256'],
+        supportedWorkspaceEditFileFeatures: [...WORKSPACE_EDIT_FILE_FEATURES],
         supportedWorkspaceListFileFeatures: ['after_path'],
+        ...(options.store.laneGitEnabled
+          ? { supportedWorkspaceCommandResultFeatures: ['lane_git'] }
+          : {}),
         supportedWorkspaceProgrammaticLanguages: ['bash'],
         supportedWorkspaceInstanceTypes: ['git_worktree'],
+        supportedWorkspaceScopes: ['git_linked_worktree'],
+        supportedWorkspaceToolErrorCodes: ['NOT_FOUND'],
       });
     } catch (error) {
       if (error instanceof BridgeStoreError) {
@@ -767,7 +881,6 @@ router.post(
       }
     }),
   );
-
 
   return router;
 }

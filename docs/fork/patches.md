@@ -104,6 +104,30 @@ none needed re-derivation.
 
 States: Active, Review on sync, Draft, History only, Retired.
 
+### Re-audit basis: upstream v1.10.4 integration (2026-10-16)
+
+- Fork baseline: `b53af0e3833f2b9a03036e87c9d56842bad0ca2f`.
+- Upstream release: `a62d69e05a4541ac9a20722ac7ff3fcfecb6ed24`.
+- Merge base: `c8b3e1490416753b6f633e4cdbf9100e93aeb849`.
+- Upstream replaces the socket transport with anonymous pipes. Preserve its
+  implementation, helpers, validation and tests; the deleted socket proxy is
+  retired rather than replayed. The three sandbox Dockerfiles retain only the
+  required readable spec-guard/rootfs permissions alongside the new helpers.
+- Upstream's image workflow publishes only for its own repository and uses a
+  different namespace/tag contract. The fork's exact-SHA publication workflow
+  remains necessary. The upstream release metadata is adopted without cutting
+  a fork tag or release.
+- Issuer-keyed trust, values-free logging, nonfatal telemetry, external replica
+  ownership, missing-bucket readiness and refusal-only retry still lack
+  equivalent upstream behavior. Shared router, schema and image seams require
+  semantic verification even where Git merges them automatically.
+- The historical Draft public-contract entry is active on fork main through
+  `43ed62c`. Its distinct timeout-metadata negative tests are retained alongside
+  upstream lane-git coverage; no duplicate is removed without equivalent cases.
+- The integration plan records runtime/package compatibility and rollout gates:
+  [upstream v1.10.4](../project/upstream-v1.10.4-integration-plan.md).
+  Source reconciliation does not prove deployment or runtime acceptance.
+
 ## Patch index
 
 | Logical patch | State | Source | Depends on |
@@ -115,11 +139,14 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Keep PVC package initialization Argo-safe | Active | `646ed2e`, `12d3760`, `c1509a8` | Upstream `packages.source=pvc` mode |
 | Recover job completion when BullMQ events lag | Active | `b66e87e` | Upstream execution profiles and completion timeout |
 | Reconnect the egress ledger after Redis outages | Active | `5e459dd` | Managed Redis |
-| Keep public and sandbox wire contracts distinct | Draft | `0b66a3a`, `3ac5e8f` | Optional upstream contract maintenance |
+| Keep public and sandbox wire contracts distinct | Active | `0b66a3a`, `3ac5e8f` | Optional upstream contract maintenance |
 | Bind JWT trust to verified issuers | Active | `f68acf0` | JWT verification keys and issuer configuration |
 | Keep operational logs values-free | Active | `c87a14d`, `bf83dbe`, `689be7d`, `42a9743` | Winston and Pino logging sinks and public failures |
 | Preserve requests through telemetry failures | Active | PR #23 (`f5bf3b4`) | OpenTelemetry SDK and the shared telemetry core |
 | Never publish fork tags or releases | Active | PR #25 (port `b67791e`, disable `e9f6fa0`) | GitHub Actions events and the ported upstream resolver |
+| Fail readiness for a missing artifact bucket | Active | `61c729c`, `201aad9` | Existing external object storage |
+| Retry only refused sandbox connections within an absolute deadline | Active | `39cbcd2`, `15416c4`, `055709d` | HTTP sandbox backend and cancellation |
+| Preserve early readiness and trusted-worker resource overrides | Active | `8eb246c`, `53ce639`, `b3c2e22` | Existing Helm deployment ownership |
 
 ## Publish exact-SHA UZH images
 
@@ -482,8 +509,8 @@ Owned paths:
 Shared paths:
 
 - `api/src/job.ts` — removes the identifier-bearing Pino child binding.
-- `api/src/tool-call-socket-proxy.ts` — keeps its standalone console failure
-  message fixed and removes the raw startup error.
+- The former `api/src/tool-call-socket-proxy.ts` integration is retired with
+  upstream's deletion; new pipe transport uses the retained central logger.
 - `service/src/fileServerLogger.ts` and
   `service/src/toolCallServerLogger.ts` — apply the shared policy to their
   separately constructed Winston sinks.
@@ -649,10 +676,52 @@ Source and current-upstream evidence:
 
 Replay and drop condition:
 
-- Replay by restoring upstream's job `if:` condition and the `workflow_run`
-  trigger block.
+- Track upstream trigger and resolver changes while retaining the fork job's
+  unconditional false condition; replay never enables tag or release publication.
 - Drop only on a deliberate policy change: if the fork starts cutting its own
   tags and releases, remove this row and the disable.
+
+## Fail readiness for a missing artifact bucket
+
+Required behavior: the file server is not Ready when its configured artifact
+bucket is missing or dependency probes fail. Retain bounded timeouts and the
+read-only health contract.
+
+Owned paths: `service/src/file-server.ts` and
+`service/src/file-server-readiness.test.ts`.
+
+Upstream v1.10.4 does not include the missing-bucket failure added by `61c729c`.
+Drop when upstream provides equivalent readiness and bounded-failure coverage.
+
+## Retry only refused sandbox connections within an absolute deadline
+
+Required behavior: retry only ECONNREFUSED before an accepted response, preserve
+signed bytes, prohibit redirects, and enforce one absolute deadline and caller
+cancellation across attempts. Re-arm distant timers without 32-bit overflow.
+A timeout, reset, response or ambiguous acceptance never permits a replay.
+
+Owned paths: `service/src/sandbox-backend/http.ts`,
+`service/src/sandbox-backend/http.test.ts` and
+`service/src/service/exec-timeout.test.ts`.
+Shared paths: `service/src/job-cancellation.ts` and
+`service/src/job-cancellation.test.ts` with completion polling.
+
+Upstream v1.10.4 adds the redirect prohibition but still lacks the bounded
+refusal-retry loop. The fork already includes that prohibition. Drop only when
+upstream preserves all retry/deadline/cancellation semantics with matching tests.
+
+## Preserve early readiness and trusted-worker resource overrides
+
+Required behavior: readiness checks begin promptly for the sandbox runner, and
+trusted service-worker resources may differ from the untrusted runner resources
+without changing external replica ownership or pod isolation.
+
+Shared paths: `helm/codeapi/templates/worker-sandbox-deployment.yaml`,
+`helm/codeapi/values.yaml` and `tests/block_root_package_delivery.sh`.
+
+Upstream v1.10.4 does not replace these controls. Drop when the current upstream
+chart has equivalent independently configurable resources and readiness behavior
+with the complete deployment-object contract protected.
 
 ## Retired debris
 
@@ -686,3 +755,14 @@ Replay and drop condition:
   fork patches, and the disable adds one fork-owned path,
   `.github/workflows/release.yml`, recorded above. No other fork path changed in
   this port.
+
+
+### v1.10.4 path accounting
+
+The source integration must account for every final-tree path differing from
+v1.10.4. `.gitignore` preserves private review exclusions; `docs/fork/patches.md`
+is this ledger. Project plans are historical or execution references, not replay
+units. `service/src/bridge/router.test.ts` retains distinct configured-timeout
+negative cases; it shares the signed worker contract with the upstream tests.
+All other active paths belong to the logical behaviors and shared seams above.
+The old socket proxy has no active path and must stay retired.
