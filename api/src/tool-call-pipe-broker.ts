@@ -39,7 +39,7 @@ export function serveToolCallPipe(channel: Duplex, rawTarget: string, options: {
     requests.clear();
     channel.destroy();
   };
-  const fail = (): void => { close(); options.onFailure?.(); };
+  const fail = (): void => { if (closed) return; close(); options.onFailure?.(); };
   const reply = (id: number, status: number, body: string): void => {
     if (closed) return;
     let bytes = Buffer.from(JSON.stringify({ id, status, body }));
@@ -140,7 +140,8 @@ export function serveToolCallPipe(channel: Duplex, rawTarget: string, options: {
   });
   channel.on('drain', () => { clearTimeout(drainTimer); drainTimer = undefined; channel.resume(); });
   channel.on('error', fail);
-  channel.on('end', fail);
+  // The relay owns the request writer until the invocation has terminated.
+  channel.on('end', () => { if (offset === 0 && frame === undefined) close(); else fail(); });
   channel.on('close', close);
   return close;
 }

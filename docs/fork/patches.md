@@ -147,6 +147,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Fail readiness for a missing artifact bucket | Active | `61c729c`, `201aad9` | Existing external object storage |
 | Retry only refused sandbox connections within an absolute deadline | Active | `39cbcd2`, `15416c4`, `055709d` | HTTP sandbox backend and cancellation |
 | Preserve early readiness and trusted-worker resource overrides | Active | `8eb246c`, `53ce639`, `b3c2e22` | Existing Helm deployment ownership |
+| Preserve normal exit during clean tool-pipe shutdown | Active | `api/src/tool-call-pipe-broker.ts`, `tests/pipe_runtime_image.cjs` | Relay-owned request transport |
 | Await asynchronous pipe descriptor reclamation in tests | Active | `api/src/pipe-process.test.ts` | Bun FileSink cleanup |
 
 ## Publish exact-SHA UZH images
@@ -723,6 +724,20 @@ Shared paths: `helm/codeapi/templates/worker-sandbox-deployment.yaml`,
 Upstream v1.10.4 does not replace these controls. Drop when the current upstream
 chart has equivalent independently configurable resources and readiness behavior
 with the complete deployment-object contract protected.
+
+## Preserve normal exit during clean tool-pipe shutdown
+
+The relay holds its broker-facing request writer until invocation completion.
+The broker treats EOF at a complete frame boundary as graceful closure and
+invokes failure at most once for malformed input or an active-channel error.
+This prevents successful relay teardown from being replaced by SIGKILL.
+
+Owned paths: `api/src/tool-call-pipe-broker.ts` and
+`tests/pipe_runtime_image.cjs`, and `tests/tool_call_pipes.py`. The orphan-reaping
+test waits for subreaper adoption within its existing deadline while retaining
+the SIGKILL status assertion. Preserve the relay's lost-reader, flood and
+parent-death enforcement. Retire when upstream provides equivalent EOF and
+late-error behavior with packaged regression coverage.
 
 ## Await asynchronous pipe descriptor reclamation in tests
 

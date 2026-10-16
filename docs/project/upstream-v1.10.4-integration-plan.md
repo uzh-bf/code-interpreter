@@ -173,6 +173,29 @@ and existing replay ledger are the documentation artifacts.
    tests, watches and service port-forwards. Refresh release metadata and report
    the frozen accepted version and any newer unassessed release accurately.
 
+### Preserve successful completion during pipe shutdown
+
+The packaged runtime can complete a tool call and still return exit 137. The
+relay owns the request writer until it has reaped the invocation. Its clean
+shutdown can therefore deliver request EOF before the relay process returns;
+treating that EOF as failure lets the broker kill a successful relay.
+
+Correct `api/src/tool-call-pipe-broker.ts`: close gracefully at a complete frame
+boundary, retain failure for an incomplete frame, and make failure callbacks
+idempotent after closure. Keep the C relay, descriptor implementation, filters
+and parent-death behavior unchanged. No shutdown grace period is introduced.
+
+Extend existing `tests/pipe_runtime_image.cjs` with deterministic clean EOF,
+partial header/body, malformed frame, active error and late error cases against
+the packaged broker export. The old broker must fail the clean EOF case. Reuse
+its actual packaged round trip and `tests/tool_call_pipes.py` for lost-reader,
+flood and parent-death termination. Require repeated successful round trips
+and those negative cases before accepting this correction. The existing orphan
+reaping test must also wait within its existing deadline when adoption has not
+yet made the descendant a child of the subreaper; preserve its exact SIGKILL
+status check after adoption. No new test file, dependency, privilege or
+deployment action is needed.
+
 ### Reproduced asynchronous cleanup assertion
 
 The imported `api/src/pipe-process.test.ts` immediately scans owned pipe inodes
@@ -235,8 +258,11 @@ admission checks, Node package checks and deployment configuration checks have
 passing source evidence. The full API suite now passes after adapting its
 existing exact-inode leak assertion for asynchronous Bun descriptor cleanup.
 The bounded assertion passes repeated runs and rejects a retained synthetic
-pipe. Native supervisor-policy, pipe relay and DNS checks pass. Complete guest
-image checks, required reviews and hosted CI remain pending.
+pipe. Native supervisor-policy, pipe relay and DNS checks pass. The packaged
+broker correction preserves normal exit at clean EOF while incomplete frames
+and active errors still fail once. Local packaged guest checks and repeated
+cancellation/orphan cleanup checks pass. Hosted platform CI and the integrated
+final review remain blocking; source merge and publication are held.
 
 The CI access constraint and source-derived logging-test reuse were approved by
 the same Astra planner as a focused plan amendment. No test file was added;

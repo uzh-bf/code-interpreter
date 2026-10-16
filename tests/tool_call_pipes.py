@@ -150,7 +150,11 @@ time.sleep(30)
             for pid in [job_pid, relay_pid, broker_pid]:
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
-                    reaped, status = os.waitpid(pid, os.WNOHANG)
+                    try:
+                        reaped, status = os.waitpid(pid, os.WNOHANG)
+                    except ChildProcessError:
+                        # Adoption by this subreaper can lag the controller's exit.
+                        reaped = 0
                     if reaped:
                         assert os.waitstatus_to_exitcode(status) == -9
                         break
