@@ -147,6 +147,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Fail readiness for a missing artifact bucket | Active | `61c729c`, `201aad9` | Existing external object storage |
 | Retry only refused sandbox connections within an absolute deadline | Active | `39cbcd2`, `15416c4`, `055709d` | HTTP sandbox backend and cancellation |
 | Preserve early readiness and trusted-worker resource overrides | Active | `8eb246c`, `53ce639`, `b3c2e22` | Existing Helm deployment ownership |
+| Await asynchronous pipe descriptor reclamation in tests | Active | `api/src/pipe-process.test.ts` | Bun FileSink cleanup |
 
 ## Publish exact-SHA UZH images
 
@@ -722,6 +723,18 @@ Shared paths: `helm/codeapi/templates/worker-sandbox-deployment.yaml`,
 Upstream v1.10.4 does not replace these controls. Drop when the current upstream
 chart has equivalent independently configurable resources and readiness behavior
 with the complete deployment-object contract protected.
+
+## Await asynchronous pipe descriptor reclamation in tests
+
+Bun may retain its internal duplicate descriptors briefly after child and stream
+close events. The existing pipe leak test waits for the exact allocated inodes
+to disappear within a bounded interval, then still requires an empty set. An
+intentionally retained synthetic pipe must fail this assertion. No runtime
+transport implementation or syscall permission changes are part of this patch.
+
+Owned path: `api/src/pipe-process.test.ts`. Retire this test-only patch when
+upstream provides equivalent bounded cleanup coverage or the runtime guarantees
+that its descriptors are reclaimed before the observed close events.
 
 ## Retired debris
 

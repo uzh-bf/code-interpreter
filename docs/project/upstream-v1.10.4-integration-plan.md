@@ -173,6 +173,20 @@ and existing replay ledger are the documentation artifacts.
    tests, watches and service port-forwards. Refresh release metadata and report
    the frozen accepted version and any newer unassessed release accurately.
 
+### Reproduced asynchronous cleanup assertion
+
+The imported `api/src/pipe-process.test.ts` immediately scans owned pipe inodes
+after child completion. Reproduction shows Bun-owned duplicate descriptors can
+remain briefly while asynchronous cleanup drains. Waiting for FileSink end and
+all wrapper close events did not eliminate the race; replacing these streams
+with standard filesystem streams failed the existing runtime contracts. Keep
+the upstream runtime implementation. Adapt only the existing leak test to wait
+for exact owned-inode disappearance with a bounded event-loop check. Preserve
+the empty-set assertion and qualify it against an intentionally retained
+synthetic descriptor. A persistent leak must still fail. No fixed sleep, new
+module or new maintained test file is needed. Run the focused test repeatedly,
+then the full API suite and native sandbox checks before accepting this change.
+
 ### Test portfolio
 
 | Risk | Obligation and primary seam | Distinct acceptance |
@@ -211,9 +225,11 @@ Status: the frozen upstream tree is reconciled, the nine conflicts are resolved
 and the replay ledger accounts for active fork behavior. API and service builds,
 focused fork-contract tests, the native service suite, isolated real-Redis
 admission checks, Node package checks and deployment configuration checks have
-passing source evidence. A qualified full API run exposed intermittent pipe
-cleanup timing; its focused reproduction passes and diagnosis remains open.
-Native image/guest checks, required reviews and hosted CI remain pending.
+passing source evidence. The full API suite now passes after adapting its
+existing exact-inode leak assertion for asynchronous Bun descriptor cleanup.
+The bounded assertion passes repeated runs and rejects a retained synthetic
+pipe. Native supervisor-policy, pipe relay and DNS checks pass. Complete guest
+image checks, required reviews and hosted CI remain pending.
 
 The CI access constraint and source-derived logging-test reuse were approved by
 the same Astra planner as a focused plan amendment. No test file was added;

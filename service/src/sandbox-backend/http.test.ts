@@ -21,7 +21,6 @@ const servers: ReturnType<typeof Bun.serve>[] = [];
 let defaultPort = 0;
 let captured: CapturedRequest[] = [];
 let nextResponse: { status: number; body: unknown; delayMs?: number; location?: string } = { status: 200, body: {} };
-let nextResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 /** Dispatch attempts and connection refusals for the endpoint under test. */
 let dispatchAttempts: DispatchAttempt[] = [];
 let refusalCount = 0;
@@ -81,7 +80,7 @@ function spawnServer(port: number): ReturnType<typeof Bun.serve> {
       }
       return new Response(JSON.stringify(nextResponse.body), {
         status: nextResponse.status,
-        headers: { ...nextResponseHeaders, ...(nextResponse.location ? { Location: nextResponse.location } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(nextResponse.location ? { Location: nextResponse.location } : {}) },
       });
     },
   });
@@ -121,7 +120,6 @@ afterAll(() => {
 afterEach(() => {
   captured = [];
   nextResponse = { status: 200, body: {} };
-  nextResponseHeaders = { 'Content-Type': 'application/json' };
   dispatchAttempts = [];
   refusalCount = 0;
   startEndpointAfterRefusals = false;
@@ -327,8 +325,7 @@ describe('HttpSandboxBackend', () => {
 
   test('does not follow a redirect to a refused port', async () => {
     const redirectTargetPort = await refusedPort();
-    nextResponse = { status: 302, body: {} };
-    nextResponseHeaders = { Location: `http://localhost:${redirectTargetPort}/api/v2/execute` };
+    nextResponse = { status: 302, body: {}, location: `http://localhost:${redirectTargetPort}/api/v2/execute` };
 
     try {
       await new HttpSandboxBackend().execute(request(), context({ deadlineAtMs: Date.now() + 10_000 }));

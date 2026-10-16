@@ -79,11 +79,18 @@ describe('anonymous process pipes', () => {
     if (process.platform === 'linux') {
       // Runtime watcher/pid descriptors can appear asynchronously. Assert the
       // exact pipe inodes we allocated, including duplicates held by FileSink.
-      const survivors = fs.readdirSync('/proc/self/fd').flatMap(fd => {
+      const survivors = () => fs.readdirSync('/proc/self/fd').flatMap(fd => {
         try { const inode = fs.readlinkSync(`/proc/self/fd/${fd}`); return ownedPipes.has(inode) ? [inode] : []; }
         catch { return []; }
       });
-      expect(survivors).toEqual([]);
+      // Bun releases internal duplicates asynchronously after wrapper close.
+      const deadline = performance.now() + 1000;
+      let pending = survivors();
+      while (pending.length > 0 && performance.now() < deadline) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        pending = survivors();
+      }
+      expect(pending).toEqual([]);
     }
   }, 10000);
 });
