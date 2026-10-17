@@ -128,6 +128,16 @@ States: Active, Review on sync, Draft, History only, Retired.
   [upstream v1.10.4](../project/upstream-v1.10.4-integration-plan.md).
   Source reconciliation does not prove deployment or runtime acceptance.
 
+### Re-audit basis: upstream v1.10.5 patch continuation
+
+- Fork baseline: `880c3822e0986043d99b0d75c12f45e7703c9614`.
+- Upstream release: `58a023da4c47452f5e40114934679d0348c39064`.
+- Merge base: `a62d69e05a4541ac9a20722ac7ff3fcfecb6ed24` (v1.10.4).
+- Adopt upstream's installed guest-addon default and production guest-image
+  coverage. Existing fork behavior and the disabled Release job are preserved.
+- The startup-handshake regression uses bounded process results and a successful
+  control instead of matching diagnostic prose, as recorded below.
+
 ## Patch index
 
 | Logical patch | State | Source | Depends on |
@@ -149,6 +159,7 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Preserve early readiness and trusted-worker resource overrides | Active | `8eb246c`, `53ce639`, `b3c2e22` | Existing Helm deployment ownership |
 | Preserve normal exit during clean tool-pipe shutdown | Active | `api/src/tool-call-pipe-broker.ts`, `tests/pipe_runtime_image.cjs` | Relay-owned request transport |
 | Await asynchronous pipe descriptor reclamation in tests | Active | `api/src/pipe-process.test.ts` | Bun FileSink cleanup |
+| Check bounded NsJail startup failure without diagnostic prose | Active | `tests/supervisor_policy.py` | Upstream startup handshake |
 
 ## Publish exact-SHA UZH images
 
@@ -751,6 +762,22 @@ Owned path: `api/src/pipe-process.test.ts`. Retire this test-only patch when
 upstream provides equivalent bounded cleanup coverage or the runtime guarantees
 that its descriptors are reclaimed before the observed close events.
 
+## Check bounded NsJail startup failure without diagnostic prose
+
+Required behavior and owned path:
+
+- `tests/supervisor_policy.py` checks that a valid executable starts successfully
+  and a missing executable fails within five seconds under the same supervisor
+  and NsJail configuration.
+- Upstream v1.10.5 still asserts a particular startup-error log sentence. The
+  fork retains the regression behavior without coupling it to log wording.
+
+Replay and drop condition:
+
+- Preserve the other supervisor-filter assertions and the upstream guest-addon
+  tests. Drop this test-only delta when upstream checks the same bounded failure
+  with a valid startup control and no diagnostic-text assertion.
+
 ## Retired debris
 
 - Merge commit `356123a` is history-only transport for the package-init fix;
@@ -794,3 +821,10 @@ units. `service/src/bridge/router.test.ts` retains distinct configured-timeout
 negative cases; it shares the signed worker contract with the upstream tests.
 All other active paths belong to the logical behaviors and shared seams above.
 The old socket proxy has no active path and must stay retired.
+
+### v1.10.5 path accounting
+
+The patch continuation adds `tests/supervisor_policy.py` as a test-only fork
+delta. The entrypoint fix and guest-addon image coverage are upstream behavior,
+not new replay units. Existing project-plan and ledger changes remain execution
+references. The other v1.10.4 fork paths and their dispositions are unchanged.
