@@ -45,7 +45,8 @@ else:
                '--disable_clone_newuser', '--disable_clone_newns', '--disable_clone_newpid',
                '--disable_clone_newipc', '--disable_clone_newuts', '--disable_clone_newcgroup',
                '--disable_proc', '--disable_rlimits', '--', '/missing-codeapi-executable']
+    control = subprocess.run(command[:-1] + ['/bin/true'], capture_output=True, timeout=5)
+    assert control.returncode == 0, control.returncode
     result = subprocess.run(command, capture_output=True, timeout=5)
     assert result.returncode != 0
-    assert b'Launching child process failed' in result.stderr, result.stderr
     print('PASS: anonymous NsJail startup handshake reports child exec failure')

@@ -1,18 +1,18 @@
-# Upstream v1.10.4 integration
+# Upstream v1.10.5 integration
 
 ## Approval summary
 
-Upgrade the fork and both GitOps environments to upstream stable v1.10.4 while
+Upgrade the fork and both GitOps environments to upstream stable v1.10.5 while
 preserving required consumer, authentication, storage and sandbox contracts.
 The user explicitly requested the latest version and an executable goal after
 updating the governing plan with Astra. This is an executable batch under the
 [16 October continuation](2026-09-19-storage-recovery-upstream-v1.4.0-plan.md).
 Required human production release approval remains binding.
 
-Freeze upstream v1.10.4 at `a62d69e05a4541ac9a20722ac7ff3fcfecb6ed24`,
+Freeze upstream v1.10.5 at `58a023da4c47452f5e40114934679d0348c39064`,
 verified through the official latest-release API and fetched tag. Fork baseline
-is main at `b53af0e3833f2b9a03036e87c9d56842bad0ca2f`; merge base is
-`c8b3e1490416753b6f633e4cdbf9100e93aeb849`. Refresh latest-release metadata
+is main at `880c3822e0986043d99b0d75c12f45e7703c9614`; merge base is
+`a62d69e05a4541ac9a20722ac7ff3fcfecb6ed24` (v1.10.4). Refresh latest-release metadata
 before production readiness. Assess a later release explicitly instead of
 silently changing a verified rollout target.
 
@@ -59,7 +59,7 @@ existing contracts; a changed trust, ownership or persistence model re-arms it.
 
 ### Research and patch decisions
 
-The official release is [v1.10.4](https://github.com/LibreChat-AI/code-interpreter/releases/tag/v1.10.4).
+The official release is [v1.10.5](https://github.com/LibreChat-AI/code-interpreter/releases/tag/v1.10.5).
 Use source and existing tests as evidence. The local read-only comparison found
 these logical decisions; final path accounting and changed-seam verification
 remain required before publication. The canonical replay ledger remains
@@ -277,7 +277,7 @@ review directories, never tracked plans, CI output or PR/MR bodies. The existing
 retention monitor keeps its owner, schedule, historical resources, genuine aging
 fixtures and recovery authority independently of this package.
 
-## Progress
+## Historical progress: v1.10.4 source work
 
 Status: the frozen upstream tree is reconciled, the nine conflicts are resolved
 and the replay ledger accounts for active fork behavior. API and service builds,
@@ -299,3 +299,41 @@ removes one prose assertion. Source delivery may use a draft PR with these
 remaining checks identified. Both environment acceptances remain outstanding.
 Required delivery layer is verified production rollout; no deployment is claimed
 from source verification. Current live status and blockers remain private.
+
+## v1.10.5 patch continuation
+
+Continue the executable batch under the user's latest-stable request. Main owns
+this source preparation, verification and draft PR. A new default-branch merge
+requires named authority and applicable human review. The environment sequence
+and all deployment gates above remain binding.
+
+Merge both upstream patch commits with history preserved. Their four paths are
+`.github/workflows/ci.yml`, `api/src/entrypoint.sh`,
+`tests/sandbox_pipe_addon_image.ts` and `tests/supervisor_policy.py`. The guest
+entrypoint supplies the installed anonymous-pipe addon path after the rootfs
+COPY/VM boundary, preserving an explicit override. No dependency, identity,
+schema, capacity or deployment configuration changes are included.
+
+The CI increment adds privileged Docker guest executions and two image-build
+matrix jobs, each capped at twenty minutes. Run them only on disposable
+GitHub-hosted runners, with synthetic signing keys, disabled container networking
+and read-only workspace mounts. Supply no deployment credentials or cluster
+access. The fork Release job remains unconditionally disabled.
+
+Add the upstream guest-addon image regression test for unset, empty and custom
+addon paths. Replace/consolidate the touched NsJail startup-failure assertion:
+the same command with a valid executable must succeed, while a missing
+executable must fail within five seconds. Assert process behavior rather than
+diagnostic prose. Preserve the other supervisor-filter checks. Record this small
+downstream test deviation in the existing replay ledger.
+
+Commit this amendment before source integration. Run focused syntax/workflow
+checks and actual hosted guest-image cases, preserving unsigned-request
+rejection and exact synthetic stdout/stderr. Apply the existing source review
+gates and open a draft PR with outstanding qualification stated. Source
+qualification, merged CI, image publication and environment acceptance remain
+separate. Preserve the original plan location, private receipt directory,
+recovery branches and independent retention follow-ups.
+
+Progress: source preparation and hosted qualification are pending. No deployment
+or later release is accepted by this amendment alone.
