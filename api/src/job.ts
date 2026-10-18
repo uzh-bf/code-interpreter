@@ -1045,10 +1045,11 @@ export class Job {
     };
 
     const fileOps: Array<() => Promise<void>> = [];
+    const batchSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     for (const file of this.files) {
       const operationContext: PrimeOperationContext = {
         ...operationBase,
-        signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+        signal: batchSignal,
       };
       if (file.id) {
         fileOps.push(() => runFileOperation(() => this.primeInputFile(file, operationContext)));
@@ -1058,7 +1059,7 @@ export class Job {
     }
     let nextOperation = 0;
     const runPrimeWorker = async (): Promise<void> => {
-      while (!controller.signal.aborted && !signal?.aborted) {
+      while (!batchSignal.aborted) {
         const operationIndex = nextOperation++;
         if (operationIndex >= fileOps.length) return;
         await fileOps[operationIndex]();
