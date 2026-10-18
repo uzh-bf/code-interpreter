@@ -502,7 +502,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
     const errno: NodeJS.ErrnoException = spawnError;
     throw new Error(`Failed to spawn nsjail: ${errno.code ?? 'UNKNOWN'}: ${errno.message}`);
   }
-  if (!markerSeen) {
+  if (!markerSeen && !opts.signal?.aborted) {
     /* The watchdog fired before NsJail logged its post-mount marker. The
      * child may still finish successfully — but if multiple jobs trip the
      * watchdog in a row we're back to overlapping setups, so the operator

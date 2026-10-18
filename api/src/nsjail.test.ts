@@ -5,6 +5,7 @@ import * as path from 'path';
 import { config } from './config';
 import { buildArgs, execute, renderJobConfigOverlay } from './nsjail';
 import { logger } from './logger';
+import { nsjailSetupGateWatchdogFires } from './metrics';
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag);
@@ -562,6 +563,7 @@ test('stalled termination keeps ownership after the watchdog and closed output u
   const originalPath = config.nsjail_path;
   const controller = new AbortController();
   const errors = spyOn(logger, 'error').mockImplementation(() => {});
+  const setupTimeouts = spyOn(nsjailSetupGateWatchdogFires, 'inc');
   const ready = path.join(tmp, 'ready');
   const signalled = path.join(tmp, 'signalled');
   const release = path.join(tmp, 'release');
@@ -579,7 +581,17 @@ fs.writeFileSync(${JSON.stringify(ready)}, '');
   const pending = execute({
     command: ['/bin/true'], envVars: {}, submissionDir: tmp, pkgdir: tmp, timeout: 1000,
     memoryLimit: -1, outputMaxSize: 1024, identity: { slot: 0, uid: 65534, gid: 65534, perJobUid: false }, signal: controller.signal,
-  }, { pending: () => 0, runSetup: async (_logPath, spawn) => ({ value: spawn(), markerSeen: true }) });
+  }, {
+    pending: () => 0,
+    runSetup: async (_logPath, spawn, signal) => {
+      const value = spawn();
+      await new Promise<void>(resolve => {
+        signal!.addEventListener('abort', () => resolve(), { once: true });
+        if (signal!.aborted) resolve();
+      });
+      return { value, markerSeen: false };
+    },
+  });
   void pending.then(() => { settled = true; }, () => { settled = true; });
   const marker = async (file: string) => {
     const deadline = Date.now() + 3000;
@@ -598,6 +610,7 @@ fs.writeFileSync(${JSON.stringify(ready)}, '');
       return metadata?.stage === 'shutdown' && metadata?.reason === 'timeout' && metadata?.timeoutMs === 5000;
     })).toBe(true);
     expect(settled).toBe(false);
+    expect(setupTimeouts).not.toHaveBeenCalled();
     await fsp.writeFile(release, '');
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(settled).toBe(true);
@@ -605,6 +618,7 @@ fs.writeFileSync(${JSON.stringify(ready)}, '');
     await fsp.writeFile(release, '');
     await pending.catch(() => {});
     errors.mockRestore();
+    setupTimeouts.mockRestore();
     config.nsjail_path = originalPath;
     await fsp.rm(tmp, { recursive: true, force: true });
   }
