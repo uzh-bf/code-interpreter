@@ -146,34 +146,10 @@ and existing replay ledger are the documentation artifacts.
    perform the authorized history-preserving main merge and verify merged CI.
    Build and publish all existing commit-addressed fork images; prove the frozen
    upstream commit and prior fork baseline are ancestors.
-3. **Staging software rollout — main.** First complete the separately governed
-   STG ready-capacity acceptance on the old software. Before merging new values,
-   use the separately agreed deployment route to pin the existing Application's
-   values source to its verified baseline commit. Confirm unchanged chart,
-   images, health and convergence. STG follows values `main`, so merging values
-   before this freeze could deploy new images with the old chart.
-
-   In helm-charts change `codeapi/stg/values.yaml` commit-image tags and the
-   explicit inactive-bridge settings above. Render the baseline pair and the
-   proposed new chart/values pair before either merge; land values only after
-   all referenced images exist and the baseline freeze is verified. In df-cloud
-   change the STG chart and values revisions in `src/apps/codeapi/functions.ts`
-   and applicable existing function tests. Through the agreed deployment route,
-   adopt both tested immutable revisions in one update to the existing
-   Application. Preserve Pulumi ownership and all other Application fields.
-   Verify full source previews and recovery pins, Argo convergence, and
-   prove exact deployed digests/revisions and external replica ownership. Run the
-   existing reviewed artifact and first-after-idle probes against the upgraded
-   revision, exact synthetic download/reuse, guest timeout, cleanup and canaries.
-   When changed, exercise actual cancellation independently of timeout. New pipe
-   runtime must execute the synthetic guest correctly under existing isolation.
-
-   After acceptance, restore STG's existing values-`main` tracking only when a
-   fresh comparison proves that its CodeAPI values match the tested commit and
-   the Application has no active operation. Confirm the resolved revision and
-   unchanged workloads afterward. A changed values tree holds this restoration
-   for review; it cannot silently introduce an unrelated promotion. Neither the
-   freeze nor restoration grants host deployment authority or CI cluster access.
+3. **Staging software rollout — main.** Use the approved values-only GitOps
+   amendment below. Retain the separately accepted ready-capacity prerequisite
+   and all source, runtime, isolation and cleanup checks. Chart-source alignment
+   and the production owner-update route remain separate open work.
 4. **Production release and closeout — main.** Review the entire normal stg-to-prd
    promotion delta and require its recorded human approval. Hold unrelated
    effects. Promote the exact accepted source/image/chart: the PRD revision
@@ -263,13 +239,12 @@ planned; screenshots do not apply.
 ### Recovery and evidence
 
 Record the prior verified chart/image/application pins privately before each
-rollout. Recover a failed application through an ordinary source/GitOps revert
-branch for that environment after the same required checks and release approval.
-Restore the verified chart and values pair together through the agreed route;
-do not expose a mixed pair during recovery. Keep a failed STG upgrade pinned
-until its verified baseline is restored before considering values-`main` tracking.
-Preserve accepted node/runner capacity, storage and snapshots unless that exact
-component caused the regression. A failed staging gate blocks production.
+rollout. The values-only staging recovery is defined in the amendment below.
+For later paired-chart or production adoption, restore the verified chart and
+values pair together through its explicitly agreed route after required checks
+and production approval. Preserve accepted capacity, storage and snapshots
+unless the exact component caused the regression. A failed staging gate blocks
+production.
 
 Use only existing user connectivity and approved Infisical profile scopes; keys
 remain in memory. Operational observations and receipts stay in ignored local
@@ -337,3 +312,91 @@ recovery branches and independent retention follow-ups.
 
 Progress: source preparation and hosted qualification are pending. No deployment
 or later release is accepted by this amendment alone.
+
+
+## Approved values-only staging GitOps amendment
+
+Approval mode: executable batch. The user approved this amended staging sequence
+and goal. It replaces only the former staging values freeze, atomic Application
+chart/values update and values-tracking restoration, and their staging paired
+recovery. The existing delegation map, test portfolio, source acceptance,
+ready-capacity dependency and independent snapshot obligations remain binding.
+Execution mode remains standard; main owns integration, external effects,
+existing-context verification, secret handling, evidence and cleanup.
+
+The complete candidate render under the selected chart must be equivalent to
+the upstream chart render except chart-version metadata labels. Package-init,
+metrics and bridge activation gates must be checked from actual templates and
+values; configured inactive images are not running workloads. Retaining the
+compatible chart for this runtime slice defers full chart-source alignment; it
+does not close the original staging-and-production integration objective.
+
+### Approved sequence and acceptance
+
+1. Freshly fetch source and GitOps repositories. Require exact reviewed MR188
+   source, required successful CI/reviews, resolved discussions, applicable human
+   policy and an effective merge delta limited to codeapi/stg/values.yaml.
+   Validate image availability, prior ready-capacity acceptance on old software,
+   existing Application identity/source selection, healthy convergence and no
+   active operation. Reuse accepted unchanged source checks; unexpected relevant
+   drift holds for comparison and affected checks.
+2. Persist this amendment before deployment and correct the MR's obsolete freeze
+   requirement. Keep all environment observations in ignored private receipts.
+   Mark the reviewed MR ready and merge into main with a merge commit, no squash
+   and source branch retained. Verify parents, merged tree, merged CI and values
+   content. No host Pulumi, deployment credential setup, CI cluster access,
+   Application-pointer mutation, new connection or capacity change is needed.
+3. Let existing Argo reconciliation deploy the values. Use a bounded observer
+   through convergence and the entire functional/burst/idle verification window.
+   Bind the unchanged chart selection, effective CodeAPI values and actual image
+   revisions/configuration throughout; unrelated commits with identical effective
+   values do not invalidate evidence. Relevant drift or an observation gap holds
+   affected acceptance. Require expected active images/digests, replica ownership,
+   namespace/security policy and a Ready standby runner. Record first execution
+   after natural rollout separately; do not manipulate caches, nodes or replicas
+   to manufacture a cold start.
+4. Use the existing reviewed in-memory-token artifact/guest fixtures and exact
+   codeapi-stg secret read scope. Require exact artifacts, metadata/reuse, guest
+   timeout and pipe execution, owned-object cleanup/input404 and both storage
+   canaries. Exercise actual cancellation independently when its implementation
+   changed; timeout does not prove cancellation. Use the accepted bounded burst
+   fixture and observers to prove a single demand counter above one, automatic
+   scale-out and return to the minimum. Observe an uninterrupted interval longer
+   than twenty minutes without synthetic keepalive, retained Ready minimum and
+   first-after-idle execution. Old-runtime capacity evidence alone cannot accept
+   the new software. A warmed retry never clears a failed sample.
+5. Stop owned probes, watchers and service port-forwards and verify cleanup and
+   current health. Preserve private evidence and report STG acceptance separately
+   from chart-source alignment and production delivery.
+
+### Conditional staging recovery
+
+On a failed runtime gate, hold promotion and preserve evidence. Use the existing
+Helm recovery branch rs/codeapi-stg-v1.10.5-recovery. Fetch current target before
+preparation and again before readiness/merge. Restore only the rollout's verified
+values delta from its privately bound pre-merge baseline, preserving intervening
+approved edits to the same file, every other path and all history. Validate the
+scoped inverse delta and effective merge tree; conflicts or target movement hold
+for disposition instead of overwriting later work.
+
+Run applicable source/render/lint checks, then mark the one-file recovery MR
+ready and merge with history/source branch retained only after required checks
+and approvals pass and it restores the accepted baseline under the unchanged
+chart. Let Argo reconcile and verify baseline images, health and canaries. No
+live patch, blind retry, storage cleanup or production-pointer change is covered.
+If the bounded recovery cannot meet these conditions, report the exact blocker.
+
+### Remaining integration work and review
+
+Production retains its recorded human release gate and immutable values pointer.
+Its legitimate owner-update route must satisfy the user's no-cluster-in-CI
+constraint. Host Pulumi, the legacy cluster-authenticated job, floating production
+tracking and ownership migration are not substitutes authorized here. Full
+upstream chart-source alignment remains open under the original goal.
+
+The frozen amendment passed the existing two-round native planning review after
+corrections for same-file recovery preservation, configuration binding throughout
+acceptance and reuse of old-runtime capacity acceptance as a prerequisite. The
+existing source reviews and complete render proof remain valid for unchanged
+source. Final integrated verification/review remains required. Real-environment
+results belong only in ignored receipts; this plan records intended contracts.
