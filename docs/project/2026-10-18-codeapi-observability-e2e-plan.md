@@ -98,4 +98,8 @@ Terminal: accepted source/CI/reviews and STG plus gated PRD telemetry/browser ac
 
 ## Progress
 
-Astra completed three bounded planning rounds and approved the derived plan. All findings were accepted: exact action authority, two-layer discovery, shared-port activation gate, E2E contracts, lane privacy, dashboard proof and fresh recovery guards. The main session verified their disposition. Reviewer reports remain private and ignored. No implementation/deployment has started yet. Next: execute the chart and companion-source slices with the requested native goal. Source publication and live acceptance remain pending; no package PR/MR exists yet.
+Astra approved the plan after three bounded rounds; all findings were accepted and verified. Plan review, chart simplification and focused trust/correctness review are complete, with no remaining chart findings. Reports and operational bindings remain private and ignored.
+
+The chart slice is committed. The cross-namespace regression failed before the correction and passed afterward; existing render regressions, Helm lint and shell syntax checks passed. Package size is 116 substantive added lines excluding the plan. No runtime code or image changed. The source package is ready for prerequisite hosted CI as an early draft; integrated final review remains pending across companion delivery.
+
+The Helm companion implements the Grafana package and prepares STG-only scrape values. Consumer E2E source is owned by the bounded trusted native executor. Source CI, final review, exact merge/registration and shared-port authority, STG proof and conditional PRD proof remain pending. Next action: publish source for prerequisite CI and complete companion verification. Live acceptance has not started. The native execution goal is active. No package PR/MR exists yet.
