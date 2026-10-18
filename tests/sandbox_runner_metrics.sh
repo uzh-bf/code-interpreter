@@ -71,6 +71,30 @@ contains "$TMP_DIR/deployment.yaml" '        app.kubernetes.io/instance: telemet
 resource "$TMP_DIR/enabled.yaml" Deployment telemetry-codeapi-sandbox-runner > "$TMP_DIR/runner.yaml"
 contains "$TMP_DIR/runner.yaml" '              containerPort: 2345'
 
+render --namespace control-test --set metrics.enabled=true \
+    --set metrics.podMonitorLabels.release=prometheus-test \
+    --set workerSandbox.sandboxRunner.namespaceOverride=sandbox-test > "$TMP_DIR/namespaces.yaml"
+resource "$TMP_DIR/namespaces.yaml" PodMonitor telemetry-codeapi-sandbox-runner > "$TMP_DIR/cross-namespace-monitor.yaml"
+contains "$TMP_DIR/cross-namespace-monitor.yaml" '  namespaceSelector:'
+contains "$TMP_DIR/cross-namespace-monitor.yaml" '    matchNames:'
+contains "$TMP_DIR/cross-namespace-monitor.yaml" '      - "sandbox-test"'
+resource "$TMP_DIR/namespaces.yaml" Deployment telemetry-codeapi-sandbox-runner > "$TMP_DIR/cross-namespace-runner.yaml"
+contains "$TMP_DIR/cross-namespace-runner.yaml" '  namespace: sandbox-test'
+for component in api service-worker sandbox-runner egress-gateway file-server tool-call-server; do
+    resource "$TMP_DIR/namespaces.yaml" PodMonitor "telemetry-codeapi-$component" > "$TMP_DIR/discovery-monitor.yaml"
+    contains "$TMP_DIR/discovery-monitor.yaml" '    release: prometheus-test'
+    resource "$TMP_DIR/namespaces.yaml" Deployment "telemetry-codeapi-$component" > "$TMP_DIR/discovery-deployment.yaml"
+    if grep -Fq 'release: prometheus-test' "$TMP_DIR/discovery-deployment.yaml"; then
+        echo 'Prometheus discovery labels must not change workload labels' >&2
+        exit 1
+    fi
+done
+resource "$TMP_DIR/enabled.yaml" PodMonitor telemetry-codeapi-sandbox-runner > "$TMP_DIR/same-namespace-monitor.yaml"
+if grep -q 'namespaceSelector:' "$TMP_DIR/same-namespace-monitor.yaml"; then
+    echo 'default runner discovery must remain in the release namespace' >&2
+    exit 1
+fi
+
 # Enabling metrics must not silently weaken sandbox isolation.
 resource "$TMP_DIR/default.yaml" NetworkPolicy telemetry-codeapi-sandbox-runner > "$TMP_DIR/default-policy.yaml"
 resource "$TMP_DIR/enabled.yaml" NetworkPolicy telemetry-codeapi-sandbox-runner > "$TMP_DIR/enabled-policy.yaml"
@@ -103,6 +127,35 @@ contains "$TMP_DIR/scraper-policy.yaml" '        podSelector:'
 sed -n '/^  egress:/,$p' "$TMP_DIR/scraper-policy.yaml" > "$TMP_DIR/scraper-egress.yaml"
 sed -n '/^  egress:/,$p' "$TMP_DIR/default-policy.yaml" > "$TMP_DIR/default-egress.yaml"
 cmp "$TMP_DIR/default-egress.yaml" "$TMP_DIR/scraper-egress.yaml"
+
+cat > "$TMP_DIR/service-scraper.yaml" <<'YAML'
+metrics:
+  serviceEndpoints:
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: metrics-test
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus-test
+YAML
+render --set metrics.enabled=true -f "$TMP_DIR/service-scraper.yaml" > "$TMP_DIR/service-scraper-render.yaml"
+render -f "$TMP_DIR/service-scraper.yaml" > "$TMP_DIR/disabled-service-scraper.yaml"
+for component in egress-gateway file-server tool-call-server; do
+    resource "$TMP_DIR/default.yaml" NetworkPolicy "telemetry-codeapi-$component" > "$TMP_DIR/service-default.yaml"
+    resource "$TMP_DIR/service-scraper-render.yaml" NetworkPolicy "telemetry-codeapi-$component" > "$TMP_DIR/service-scraper-policy.yaml"
+    contains "$TMP_DIR/service-scraper-policy.yaml" '      - namespaceSelector:'
+    contains "$TMP_DIR/service-scraper-policy.yaml" '        podSelector:'
+    contains "$TMP_DIR/service-scraper-policy.yaml" 'kubernetes.io/metadata.name: metrics-test'
+    contains "$TMP_DIR/service-scraper-policy.yaml" 'app.kubernetes.io/name: prometheus-test'
+    sed -n '/^  egress:/,$p' "$TMP_DIR/service-default.yaml" > "$TMP_DIR/service-default-egress.yaml"
+    sed -n '/^  egress:/,$p' "$TMP_DIR/service-scraper-policy.yaml" > "$TMP_DIR/service-scraper-egress.yaml"
+    cmp "$TMP_DIR/service-default-egress.yaml" "$TMP_DIR/service-scraper-egress.yaml"
+    resource "$TMP_DIR/disabled-service-scraper.yaml" NetworkPolicy "telemetry-codeapi-$component" > "$TMP_DIR/service-disabled.yaml"
+    cmp "$TMP_DIR/service-default.yaml" "$TMP_DIR/service-disabled.yaml"
+done
+resource "$TMP_DIR/service-scraper-render.yaml" NetworkPolicy telemetry-codeapi-sandbox-runner > "$TMP_DIR/service-only-runner.yaml"
+cmp "$TMP_DIR/default-policy.yaml" "$TMP_DIR/service-only-runner.yaml"
 
 render -f "$TMP_DIR/scraper.yaml" > "$TMP_DIR/disabled-scraper.yaml"
 resource "$TMP_DIR/disabled-scraper.yaml" NetworkPolicy telemetry-codeapi-sandbox-runner > "$TMP_DIR/disabled-scraper-policy.yaml"
