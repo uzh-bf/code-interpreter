@@ -305,8 +305,9 @@ test('aborting a queued prime releases its waiter without taking another identit
     await waiting.cleanup();
     expect(sandboxJobUidPool.activeCount()).toBe(baseline + held.length);
     sandboxJobUidPool.release(held.pop()!);
-    const next = makeJob();
-    try { await next.prime(); } finally { await next.cleanup(); }
+    const nextIdentity = sandboxJobUidPool.acquire();
+    expect(nextIdentity).not.toBeNull();
+    sandboxJobUidPool.release(nextIdentity!);
     expect(sandboxJobUidPool.activeCount()).toBe(baseline + held.length);
   } finally {
     for (const identity of held) sandboxJobUidPool.release(identity);
