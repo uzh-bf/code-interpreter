@@ -20,7 +20,14 @@ with tempfile.TemporaryDirectory() as directory:
     marker = os.path.join(directory, 'ready')
     job = os.path.join(directory, 'job.py')
     with open(job, 'w') as output:
-        output.write(f"import os,time; os.write(3,b'x'*4096); os.close(3); open({marker!r},'w').write(str(os.getpid())); time.sleep(30)")
+        output.write(f"""import os,time
+os.write(3,b'x'*4096)
+os.close(3)
+with open({marker + '.tmp'!r},'w') as ready:
+    ready.write(str(os.getpid()))
+os.rename({marker + '.tmp'!r},{marker!r})
+time.sleep(30)
+""")
     bootstrap = (f"import os; os.dup2({request_writer},3); os.dup2({response_reader},4); "
                  f"os.execv('/usr/local/bin/tool-call-pipe-bridge',"
                  f"['tool-call-pipe-bridge','--job-pipes',{sys.executable!r},{job!r}])")
