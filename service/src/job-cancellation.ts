@@ -45,8 +45,7 @@ function parseTarget(raw: string): JobTarget | undefined {
  *
  * The durable marker closes the publish-before-subscribe race while one
  * process-wide pub/sub connection makes active cancellation O(events), not
- * O(active jobs) Redis polling. Only explicitly cancellable replay jobs use
- * this path, so ordinary queue traffic pays no extra Redis round trips.
+ * O(active jobs) Redis polling. Only explicitly cancellable jobs use this path.
  */
 export class JobCancellationRegistry {
   private subscriber?: IORedis;
@@ -598,17 +597,6 @@ export async function waitForJobWithCancellation<T>(args: {
       deadlineAtMs,
     }));
   const externalController = new AbortController();
-  try {
-    await registry.register(target, externalController);
-  } catch (error) {
-    void completion.catch(() => undefined);
-    fallbackAbortController.abort();
-    const outcome = await fence();
-    if (outcome.status === 'completed') return outcome.result;
-    await removeJobIfWaiting(job).catch(() => false);
-    throw error;
-  }
-
   let removeAbortListener = (): void => {};
   const disconnected = new Promise<T>((resolve, reject) => {
     let cancelling = false;
@@ -636,6 +624,7 @@ export async function waitForJobWithCancellation<T>(args: {
       if (signal.aborted) cancel();
     }
   });
+  let removeExternalListener = (): void => {};
   const cancelled = new Promise<never>((_, reject) => {
     const cancel = (): void => {
       void removeJobIfWaiting(job).then(
@@ -643,11 +632,30 @@ export async function waitForJobWithCancellation<T>(args: {
         () => reject(programmaticCancellationError()),
       );
     };
+    removeExternalListener = () => externalController.signal.removeEventListener('abort', cancel);
     externalController.signal.addEventListener('abort', cancel, {
       once: true,
     });
     if (externalController.signal.aborted) cancel();
   });
+
+  // Caller cancellation and completion must not wait for pub/sub recovery.
+  // Own late registration too: it may finish after this request has settled.
+  let settled = false;
+  const registration = registry.register(target, externalController);
+  void registration.then(() => {
+    if (settled) void registry.unregister(target, externalController).catch(() => undefined);
+  }, () => undefined);
+  const registrationFailure = registration.then(
+    () => new Promise<never>(() => {}),
+    async error => {
+      if (settled) return new Promise<never>(() => {});
+      const outcome = await fence();
+      if (outcome.status === 'completed') return outcome.result;
+      await removeJobIfWaiting(job).catch(() => false);
+      throw error;
+    },
+  );
 
   // A cancelled request stops awaiting the BullMQ result, so attach a sink to
   // the losing promise before racing it to avoid an unhandled late rejection.
@@ -661,7 +669,7 @@ export async function waitForJobWithCancellation<T>(args: {
   );
   try {
     return await Promise.race(
-      fallback ? [completion, disconnected, cancelled, fallback] : [completion, disconnected, cancelled],
+      fallback ? [completion, disconnected, cancelled, registrationFailure, fallback] : [completion, disconnected, cancelled, registrationFailure],
     );
   } catch (error) {
     // Includes waitUntilFinished timeouts and registration/transport errors,
@@ -670,7 +678,9 @@ export async function waitForJobWithCancellation<T>(args: {
     if (outcome.status === 'completed') return outcome.result;
     throw error;
   } finally {
+    settled = true;
     removeAbortListener();
+    removeExternalListener();
     // Stop the additive poller as soon as any outcome wins, so it never keeps
     // reading Redis after completion, cancellation, or timeout.
     fallbackAbortController.abort();

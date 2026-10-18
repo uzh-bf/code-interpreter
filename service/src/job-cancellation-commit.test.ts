@@ -429,3 +429,34 @@ for (const failedStage of ['subscription', 'completion'] as const) {
     }
   });
 }
+
+
+test('committed completion wins a disconnect even during stalled subscription startup', async () => {
+  const result = { stdout: 'committed before Stop' };
+  await commitJobResult(redis, target, result, 60);
+  const registry = new JobCancellationRegistry(redis);
+  let finishRegistration!: () => void;
+  registry.register = () => new Promise<void>(resolve => {
+    finishRegistration = resolve;
+  });
+  const controller = new AbortController();
+  const job = {
+    id: target.jobId,
+    queueName: target.queueName,
+    waitUntilFinished: () => new Promise<never>(() => {}),
+  } as unknown as Parameters<typeof waitForJobWithCancellation>[0]['job'];
+  try {
+    const waiting = waitForJobWithCancellation({
+      commands: redis, registry, job,
+      events: {} as Parameters<typeof waitForJobWithCancellation>[0]['events'],
+      timeoutMs: 1000, cancellationTtlSeconds: 60, signal: controller.signal,
+    });
+    controller.abort();
+    await expect(waiting).resolves.toEqual(result);
+    expect(await requestJobCancellation(redis, target, 60)).toBe(false);
+    expect(await readCommittedJobResult(redis, target)).toEqual({ result });
+  } finally {
+    finishRegistration();
+    await registry.close();
+  }
+});

@@ -7,6 +7,7 @@ test('/exec validates timeout before enqueue and forwards its cap to both langua
   const probe = Bun.spawn([process.execPath, '-e', `
     import { mock } from 'bun:test';
     import assert from 'node:assert/strict';
+    import { EventEmitter } from 'node:events';
     const passthrough = (_req, _res, next) => next();
     mock.module('./src/middleware/auth', () => ({ sessionAuth: passthrough }));
     mock.module('./src/middleware/limits', () => ({
@@ -26,9 +27,7 @@ test('/exec validates timeout before enqueue and forwards its cap to both langua
       pyQueue: queue('python'), otherQueue: queue('other'),
       pyQueueEvents: {}, otherQueueEvents: {}, queueNames: { python: 'python', other: 'other' },
       connection: { set: async () => { writes++; return 'OK'; } },
-      // UZH fork: the router waits through the events+poll fallback rather than
-      // job.waitUntilFinished, so the mock must expose the same contract.
-      waitForJobFinished: async (job) => job.waitUntilFinished(),
+      jobCancellationRegistry: { register: async () => {}, unregister: async () => {} },
     }));
     const { env } = await import('./src/config');
     env.JOB_TIMEOUT = 15000;
@@ -42,12 +41,12 @@ test('/exec validates timeout before enqueue and forwards its cap to both langua
     async function request(lang, timeout) {
       submitted = [];
       writes = 0;
-      const req = {
-        body: { code: 'print(1)', lang, timeout }, headers: {}, header: () => undefined, on: () => {},
+      const req = Object.assign(new EventEmitter(), {
+        body: { code: 'print(1)', lang, timeout }, headers: {}, header: () => undefined,
         codeApiPrincipal: { userId: 'user', tenantId: 'tenant', principalSource: 'none' },
         codeApiAuthContext: { userId: 'user', tenantId: 'tenant' },
-      };
-      const res = { status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+      });
+      const res = Object.assign(new EventEmitter(), { status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
       await handler(req, res);
       return res;
     }
