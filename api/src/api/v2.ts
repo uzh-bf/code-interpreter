@@ -477,6 +477,12 @@ router.use('/execute', (_req: Request, res: Response, next: NextFunction) => {
  * bytes should still move through the gateway/file path. */
 router.post('/execute', express.json({ limit: config.execute_body_limit }), async (req: Request, res: Response) => {
   const started = performance.now();
+  const cancellation = new AbortController();
+  const onClose = () => {
+    if (!res.writableFinished) cancellation.abort(new DOMException('Execution caller disconnected', 'AbortError'));
+  };
+  res.once('close', onClose);
+  if (res.destroyed) onClose();
   let job: Job | undefined;
   let cleanedUp = false;
   let activeExecution = false;
@@ -580,12 +586,13 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
     try {
       await withSpan('codeapi.sandbox.prime', {
         'codeapi.language': job.runtime.language,
-      }, () => job!.prime());
+      }, () => job!.prime(cancellation.signal));
       primeCompleted = true;
       const result = await withSpan('codeapi.sandbox.run', {
         'codeapi.language': job.runtime.language,
-      }, () => job!.execute());
+      }, () => job!.execute(cancellation.signal));
 
+      cancellation.signal.throwIfAborted();
       if (result.run === undefined) {
         result.run = result.compile;
       }
@@ -628,10 +635,15 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
       /* Upload must finish before cleanup, and cleanup must settle before
        * acknowledging completion. Failed removals retain a quarantined UID. */
       await cleanupHandler();
+      cancellation.signal.throwIfAborted();
       metricsOutcome = 'success';
       return res.status(200).json(result);
     } catch (error) {
       await cleanupHandler();
+      if (cancellation.signal.aborted) {
+        if (primeCompleted) job?.markSessionDirty('execution caller disconnected');
+        return;
+      }
       /* Deliberately BEFORE the ValidationError branch below: once priming has
        * completed, the workspace has been written to, so any later failure —
        * including a validation one — leaves state the next execute must not
@@ -674,6 +686,7 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
       await cleanupHandler();
     }
   } finally {
+    res.removeListener('close', onClose);
     if (activeExecution) {
       activeSandboxExecutions.dec();
     }

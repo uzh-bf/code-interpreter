@@ -247,9 +247,11 @@ interface ExecuteOptions {
   identity: SandboxJobIdentity;
   enableToolCallPipes?: boolean;
   suppressSuccessLogs?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate = defaultNsJailSetupGate): Promise<NsJailResult> {
+  opts.signal?.throwIfAborted();
   const {
     command,
     envVars,
@@ -394,6 +396,8 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
    * `Failed to spawn nsjail: ...` to the caller, matching the
    * synchronous-failure path's contract. */
   let spawnError: NodeJS.ErrnoException | null = null;
+  let removeCancellationListener = (): void => {};
+  let terminationWatchdog: ReturnType<typeof setTimeout> | undefined;
   /* Aborts the setup-gate's marker-poll loop the instant the child
    * dies — without it, every async spawn failure pays the full
    * watchdogMs (default 1500ms) while holding the serialized gate,
@@ -402,6 +406,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
   const childDiedSignal = new AbortController();
   try {
     ({ value: proc, markerSeen, pollError } = await setupGate.runSetup(logPath, () => {
+      opts.signal?.throwIfAborted();
       const pipeMode = enableToolCallPipes === true;
       if (pipeMode && (config.allowed_local_network_port <= 0 || !process.env.SANDBOX_FORWARD_TARGET?.trim())) {
         throw new Error('tool-call pipe broker is not configured');
@@ -438,7 +443,30 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
        * 'close' event fires for a failed spawn without a paired 'error'.
        * Aborting on close too guarantees the gate releases regardless
        * of which event sequence the runtime picks. */
-      child.on('close', () => childDiedSignal.abort());
+      child.on('close', () => { clearTimeout(terminationWatchdog); childDiedSignal.abort(); });
+      let cancelling = false;
+      const cancel = () => {
+        if (cancelling) return;
+        cancelling = true;
+        if (child.pid != null && child.exitCode === null && child.signalCode === null) {
+          // Each supervisor forwards termination and reaps its child. Killing
+          // the group would prevent that ownership chain from settling.
+          try { child.kill('SIGTERM'); } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+              logger.error({ logId, code: (error as NodeJS.ErrnoException).code }, 'Failed to signal owned execution');
+            }
+          }
+          terminationWatchdog = setTimeout(() => {
+            logger.error({ component: 'sandbox-api', stage: 'shutdown', reason: 'timeout', timeoutMs: 5_000, retryable: false },
+              'Owned execution termination stalled; retaining execution identity until exit');
+          }, 5_000);
+          terminationWatchdog.unref();
+        }
+        childDiedSignal.abort();
+      };
+      removeCancellationListener = () => opts.signal?.removeEventListener('abort', cancel);
+      opts.signal?.addEventListener('abort', cancel, { once: true });
+      if (opts.signal?.aborted) cancel();
       stdoutDrain = drainStream(child, child.stdout, 'stdout');
       stderrDrain = drainStream(child, child.stderr, 'stderr');
       void stdoutDrain.catch(() => {});
@@ -456,8 +484,10 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
       return child;
     }, childDiedSignal.signal));
   } catch (err) {
+    removeCancellationListener();
     try { fs.unlinkSync(logPath); } catch { /* ignore */ }
     try { fs.unlinkSync(cfgPath); } catch { /* ignore */ }
+    opts.signal?.throwIfAborted();
     throw new Error(`Failed to spawn nsjail: ${(err as Error).message}`);
   }
   /* Short-circuit BEFORE the drain wait AND BEFORE the watchdog-warn
@@ -466,6 +496,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
    * fired" warning + metric increment. Cleanup mirrors the
    * synchronous-spawn-failure catch above. */
   if (spawnError) {
+    removeCancellationListener();
     try { fs.unlinkSync(logPath); } catch { /* ignore */ }
     try { fs.unlinkSync(cfgPath); } catch { /* ignore */ }
     const errno: NodeJS.ErrnoException = spawnError;
@@ -495,7 +526,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
     proc.stdin.end();
   }
 
-  await Promise.all([
+  const drained = await Promise.allSettled([
     stdoutDrain ?? drainStream(proc, proc.stdout, 'stdout'),
     stderrDrain ?? drainStream(proc, proc.stderr, 'stderr'),
   ]);
@@ -550,6 +581,13 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
     }
     proc.once('close', (code, signal) => resolve(decode(code, signal)));
   });
+  removeCancellationListener();
+  const drainFailure = drained.find(result => result.status === 'rejected');
+  if (drainFailure?.status === 'rejected') {
+    try { fs.unlinkSync(logPath); } catch { /* ignore */ }
+    try { fs.unlinkSync(cfgPath); } catch { /* ignore */ }
+    throw drainFailure.reason;
+  }
   const wallTime = Date.now() - startTime;
 
   // Pre-cleanup diagnostic only: Job.cleanup records post-cleanup resources.
@@ -613,6 +651,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
     try { fs.unlinkSync(cfgPath); } catch { /* ignore */ }
   }
 
+  opts.signal?.throwIfAborted();
   let code: number | null = exitCode;
   if (code !== null && code > 128 && !signal) {
     signal = SIGNALS[code - 128] ?? null;

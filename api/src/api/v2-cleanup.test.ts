@@ -187,3 +187,45 @@ test('client disconnect does not clean a workspace while execution is still runn
   }
   expect(cleanupCount).toBe(1);
 });
+
+
+test('disconnect signals running execution, joins it, and never uploads its late result', async () => {
+  config.require_execution_manifest = false;
+  let started!: () => void;
+  let aborted!: () => void;
+  let finish!: () => void;
+  let cleaned!: () => void;
+  const executing = new Promise<void>(resolve => { started = resolve; });
+  const cancelled = new Promise<void>(resolve => { aborted = resolve; });
+  const exiting = new Promise<void>(resolve => { finish = resolve; });
+  const cleanup = new Promise<void>(resolve => { cleaned = resolve; });
+  let uploads = 0;
+  let cleanupCount = 0;
+  Job.prototype.prime = async () => {};
+  Job.prototype.execute = async function (signal) {
+    signal!.addEventListener('abort', () => aborted(), { once: true });
+    started();
+    await exiting;
+    return { files: [{ name: 'late.csv', id: 'late' }] } as Awaited<ReturnType<Job['execute']>>;
+  };
+  Job.prototype.uploadGeneratedFiles = async () => { uploads++; return new Set(['late']); };
+  Job.prototype.cleanup = async () => { cleanupCount++; cleaned(); };
+  const controller = new AbortController();
+  const request = fetch(url, { method: 'POST', signal: controller.signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ language, version: '1.0.0', files: [{ name: 'main.txt', content: 'test' }] }),
+  });
+  void request.catch(() => undefined);
+  try {
+    await executing;
+    controller.abort();
+    await expect(request).rejects.toBeDefined();
+    await cancelled;
+    expect(cleanupCount).toBe(0);
+  } finally {
+    finish();
+    await cleanup;
+  }
+  expect(cleanupCount).toBe(1);
+  expect(uploads).toBe(0);
+});
