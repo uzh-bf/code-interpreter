@@ -41,7 +41,7 @@ import logger from '../logger';
 import { resolveQueuedSandboxBackend } from '../execution-profile';
 import { observeRequestDisconnect } from '../request-disconnect';
 import { pollJobUntilFinished } from '../queue-wait';
-import { fenceJobCancellation, programmaticCancellationError, removeJobIfWaiting, waitForJobWithCancellation } from '../job-cancellation';
+import { fenceJobCancellation, programmaticCancellationError, removeJobIfWaiting, waitForJobWithCancellation, type JobFenceOutcome } from '../job-cancellation';
 
 const { INSTANCE_ID } = env;
 const JOB_COMPLETION_WAIT_TIMEOUT_MS = jobCompletionWaitTimeoutMs(
@@ -327,7 +327,7 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
     const target = { queueName, jobId: session_id };
     const submittedAtMs = Date.now();
     const deadlineAtMs = submittedAtMs + env.JOB_TIMEOUT;
-    let fence: ReturnType<typeof fenceJobCancellation<t.ExecuteResult>> | undefined;
+    let fence: Promise<JobFenceOutcome<t.ExecuteResult>> | undefined;
     const fenceAdmission = () => fence ??= fenceJobCancellation<t.ExecuteResult>({
       commands: connection, target, ttlSeconds: CANCELLATION_TTL_SECONDS, deadlineAtMs,
     });

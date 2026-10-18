@@ -643,11 +643,11 @@ export async function waitForJobWithCancellation<T>(args: {
   // Own late registration too: it may finish after this request has settled.
   let settled = false;
   const registration = registry.register(target, externalController);
-  void registration.then(() => {
-    if (settled) void registry.unregister(target, externalController).catch(() => undefined);
-  }, () => undefined);
   const registrationFailure = registration.then(
-    () => new Promise<never>(() => {}),
+    () => {
+      if (settled) void registry.unregister(target, externalController).catch(() => undefined);
+      return new Promise<never>(() => {});
+    },
     async error => {
       if (settled) return new Promise<never>(() => {});
       const outcome = await fence();
