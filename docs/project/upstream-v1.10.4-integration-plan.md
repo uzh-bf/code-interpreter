@@ -310,8 +310,10 @@ qualification, merged CI, image publication and environment acceptance remain
 separate. Preserve the original plan location, private receipt directory,
 recovery branches and independent retention follow-ups.
 
-Progress: source preparation and hosted qualification are pending. No deployment
-or later release is accepted by this amendment alone.
+Source integration and commit-addressed image publication are qualified. The
+approved staging amendment below governs runtime verification; production and
+full chart-source alignment retain their separate gates. Operational acceptance
+and detailed current checkpoints remain in ignored private receipts.
 
 
 ## Approved values-only staging GitOps amendment
