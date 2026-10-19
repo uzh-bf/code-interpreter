@@ -195,6 +195,33 @@ if grep -q '^kind: NetworkPolicy$' "$TMP_DIR/no-policy.yaml"; then
     exit 1
 fi
 
+# Lifecycle selection is minted by the gateway and observed by the guest.
+cat > "$TMP_DIR/lifecycle.yaml" <<'YAML'
+egressGateway:
+  extraEnv:
+    - name: SANDBOX_E2E_LIFECYCLE_CASE
+      value: synthetic-render-only
+workerSandbox:
+  sandboxExtraEnv:
+    - name: SANDBOX_E2E_LIFECYCLE_CASE
+      value: synthetic-render-only
+YAML
+if grep -q SANDBOX_E2E_LIFECYCLE_CASE "$TMP_DIR/default.yaml"; then
+    echo 'lifecycle observation must remain disabled by default' >&2
+    exit 1
+fi
+render -f "$TMP_DIR/lifecycle.yaml" > "$TMP_DIR/lifecycle-render.yaml"
+for component in egress-gateway sandbox-runner; do
+    resource "$TMP_DIR/lifecycle-render.yaml" Deployment "telemetry-codeapi-$component" > "$TMP_DIR/lifecycle-$component.yaml"
+    contains "$TMP_DIR/lifecycle-$component.yaml" 'name: SANDBOX_E2E_LIFECYCLE_CASE'
+    contains "$TMP_DIR/lifecycle-$component.yaml" 'value: synthetic-render-only'
+done
+[[ "$(grep -c 'name: SANDBOX_E2E_LIFECYCLE_CASE' "$TMP_DIR/lifecycle-render.yaml")" == 2 ]]
+render -f "$TMP_DIR/lifecycle.yaml" --set egressGateway.extraEnv=null > "$TMP_DIR/no-gateway-env.yaml"
+resource "$TMP_DIR/no-gateway-env.yaml" Deployment telemetry-codeapi-egress-gateway > "$TMP_DIR/no-gateway-env-deployment.yaml"
+resource "$TMP_DIR/default.yaml" Deployment telemetry-codeapi-egress-gateway > "$TMP_DIR/default-gateway.yaml"
+cmp "$TMP_DIR/default-gateway.yaml" "$TMP_DIR/no-gateway-env-deployment.yaml"
+
 helm lint "$TMP_DIR/chart" --set executionManifest.privateKey=test --set executionManifest.publicKey=test \
     --set metrics.enabled=true -f "$TMP_DIR/scraper.yaml"
 echo 'Sandbox runner metrics chart regressions passed'

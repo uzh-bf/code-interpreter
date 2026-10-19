@@ -463,6 +463,7 @@ toolCallServer:
 egressGateway:
   enabled: true
   replicaCount: 1
+  extraEnv: []
 
   image:
     repository: codeapi-egress-gateway
