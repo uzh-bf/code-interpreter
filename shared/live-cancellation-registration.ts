@@ -82,8 +82,7 @@ export function parseLifecycleRegistration(
   if (typeof program_sha256 !== 'string' || !SHA256_HEX_RE.test(program_sha256)) return undefined;
   if (
     typeof output_basename !== 'string' ||
-    !OUTPUT_BASENAME_RE.test(output_basename) ||
-    output_basename.includes('/')
+    !OUTPUT_BASENAME_RE.test(output_basename)
   ) {
     return undefined;
   }
@@ -137,8 +136,7 @@ export function validLifecycleBinding(value: unknown): value is LifecycleBinding
   if (typeof value.program_sha256 !== 'string' || !SHA256_HEX_RE.test(value.program_sha256)) return false;
   return (
     typeof value.output_session_id === 'string' &&
-    OPAQUE_OUTPUT_SESSION_RE.test(value.output_session_id) &&
-    !value.output_session_id.startsWith('ceg1.')
+    OPAQUE_OUTPUT_SESSION_RE.test(value.output_session_id)
   );
 }
 
