@@ -8,6 +8,7 @@ import { logger } from './logger';
 import { defaultNsJailSetupGate, type NsJailSetupGate } from './nsjail-setup-gate';
 import { nsjailSetupGateWatchdogFires } from './metrics';
 import { SANDBOX_INSIDE_GID, SANDBOX_INSIDE_UID, type SandboxJobIdentity } from './workspace-isolation';
+import type { LiveCancellationObserver } from './live-cancellation-observer';
 
 export interface NsJailResult {
   stdout: string;
@@ -248,6 +249,7 @@ interface ExecuteOptions {
   enableToolCallPipes?: boolean;
   suppressSuccessLogs?: boolean;
   signal?: AbortSignal;
+  lifecycleObserver?: LiveCancellationObserver;
 }
 
 export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate = defaultNsJailSetupGate): Promise<NsJailResult> {
@@ -305,6 +307,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
       const decoder = new TextDecoder();
       stream.on('data', (data: Buffer | string) => {
         const buf = typeof data === 'string' ? Buffer.from(data) : data;
+        if (target === 'stderr') opts.lifecycleObserver?.stderr(buf, child.pid);
         const chunk = decoder.decode(buf, { stream: true });
 
         if (target === 'stdout') {
@@ -448,15 +451,21 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
       const cancel = () => {
         if (cancelling) return;
         cancelling = true;
+        opts.lifecycleObserver?.beforeAbort();
         if (child.pid != null && child.exitCode === null && child.signalCode === null) {
           // Each supervisor forwards termination and reaps its child. Killing
           // the group would prevent that ownership chain from settling.
-          try { child.kill('SIGTERM'); } catch (error) {
+          try {
+            const accepted = child.kill('SIGTERM');
+            opts.lifecycleObserver?.signalAccepted(accepted);
+          } catch (error) {
+            opts.lifecycleObserver?.signalAccepted(false);
             if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
               logger.error({ logId, code: (error as NodeJS.ErrnoException).code }, 'Failed to signal owned execution');
             }
           }
           terminationWatchdog = setTimeout(() => {
+            opts.lifecycleObserver?.reject('termination_stalled');
             logger.error({ component: 'sandbox-api', stage: 'shutdown', reason: 'timeout', timeoutMs: 5_000, retryable: false },
               'Owned execution termination stalled; retaining execution identity until exit');
           }, 5_000);
@@ -651,6 +660,7 @@ export async function execute(opts: ExecuteOptions, setupGate: NsJailSetupGate =
     try { fs.unlinkSync(cfgPath); } catch { /* ignore */ }
   }
 
+  opts.lifecycleObserver?.executionSettled(opts.signal?.aborted === true, killStatus ?? logStatus);
   opts.signal?.throwIfAborted();
   let code: number | null = exitCode;
   if (code !== null && code > 128 && !signal) {

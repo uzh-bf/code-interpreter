@@ -25,11 +25,20 @@ import {
 } from './egress-grant';
 import { openEgressRouteHandle } from './egress-route-params';
 import type * as t from './types';
+import {
+  LifecycleCaseRegistry,
+  inlineProgramSha256,
+} from '../../shared/live-cancellation-registration';
 
 const SECRET = 'test-egress-secret-32-bytes-minimum';
 const GRANT_ID = 'grant_123';
 const TOKEN_PREFIX = 'ceg1';
 const AAD = Buffer.from('codeapi-egress-grant:v1', 'utf8');
+const LIFECYCLE_NOW_MS = 1_700_000_000_000;
+const LIFECYCLE_CASE_ID = 'case_0123456789abcdef';
+const LIFECYCLE_PROGRAM = '#!/bin/bash\nprintf start\nsleep 1\n';
+const LIFECYCLE_PROGRAM_SHA256 = crypto.createHash('sha256').update(LIFECYCLE_PROGRAM, 'utf8').digest('hex');
+const LIFECYCLE_OUTPUT_SESSION = 'abcdefghijklmnopqrstu';
 
 function claims(overrides: Partial<ExecutionManifestClaims> = {}): ExecutionManifestClaims {
   return {
@@ -113,6 +122,34 @@ function sealRawEgressToken(claims: unknown, secret = SECRET): string {
     ciphertext.toString('base64url'),
     tag.toString('base64url'),
   ].join('.');
+}
+
+function lifecycleRegistration(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    case_id: LIFECYCLE_CASE_ID,
+    program_sha256: LIFECYCLE_PROGRAM_SHA256,
+    output_basename: 'lifecycle.out',
+    horizon_ms: 5_000,
+    expires_at_ms: LIFECYCLE_NOW_MS + 60_000,
+    ...overrides,
+  });
+}
+
+function lifecyclePayload(): t.PayloadBody {
+  return {
+    language: 'bash',
+    version: '5.2.0',
+    session_id: LIFECYCLE_OUTPUT_SESSION,
+    files: [{ name: 'main.sh', content: LIFECYCLE_PROGRAM }],
+  };
+}
+
+function lifecycleClaims(): ExecutionManifestClaims {
+  return claims({ output_session_id: LIFECYCLE_OUTPUT_SESSION, input_files: [], read_sessions: [] });
+}
+
+function lifecycleRegistry(raw: string | undefined): LifecycleCaseRegistry {
+  return new LifecycleCaseRegistry(raw, () => LIFECYCLE_NOW_MS);
 }
 
 describe('egress encrypted grants and handles', () => {
@@ -644,5 +681,126 @@ describe('egress encrypted grants and handles', () => {
     const fileRef = prepared.payload.files[0] as { id: string; storage_session_id: string };
     expect(openEgressHandle(fileRef.id, SECRET, 1089)).toMatchObject({ exp: 1090 });
     expect(openEgressHandle(fileRef.storage_session_id, SECRET, 1089)).toMatchObject({ exp: 1090 });
+  });
+
+  test('strips injected lifecycle bindings and keeps default masking when no registration is active', () => {
+    const injected = {
+      case_id: LIFECYCLE_CASE_ID,
+      program_sha256: LIFECYCLE_PROGRAM_SHA256,
+      output_session_id: LIFECYCLE_OUTPUT_SESSION,
+    };
+    const payload = { ...lifecyclePayload(), e2e_lifecycle_binding: injected } as t.PayloadBody;
+    const prepared = prepareSandboxEgress({
+      payload,
+      claims: { ...lifecycleClaims(), e2e_lifecycle_binding: injected },
+      grantId: GRANT_ID,
+      secret: SECRET,
+      lifecycleRegistry: lifecycleRegistry(undefined),
+    });
+
+    expect(prepared.executionManifestClaims.e2e_lifecycle_binding).toBeUndefined();
+    expect((prepared.payload as unknown as Record<string, unknown>).e2e_lifecycle_binding).toBeUndefined();
+    expect(prepared.payload.session_id).toMatch(/^sbx_[A-Za-z0-9_-]+$/);
+    expect(prepared.payload.session_id).not.toBe(prepared.payload.output_session_id);
+    expect(openEgressHandle(prepared.payload.output_session_id!, SECRET, 150)).toMatchObject({
+      typ: 'session',
+      dir: 'write',
+      session_id: LIFECYCLE_OUTPUT_SESSION,
+    });
+  });
+
+  test('binds one fresh synthetic Bash case to the original output session, never the write capability', () => {
+    const prepared = prepareSandboxEgress({
+      payload: lifecyclePayload(),
+      claims: lifecycleClaims(),
+      grantId: GRANT_ID,
+      secret: SECRET,
+      lifecycleRegistry: lifecycleRegistry(lifecycleRegistration()),
+    });
+    const binding = prepared.executionManifestClaims.e2e_lifecycle_binding;
+
+    expect(binding).toEqual({
+      case_id: LIFECYCLE_CASE_ID,
+      program_sha256: LIFECYCLE_PROGRAM_SHA256,
+      output_session_id: LIFECYCLE_OUTPUT_SESSION,
+    });
+    expect(Object.keys(binding!)).toEqual(['case_id', 'program_sha256', 'output_session_id']);
+    expect(binding!.output_session_id).not.toBe(prepared.payload.output_session_id);
+    expect(JSON.stringify(binding)).not.toContain('ceg1.');
+  });
+
+  test('omits lifecycle metadata on duplicate, retried, concurrently losing and expired claims', async () => {
+    const registry = lifecycleRegistry(lifecycleRegistration());
+    const payload = lifecyclePayload();
+    const first = prepareSandboxEgress({
+      payload, claims: lifecycleClaims(), grantId: GRANT_ID, secret: SECRET, lifecycleRegistry: registry,
+    });
+    const retried = prepareSandboxEgress({
+      payload, claims: lifecycleClaims(), grantId: GRANT_ID, secret: SECRET, lifecycleRegistry: registry,
+    });
+    expect(first.executionManifestClaims.e2e_lifecycle_binding).toBeDefined();
+    expect(retried.executionManifestClaims.e2e_lifecycle_binding).toBeUndefined();
+
+    const concurrent = lifecycleRegistry(lifecycleRegistration());
+    const winners = await Promise.all([
+      Promise.resolve().then(() => concurrent.claim(LIFECYCLE_PROGRAM_SHA256)),
+      Promise.resolve().then(() => concurrent.claim(LIFECYCLE_PROGRAM_SHA256)),
+    ]);
+    expect(winners.filter(Boolean)).toHaveLength(1);
+
+    const failedThenMatched = lifecycleRegistry(lifecycleRegistration());
+    expect(failedThenMatched.claim('a'.repeat(64))).toBeUndefined();
+    expect(failedThenMatched.claim(LIFECYCLE_PROGRAM_SHA256, 'other_case_0123456789')).toBeUndefined();
+    expect(failedThenMatched.claim(LIFECYCLE_PROGRAM_SHA256)).toBeDefined();
+    expect(failedThenMatched.claim(LIFECYCLE_PROGRAM_SHA256)).toBeUndefined();
+
+    let nowMs = LIFECYCLE_NOW_MS;
+    const expiring = new LifecycleCaseRegistry(lifecycleRegistration(), () => nowMs);
+    nowMs += 60_000;
+    expect(expiring.claim(LIFECYCLE_PROGRAM_SHA256)).toBeUndefined();
+  });
+
+  test('requires a fresh inline Bash program whose session matches the server output claim', () => {
+    const prepare = (payload: t.PayloadBody, registry = lifecycleRegistry(lifecycleRegistration())) => prepareSandboxEgress({
+      payload, claims: lifecycleClaims(), grantId: GRANT_ID, secret: SECRET, lifecycleRegistry: registry,
+    }).executionManifestClaims.e2e_lifecycle_binding;
+
+    expect(prepare({ ...lifecyclePayload(), language: 'python' })).toBeUndefined();
+    expect(prepare({ ...lifecyclePayload(), session_id: 'anotherOutputSession1' })).toBeUndefined();
+    expect(prepare({
+      ...lifecyclePayload(),
+      files: [
+        { name: 'main.sh', content: LIFECYCLE_PROGRAM },
+        { name: 'extra.sh', content: 'echo extra\n' },
+      ],
+    })).toBeUndefined();
+    expect(prepare({
+      ...lifecyclePayload(),
+      files: [{ id: 'file_123', storage_session_id: 'sess_input', name: 'main.sh' }],
+    })).toBeUndefined();
+    expect(prepare({
+      ...lifecyclePayload(),
+      files: [{
+        name: 'main.sh',
+        content: LIFECYCLE_PROGRAM,
+        encoding: 'base64',
+      } as unknown as t.PayloadBody['files'][number]],
+    })).toBeUndefined();
+  });
+
+  test('digests the exact inline program after Job materializes absent ids and a session fallback', () => {
+    expect(inlineProgramSha256([{
+      name: 'main.sh',
+      content: LIFECYCLE_PROGRAM,
+      id: undefined,
+      storage_session_id: LIFECYCLE_OUTPUT_SESSION,
+      encoding: 'utf8',
+    }])).toBe(LIFECYCLE_PROGRAM_SHA256);
+    expect(inlineProgramSha256([{
+      name: 'main.sh',
+      content: LIFECYCLE_PROGRAM,
+      id: 'file_123',
+      storage_session_id: LIFECYCLE_OUTPUT_SESSION,
+    } as unknown as t.PayloadBody['files'][number]])).toBeUndefined();
   });
 });

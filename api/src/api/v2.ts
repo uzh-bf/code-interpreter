@@ -14,6 +14,13 @@ import {
 } from '../job';
 import { EXECUTION_MANIFEST_HEADER, ExecutionManifestError, type ExecutionManifestClaims } from '../execution-manifest';
 import { verifyExecuteRequestManifest } from '../execution-manifest-request';
+import {
+  LIFECYCLE_CASE_ENV,
+  inlineProgramSha256,
+  parseLifecycleRegistration,
+  validLifecycleBinding,
+  type VerifiedLifecycleBinding,
+} from '../../../shared/live-cancellation-registration';
 import { EGRESS_GRANT_HEADER } from '../egress';
 import { activeSandboxExecutions, recordSandboxExecution } from '../metrics';
 import { classifySandboxSafeError } from '../safe-error';
@@ -281,12 +288,42 @@ export function authorizeToolCallSocket(
   return false;
 }
 
+/**
+ * Selects diagnostic observation only from an already verified, body-bound
+ * manifest whose binding matches the one active guest registration. Parsing
+ * the registration here never consumes it; the observer claims it later.
+ */
+export function resolveVerifiedLifecycleBinding(
+  manifest: ExecutionManifestClaims | undefined,
+  files: unknown,
+  nowMs: number = Date.now(),
+): VerifiedLifecycleBinding | undefined {
+  if (!manifest) return undefined;
+  if (typeof manifest.execute_body_sha256 !== 'string' || manifest.execute_body_sha256 === '') {
+    return undefined;
+  }
+  const binding = manifest.e2e_lifecycle_binding;
+  if (!validLifecycleBinding(binding)) return undefined;
+  const registration = parseLifecycleRegistration(process.env[LIFECYCLE_CASE_ENV], nowMs);
+  if (!registration || registration.case_id !== binding.case_id) return undefined;
+  const programSha256 = inlineProgramSha256(files);
+  if (
+    !programSha256 ||
+    programSha256 !== registration.program_sha256 ||
+    programSha256 !== binding.program_sha256
+  ) {
+    return undefined;
+  }
+  return { execution_id: manifest.exec_id, binding };
+}
+
 function getJob(
   body: ExecuteRequestBody,
   egressGrantToken?: string,
   toolCallSocketEnabled = false,
   isSynthetic = false,
   runtimeSessionHeader?: string | string[],
+  lifecycleBinding?: VerifiedLifecycleBinding,
 ): Job {
   const {
     session_id, language, version, args, stdin, files: rawFiles,
@@ -391,6 +428,7 @@ function getJob(
     tool_call_socket_enabled: toolCallSocketEnabled,
     is_synthetic: isSynthetic,
     session,
+    ...(lifecycleBinding ? { lifecycle_binding: lifecycleBinding } : {}),
   });
 }
 
@@ -553,6 +591,7 @@ router.post('/execute', express.json({ limit: config.execute_body_limit }), asyn
         toolCallSocketEnabled,
         verifiedManifest?.principal_source === SYNTHETIC_PRINCIPAL_SOURCE,
         req.headers[RUNTIME_SESSION_ID_HEADER],
+        resolveVerifiedLifecycleBinding(verifiedManifest, req.body.files),
       );
       metricsLanguage = job.runtime.language;
       markActiveExecution();

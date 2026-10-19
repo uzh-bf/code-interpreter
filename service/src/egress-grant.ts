@@ -1,6 +1,13 @@
 import crypto from 'crypto';
 import type { ExecutionManifestClaims, ExecutionManifestInputFile } from './execution-manifest';
 import type * as t from './types';
+import {
+  LIFECYCLE_CASE_ENV,
+  LifecycleCaseRegistry,
+  inlineProgramSha256,
+  validLifecycleBinding,
+  type LifecycleBinding,
+} from '../../shared/live-cancellation-registration';
 
 export const EGRESS_GRANT_HEADER = 'X-CodeAPI-Egress-Grant';
 export const EGRESS_ERROR_CODE_HEADER = 'X-CodeAPI-Error-Code';
@@ -13,6 +20,10 @@ const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
 const LEGACY_GRANT_ID_PREFIX = 'legacy_';
 const LEGACY_MAX_OUTPUT_FILES = 50;
 const LEGACY_MAX_REQUESTS = 1000;
+
+/* The gateway claims at most one registration per process. Reading the opt-in
+ * environment once keeps the disabled path free of per-request I/O. */
+const processLifecycleRegistry = new LifecycleCaseRegistry(process.env[LIFECYCLE_CASE_ENV]);
 
 export type EgressGrantErrorReason =
   | 'missing_secret'
@@ -379,9 +390,26 @@ export function prepareSandboxEgress(args: {
   claims: ExecutionManifestClaims;
   grantId: string;
   secret: string;
+  lifecycleRegistry?: LifecycleCaseRegistry;
 }): PreparedSandboxEgress {
   const { claims, secret } = args;
   const grant = sealEgressGrant(egressGrantFromExecutionClaims(claims, args.grantId), secret);
+  /* Diagnostic metadata is reconstructed only below; discard any incoming
+   * payload/claim copy before the signed manifest is built. */
+  const sandboxVisibleClaims: ExecutionManifestClaims = { ...claims };
+  delete sandboxVisibleClaims.external_user_id;
+  // Manifests signed by pre-rename workers carry the legacy field name;
+  // keep scrubbing it until the external_user_id rollout completes.
+  delete (sandboxVisibleClaims as Record<string, unknown>)['chc_user_id']; // leak-check:allow
+  delete sandboxVisibleClaims.org_id;
+  delete sandboxVisibleClaims.service_id;
+  delete (sandboxVisibleClaims as unknown as Record<string, unknown>)['e2e_lifecycle_binding'];
+
+  const lifecycleBinding = lifecycleBindingForSandboxPayload(
+    args.payload,
+    claims,
+    args.lifecycleRegistry ?? processLifecycleRegistry,
+  );
   const sessionHandles = new Map<string, string>();
   const now = claims.iat;
 
@@ -434,15 +462,9 @@ export function prepareSandboxEgress(args: {
   }, secret);
   maskedPayload.session_id = sandboxWorkspaceSessionId();
   maskedPayload.output_session_id = outputSessionHandle;
+  delete (maskedPayload as unknown as Record<string, unknown>)['e2e_lifecycle_binding'];
 
   const maskedInputFiles = collectMaskedInputFiles(maskedPayload);
-  const sandboxVisibleClaims: ExecutionManifestClaims = { ...claims };
-  delete sandboxVisibleClaims.external_user_id;
-  // Manifests signed by pre-rename workers carry the legacy field name;
-  // keep scrubbing it until the external_user_id rollout completes.
-  delete (sandboxVisibleClaims as Record<string, unknown>)['chc_user_id']; // leak-check:allow
-  delete sandboxVisibleClaims.org_id;
-  delete sandboxVisibleClaims.service_id;
   const executionManifestClaims: ExecutionManifestClaims = {
     ...sandboxVisibleClaims,
     tenant_id: opaqueLabel('tenant', claims.tenant_id),
@@ -451,6 +473,7 @@ export function prepareSandboxEgress(args: {
     input_files: maskedInputFiles,
     read_sessions: Array.from(new Set(maskedInputFiles.map(file => file.session_id))).sort(),
     output_session_id: outputSessionHandle,
+    ...(lifecycleBinding ? { e2e_lifecycle_binding: lifecycleBinding } : {}),
   };
 
   return {
@@ -458,6 +481,31 @@ export function prepareSandboxEgress(args: {
     egressGrantToken: grant,
     executionManifestClaims,
   };
+}
+
+/**
+ * Binds one fresh synthetic inline Bash case to the original, unmasked output
+ * session. The binding never carries the sealed write capability.
+ */
+function lifecycleBindingForSandboxPayload(
+  payload: t.PayloadBody,
+  claims: ExecutionManifestClaims,
+  registry: LifecycleCaseRegistry,
+): LifecycleBinding | undefined {
+  if (payload.language !== 'bash') return undefined;
+  if (typeof payload.session_id !== 'string' || payload.session_id !== claims.output_session_id) {
+    return undefined;
+  }
+  const programSha256 = inlineProgramSha256(payload.files);
+  if (!programSha256) return undefined;
+  const registration = registry.claim(programSha256);
+  if (!registration) return undefined;
+  const binding: LifecycleBinding = {
+    case_id: registration.case_id,
+    program_sha256: programSha256,
+    output_session_id: claims.output_session_id,
+  };
+  return validLifecycleBinding(binding) ? binding : undefined;
 }
 
 function inputFileKey(file: Pick<ExecutionManifestInputFile, 'session_id' | 'id' | 'name'>): string {

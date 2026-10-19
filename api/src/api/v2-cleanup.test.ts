@@ -8,6 +8,12 @@ import { config } from '../config';
 import { Job } from '../job';
 import { loadPackage } from '../runtime';
 import { ValidationError } from '../validation';
+import {
+  EXECUTION_MANIFEST_HEADER,
+  EXECUTION_MANIFEST_VERSION,
+  executionManifestBodySha256,
+  signExecutionManifest,
+} from '../execution-manifest';
 import router from './v2';
 
 let server: Server;
@@ -228,4 +234,124 @@ test('disconnect signals running execution, joins it, and never uploads its late
   }
   expect(cleanupCount).toBe(1);
   expect(uploads).toBe(0);
+});
+
+test('executes ordinarily when a signed manifest carries no lifecycle metadata', async () => {
+  config.require_execution_manifest = true;
+  const previousSecret = config.execution_manifest_secret;
+  const previousPublicKey = config.execution_manifest_public_key;
+  config.execution_manifest_secret = 'test-manifest-secret';
+  config.execution_manifest_public_key = '';
+  const events: string[] = [];
+  Job.prototype.prime = async function () { events.push('prime'); };
+  Job.prototype.execute = async function () {
+    events.push('execute');
+    return {} as Awaited<ReturnType<Job['execute']>>;
+  };
+  Job.prototype.cleanup = async function () { events.push('cleanup'); };
+  try {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const body = {
+      session_id: 'sess_cleanup_output',
+      language,
+      version: '1.0.0',
+      files: [{ name: 'main.txt', content: 'test' }],
+    };
+    const token = signExecutionManifest({
+      v: EXECUTION_MANIFEST_VERSION,
+      exec_id: 'exec_cleanup',
+      tenant_id: 'tenant_cleanup',
+      user_id: 'user_cleanup',
+      session_key: 'tenant:tenant_cleanup:user:user_cleanup',
+      input_files: [],
+      read_sessions: [],
+      output_session_id: body.session_id,
+      max_upload_bytes: 1024,
+      max_output_files: 10,
+      max_requests: 10,
+      iat: nowSeconds - 10,
+      exp: nowSeconds + 300,
+      execute_body_sha256: executionManifestBodySha256(body),
+    }, 'test-manifest-secret');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [EXECUTION_MANIFEST_HEADER]: token,
+      },
+      body: JSON.stringify({ ...body, execution_manifest: token }),
+    });
+
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(events).toEqual(['prime', 'execute', 'cleanup']);
+  } finally {
+    config.execution_manifest_secret = previousSecret;
+    config.execution_manifest_public_key = previousPublicKey;
+  }
+});
+
+test('rejects an unsigned lifecycle binding injected into a signed request body', async () => {
+  config.require_execution_manifest = true;
+  const previousSecret = config.execution_manifest_secret;
+  const previousPublicKey = config.execution_manifest_public_key;
+  config.execution_manifest_secret = 'test-manifest-secret';
+  config.execution_manifest_public_key = '';
+  const events: string[] = [];
+  Job.prototype.prime = async function () { events.push('prime'); };
+  Job.prototype.execute = async function () {
+    events.push('execute');
+    return {} as Awaited<ReturnType<Job['execute']>>;
+  };
+  Job.prototype.cleanup = async function () { events.push('cleanup'); };
+  try {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const body = {
+      session_id: 'sess_cleanup_output',
+      language,
+      version: '1.0.0',
+      files: [{ name: 'main.txt', content: 'test' }],
+    };
+    const token = signExecutionManifest({
+      v: EXECUTION_MANIFEST_VERSION,
+      exec_id: 'exec_cleanup',
+      tenant_id: 'tenant_cleanup',
+      user_id: 'user_cleanup',
+      session_key: 'tenant:tenant_cleanup:user:user_cleanup',
+      input_files: [],
+      read_sessions: [],
+      output_session_id: body.session_id,
+      max_upload_bytes: 1024,
+      max_output_files: 10,
+      max_requests: 10,
+      iat: nowSeconds - 10,
+      exp: nowSeconds + 300,
+      execute_body_sha256: executionManifestBodySha256(body),
+    }, 'test-manifest-secret');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [EXECUTION_MANIFEST_HEADER]: token,
+      },
+      body: JSON.stringify({
+        ...body,
+        execution_manifest: token,
+        e2e_lifecycle_binding: {
+          case_id: 'case_0123456789abcdef',
+          program_sha256: 'b'.repeat(64),
+          output_session_id: 'abcdefghijklmnopqrstu',
+        },
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    await response.text();
+    expect(events).toEqual([]);
+  } finally {
+    config.execution_manifest_secret = previousSecret;
+    config.execution_manifest_public_key = previousPublicKey;
+  }
 });

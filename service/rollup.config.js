@@ -42,6 +42,7 @@ export default {
         'src/**/*.ts',
         '../shared/operational-log.ts',
         '../shared/telemetry-core.ts',
+        '../shared/live-cancellation-registration.ts',
         '../packages/code/src/protocol.ts',
         '../packages/code/src/identity.ts',
       ],

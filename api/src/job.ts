@@ -13,6 +13,8 @@ import type { Runtime } from './runtime';
 import { logger as rootLogger } from './logger';
 import { getRuntimes } from './runtime';
 import { execute } from './nsjail';
+import { observeLifecycleCase, type LiveCancellationObserver } from './live-cancellation-observer';
+import type { VerifiedLifecycleBinding } from '../../shared/live-cancellation-registration';
 import { config } from './config';
 import { recordCleanupResources } from './cleanup-metrics';
 import { internalServiceHeaders } from './internal-service-auth';
@@ -732,6 +734,8 @@ export class Job {
   private executionSignal?: AbortSignal;
   private workspaceLease: SandboxWorkspaceLease | undefined;
   private jobIdentity: SandboxJobIdentity | undefined;
+  private readonly lifecycleBinding?: VerifiedLifecycleBinding;
+  private lifecycleObserver?: LiveCancellationObserver;
   private generatedFiles: GeneratedFile[] = [];
   /** Session output-diffing: fileId → {name, signature} pending a surfaced-mark.
    *  Recorded during the workspace scan but only committed to `session.surfaced`
@@ -776,7 +780,9 @@ export class Job {
     is_synthetic?: boolean;
     /* Injected when this VM is bound to a stateful runtime session. */
     session?: SessionWorkspace | null;
+    lifecycle_binding?: VerifiedLifecycleBinding;
   }) {
+    this.lifecycleBinding = opts.lifecycle_binding;
     this.session = opts.session ?? undefined;
     this.uuid = opts.session_id ?? nanoid();
     this.outputSessionId = opts.output_session_id ?? this.uuid;
@@ -1680,12 +1686,23 @@ export class Job {
       enableToolCallPipes: this.toolCallPipesEnabled && script === 'run',
       suppressSuccessLogs: this.isSynthetic,
       signal: this.executionSignal,
+      lifecycleObserver: script === 'run' ? this.lifecycleObserver : undefined,
     });
   }
 
   async execute(signal = this.executionSignal): Promise<ExecuteResult> {
     this.executionSignal = signal;
     throwIfAborted(signal);
+    if (this.jobIdentity && this.lifecycleBinding) {
+      this.lifecycleObserver = observeLifecycleCase({
+        binding: this.lifecycleBinding,
+        identity: this.jobIdentity,
+        files: this.files,
+        language: this.runtime.language,
+        compiled: this.runtime.compiled,
+        stateful: this.session != null,
+      });
+    }
     if (!this.isSynthetic) {
       this.log.info({ runtime: this.runtime.language, version: this.runtime.version.raw }, 'Executing');
     }
@@ -2776,6 +2793,7 @@ export class Job {
       const jobIdentity = this.jobIdentity;
 
       if (workspaceLease) {
+        this.lifecycleObserver?.beforeCleanup(workspaceLease);
         try {
           workspaceRemoved = await cleanupSandboxWorkspace(workspaceLease);
         } catch (error) {
@@ -2789,8 +2807,11 @@ export class Job {
 
       if (jobIdentity) {
         if (!workspaceLease || workspaceRemoved) {
+          const wasActive = this.lifecycleObserver ? sandboxJobUidPool.isActive(jobIdentity) : false;
           releaseJobIdentity(jobIdentity);
+          this.lifecycleObserver?.released(wasActive, sandboxJobUidPool.isActive(jobIdentity));
         } else {
+          this.lifecycleObserver?.reject('cleanup_deferred');
           retainWorkspaceCleanupUntilRemoved(workspaceLease, () => {
             releaseJobIdentity(jobIdentity);
             this.log.info(

@@ -82,9 +82,13 @@ describe('sandbox UID slot pool', () => {
     expect(a?.uid).toBe(200000);
     expect(b?.uid).toBe(200001);
     expect(c?.uid).toBe(200002);
+    expect(pool.isActive(a!)).toBe(true);
+    expect(pool.isActive({ ...a!, uid: a!.uid + 1 })).toBe(false);
+    expect(pool.isActive({ ...a!, perJobUid: false })).toBe(false);
     expect(pool.acquire()).toBeNull();
 
     pool.release(b!);
+    expect(pool.isActive(b!)).toBe(false);
     const d = pool.acquire();
     expect(d?.slot).toBe(b?.slot);
     expect(d?.uid).toBe(b?.uid);

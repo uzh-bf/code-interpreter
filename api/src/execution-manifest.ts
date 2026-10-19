@@ -1,4 +1,8 @@
 import crypto from 'crypto';
+import {
+  validLifecycleBinding,
+  type LifecycleBinding,
+} from '../../shared/live-cancellation-registration';
 
 export const EXECUTION_MANIFEST_HEADER = 'X-CodeAPI-Execution-Manifest';
 export const EXECUTION_MANIFEST_VERSION = 1;
@@ -78,6 +82,8 @@ export interface ExecutionManifestClaims {
   service_id?: string;
   principal_source?: string;
   auth_context_hash?: string;
+  /** Optional synthetic lifecycle diagnostics; never execution authority. */
+  e2e_lifecycle_binding?: LifecycleBinding;
 }
 
 function base64UrlEncode(input: Buffer | string): string {
@@ -217,6 +223,12 @@ function validateClaimsShape(value: unknown): asserts value is ExecutionManifest
   }
   if (claims.tool_call_socket !== undefined && typeof claims.tool_call_socket !== 'boolean') {
     throw new ExecutionManifestError('malformed', 'Execution manifest tool_call_socket is invalid');
+  }
+  if (
+    claims.e2e_lifecycle_binding !== undefined &&
+    !validLifecycleBinding(claims.e2e_lifecycle_binding)
+  ) {
+    throw new ExecutionManifestError('malformed', 'Execution manifest e2e_lifecycle_binding is invalid');
   }
   for (const file of claims.input_files) {
     if (
