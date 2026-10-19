@@ -307,7 +307,7 @@ export type JobData = {
   bridgeWorkerId?: string;
   /** Trusted selected workspace for native replay-mode PTC. */
   workspaceId?: string;
-  /** Opts replay jobs into durable client-disconnect cancellation. */
+  /** Opts execution jobs into durable client-disconnect cancellation. */
   cancellable?: boolean;
   /** Absolute producer budget; queue-worker configuration may only tighten it. */
   deadlineAtMs?: number;

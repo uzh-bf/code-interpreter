@@ -61,6 +61,10 @@ cover all of them).
 `codeapi_sandbox_post_cleanup_*` metrics. Both inherit `metrics.interval` and
 `metrics.scrapeTimeout`. Install the Prometheus Operator PodMonitor CRD and
 configure Prometheus to discover this release's PodMonitors and namespace.
+Use `metrics.podMonitorLabels` to match its PodMonitor selector. The runner
+monitor stays in the release namespace and explicitly selects
+`workerSandbox.sandboxRunner.namespaceOverride` when configured; Prometheus
+must permit namespace selectors and have access to discover those pods.
 
 The default NetworkPolicy allows runner ingress only from service-worker pods.
 To permit scraping with `networkPolicy.enabled=true`, explicitly match your
@@ -78,6 +82,11 @@ metrics:
           matchLabels:
             app.kubernetes.io/name: prometheus
 ```
+
+The separate `metrics.serviceEndpoints.ingressFrom` list grants scrape access
+to the gateway, file-server and tool-call-server ports. Use the same narrowly
+selected trusted peers when those monitors are enabled. It leaves runner
+access unchanged, and both lists default to empty.
 
 Replace the example labels with those of your scraper. The default empty list
 adds no access, even when metrics are enabled. This rule is rendered only while

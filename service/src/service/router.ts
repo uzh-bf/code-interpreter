@@ -16,7 +16,7 @@ import {
 } from '../middleware/limits';
 import { internalServiceHeaders } from '../internal-service-auth';
 import { resolveSessionKey, resolveOutputBucketSessionKey, SessionKeyResolutionError, parseUploadSessionKeyInput, type SessionKeyInput } from '../session-key';
-import { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, queueNames, connection, waitForJobFinished } from '../queue';
+import { pyQueue, otherQueue, pyQueueEvents, otherQueueEvents, queueNames, connection, jobCancellationRegistry } from '../queue';
 import { sleep, getAxiosErrorDetails, publicExecutionFailure } from '../utils';
 import { env, jobCompletionWaitTimeoutMs, planLimits, resolveLanguage } from '../config';
 import { createPayload } from '../payload';
@@ -39,6 +39,9 @@ import {
 } from '../bridge/selection';
 import logger from '../logger';
 import { resolveQueuedSandboxBackend } from '../execution-profile';
+import { observeRequestDisconnect } from '../request-disconnect';
+import { pollJobUntilFinished } from '../queue-wait';
+import { fenceJobCancellation, programmaticCancellationError, removeJobIfWaiting, waitForJobWithCancellation, type JobFenceOutcome } from '../job-cancellation';
 
 const { INSTANCE_ID } = env;
 const JOB_COMPLETION_WAIT_TIMEOUT_MS = jobCompletionWaitTimeoutMs(
@@ -46,6 +49,8 @@ const JOB_COMPLETION_WAIT_TIMEOUT_MS = jobCompletionWaitTimeoutMs(
   env.LAMBDA_MICROVM_LAUNCH_TIMEOUT_MS,
   env.EGRESS_GATEWAY_REVOKE_TIMEOUT_MS,
 );
+
+const CANCELLATION_TTL_SECONDS = Math.ceil(JOB_COMPLETION_WAIT_TIMEOUT_MS / 1000) + 60;
 
 const UPLOAD_TIMEOUT_MS = 30_000;
 
@@ -237,6 +242,8 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
     ? 'stateless'
     : env.RUNTIME_SESSION_MODE;
 
+  const disconnect = observeRequestDisconnect(req, res);
+  try {
   let authorizedFiles: t.RequestFile[];
   try {
     authorizedFiles = await authorizeRequestedFiles({
@@ -284,6 +291,7 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
   }
 
   try {
+    if (disconnect.isDisconnected()) return;
     if (!isSyntheticRequest) {
       logger.info('Request received', {
         userId,
@@ -316,7 +324,26 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
     const queueEvents = language === Languages.py ? pyQueueEvents : otherQueueEvents;
     const queueName = language === Languages.py ? queueNames.python : queueNames.other;
 
-    const job = await withSpan('codeapi.job.enqueue', {
+    const target = { queueName, jobId: session_id };
+    const submittedAtMs = Date.now();
+    const deadlineAtMs = submittedAtMs + env.JOB_TIMEOUT;
+    let fence: Promise<JobFenceOutcome<t.ExecuteResult>> | undefined;
+    const fenceAdmission = () => fence ??= fenceJobCancellation<t.ExecuteResult>({
+      commands: connection, target, ttlSeconds: CANCELLATION_TTL_SECONDS, deadlineAtMs,
+    });
+    let onAdmissionAbort = (): void => {};
+    const abandoned = new Promise<never>((_, reject) => {
+      onAdmissionAbort = () => {
+        void fenceAdmission().then(
+          () => reject(programmaticCancellationError()), reject,
+        );
+      };
+      disconnect.signal.addEventListener('abort', onAdmissionAbort, { once: true });
+      if (disconnect.signal.aborted) onAdmissionAbort();
+    });
+    // A lost enqueue acknowledgement may arrive after Stop has returned.
+    // Its original identity/deadline and durable fence still prevent execution.
+    const admission = withSpan('codeapi.job.enqueue', {
       'messaging.system': 'bullmq',
       'messaging.destination.name': queueName,
       'codeapi.language': language,
@@ -346,6 +373,9 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
         executionManifestClaims: sandboxSecurity.executionManifestClaims,
         egressGrantClaims: sandboxSecurity.egressGrantClaims,
         egressGrantToken: sandboxSecurity.egressGrantToken,
+        cancellable: true,
+        deadlineAtMs,
+        cancellationTtlSeconds: CANCELLATION_TTL_SECONDS,
         _otel: traceCarrier,
       }, {
         removeOnComplete: {
@@ -358,37 +388,52 @@ router.post('/exec', executionLimiter, async (req: t.AuthenticatedRequest, res) 
         },
         attempts: 1,
         jobId: session_id,
+        timestamp: submittedAtMs,
       });
     }, 'PRODUCER');
+    void admission.then(job => {
+      if (disconnect.isDisconnected()) void removeJobIfWaiting(job).catch(() => false);
+    }, () => undefined);
+    let job: Awaited<typeof admission>;
+    try {
+      job = await Promise.race([admission, abandoned]);
+    } catch (error) {
+      const outcome = await fenceAdmission();
+      if (disconnect.isDisconnected()) return;
+      if (outcome.status === 'completed') return res.status(200).json(outcome.result);
+      throw error;
+    } finally {
+      disconnect.signal.removeEventListener('abort', onAdmissionAbort);
+    }
     jobsSubmitted.inc({ language });
-
-    req.on('close', async () => {
-      try {
-        await job.remove();
-        logger.info(`[${INSTANCE_ID}] Job ${job.id} removed due to client disconnect`);
-      } catch (error) {
-        logger.error(`[${INSTANCE_ID}] Error removing job ${job.id} on client disconnect:`, error);
-      }
-    });
 
     const result = await withSpan('codeapi.job.wait_until_finished', {
       'messaging.system': 'bullmq',
       'messaging.destination.name': queueName,
       'codeapi.language': language,
       'codeapi.execution_profile': env.EXECUTION_PROFILE,
-    }, () => waitForJobFinished(job, queue, queueEvents, JOB_COMPLETION_WAIT_TIMEOUT_MS), 'CONSUMER');
+    }, () => waitForJobWithCancellation({
+      commands: connection, registry: jobCancellationRegistry, job, events: queueEvents,
+      timeoutMs: JOB_COMPLETION_WAIT_TIMEOUT_MS, cancellationTtlSeconds: CANCELLATION_TTL_SECONDS,
+      deadlineAtMs, signal: disconnect.signal,
+      fallbackCompletion: signal => pollJobUntilFinished(job, queue, JOB_COMPLETION_WAIT_TIMEOUT_MS, signal),
+    }), 'CONSUMER');
 
     if (!isSyntheticRequest) {
       logger.info('Execution completed', { session_id, user_id });
     }
-    return res.status(200).json(result);
+    if (!disconnect.isDisconnected()) return res.status(200).json(result);
   } catch (error) {
+    if (disconnect.isDisconnected()) return;
     logger.error(`[${INSTANCE_ID}] Session ID: ${session_id} | User ID: ${user_id} | Error during execution:`, error);
     const publicFailure = publicExecutionFailure(error);
     if (publicFailure) {
       return res.status(publicFailure.status).json(publicFailure.body);
     }
     return res.status(500).json({ error: 'Internal server error' });
+  }
+  } finally {
+    disconnect.dispose();
   }
 });
 

@@ -708,3 +708,53 @@ test('queued removal frees waiting capacity and tolerates an activation race', a
   ).toBe(false);
   expect(removals).toBe(2);
 });
+
+test('disconnect fences while subscription startup is pending and cleans late registration', async () => {
+  const fake = new FakeRedis();
+  const registry = new JobCancellationRegistry(redis(fake));
+  const controller = new AbortController();
+  let finishRegistration!: () => void;
+  let unregisters = 0;
+  registry.register = () => new Promise<void>(resolve => {
+    finishRegistration = resolve;
+  });
+  registry.unregister = async () => { unregisters++; };
+  const job = {
+    id: 'pending-subscribe',
+    queueName: 'other',
+    waitUntilFinished: () => new Promise<never>(() => {}),
+    getState: async () => 'waiting',
+    remove: async () => {},
+  } as unknown as Job<unknown, unknown>;
+  const result = waitForJobWithCancellation({
+    commands: redis(fake), registry, job, events: {} as QueueEvents,
+    timeoutMs: 1000, cancellationTtlSeconds: 60, signal: controller.signal,
+  });
+  controller.abort(CLIENT_DISCONNECT_REASON);
+  await expect(Promise.race([result, new Promise((_, reject) => setTimeout(() => reject(new Error('subscription blocked cancellation')), 100))])).rejects.toMatchObject({ name: 'AbortError' });
+  expect(fake.cancellationAttempts).toBe(1);
+  expect(unregisters).toBe(1);
+  finishRegistration();
+  await new Promise(resolve => setImmediate(resolve));
+  expect(unregisters).toBe(2);
+  await registry.close();
+});
+
+test('completion failure fences without waiting for subscription startup', async () => {
+  const fake = new FakeRedis();
+  const registry = new JobCancellationRegistry(redis(fake));
+  registry.register = () => new Promise<void>(() => {});
+  const job = {
+    id: 'pending-subscribe-failure',
+    queueName: 'other',
+    waitUntilFinished: () => Promise.reject(new Error('wait deadline')),
+    getState: async () => 'active',
+    remove: async () => {},
+  } as unknown as Job<unknown, unknown>;
+  await expect(waitForJobWithCancellation({
+    commands: redis(fake), registry, job, events: {} as QueueEvents,
+    timeoutMs: 100, cancellationTtlSeconds: 60,
+  })).rejects.toThrow('wait deadline');
+  expect(fake.cancellationAttempts).toBe(1);
+  await registry.close();
+});

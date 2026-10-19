@@ -182,3 +182,73 @@ ${
   },
   60_000
 );
+
+
+test.skipIf(!nsjailEnabled)(
+  'caller cancellation joins direct and broker-wrapped guests including detached descendants before UID release',
+  async () => {
+    await prepareWorkspaceRoot();
+    const pkgdir = await fsp.mkdtemp(path.join(os.tmpdir(), 'cancel-runtime-'));
+    await fsp.chmod(pkgdir, 0o755);
+    await fsp.writeFile(path.join(pkgdir, 'run'), 'exec /bin/bash "$@"\n', { mode: 0o644 });
+    const activeBefore = sandboxJobUidPool.activeCount();
+    const oldPort = config.allowed_local_network_port;
+    const oldTarget = process.env.SANDBOX_FORWARD_TARGET;
+    config.allowed_local_network_port = 3190;
+    process.env.SANDBOX_FORWARD_TARGET = 'http://127.0.0.1:1';
+    try {
+      for (const pipes of [false, true]) {
+        const rt = runtime(pkgdir);
+        rt.timeouts.run = 10_000;
+        const controller = new AbortController();
+        const job = new Job({
+          runtime: rt, session_id: 'cancel-owned-guest',
+          files: [{ name: 'main.sh', content: `set -eu
+setsid /bin/sh -c 'echo started > /mnt/data/child-ready; sleep 3; echo late > /mnt/data/late-output' >/dev/null 2>&1 &
+while [ ! -f child-ready ]; do sleep 0.01; done
+sleep 8
+` }], args: [], stdin: '', timeouts: rt.timeouts, cpu_times: rt.cpu_times,
+          memory_limits: rt.memory_limits, is_synthetic: true, tool_call_socket_enabled: pipes,
+        });
+        let uid = -1;
+        try {
+          await job.prime(controller.signal);
+          const dir = workspace(job);
+          uid = (job as unknown as { jobIdentity: { uid: number } }).jobIdentity.uid;
+          const executing = job.execute(controller.signal);
+          void executing.catch(() => undefined);
+          for (let attempt = 0; !fs.existsSync(path.join(dir, 'child-ready')); attempt++) {
+            if (attempt >= 200) throw new Error('Guest did not reach correlated start marker');
+            await Promise.race([new Promise(resolve => setTimeout(resolve, 10)), executing.then(result => { throw new Error('Guest ended before cancellation: ' + JSON.stringify(result.run)); })]);
+          }
+          expect(processesForUid(uid).length).toBeGreaterThan(0);
+          controller.abort(new DOMException('test caller disconnected', 'AbortError'));
+          await expect(executing).rejects.toMatchObject({ name: 'AbortError' });
+          expect(processesForUid(uid)).toEqual([]);
+          expect(fs.existsSync(path.join(dir, 'late-output'))).toBe(false);
+          expect(sandboxJobUidPool.activeCount()).toBe(activeBefore + 1);
+        } finally { await job.cleanup(); }
+        expect(sandboxJobUidPool.activeCount()).toBe(activeBefore);
+        expect(processesForUid(uid)).toEqual([]);
+        const followup = new Job({
+          runtime: rt, session_id: 'cancel-owned-guest-recovery',
+          files: [{ name: 'main.sh', content: 'printf recovered' }], args: [], stdin: '',
+          timeouts: rt.timeouts, cpu_times: rt.cpu_times, memory_limits: rt.memory_limits,
+          is_synthetic: true, tool_call_socket_enabled: pipes,
+        });
+        try {
+          await followup.prime();
+          const result = await followup.execute();
+          expect(result.run?.code).toBe(0);
+          expect(result.run?.stdout).toBe('recovered');
+        } finally { await followup.cleanup(); }
+        expect(sandboxJobUidPool.activeCount()).toBe(activeBefore);
+      }
+    } finally {
+      config.allowed_local_network_port = oldPort;
+      if (oldTarget === undefined) delete process.env.SANDBOX_FORWARD_TARGET;
+      else process.env.SANDBOX_FORWARD_TARGET = oldTarget;
+      await fsp.rm(pkgdir, { recursive: true, force: true });
+    }
+  }, 30_000,
+);

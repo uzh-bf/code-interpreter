@@ -236,7 +236,14 @@ export async function mapWithConcurrency<T, R>(
       results[idx] = await fn(items[idx], idx);
     }
   };
-  await Promise.all(Array.from({ length: cap }, worker));
+  const workers = Array.from({ length: cap }, worker);
+  try {
+    await Promise.all(workers);
+  } catch (error) {
+    // A failed request still owns every sibling until its I/O has settled.
+    await Promise.allSettled(workers);
+    throw error;
+  }
   return results;
 }
 
@@ -675,12 +682,27 @@ const MAX_REPORTED_TRUNCATED_PATHS = 20;
 
 const jobQueue: Array<() => void> = [];
 
-async function acquireJobIdentity(log: Logger): Promise<SandboxJobIdentity> {
+async function acquireJobIdentity(log: Logger, signal?: AbortSignal): Promise<SandboxJobIdentity> {
   for (;;) {
+    throwIfAborted(signal);
     const identity = sandboxJobUidPool.acquire();
     if (identity) return identity;
     log.info('Awaiting job slot');
-    await new Promise<void>(resolve => { jobQueue.push(resolve); });
+    await new Promise<void>((resolve, reject) => {
+      const wake = () => {
+        signal?.removeEventListener('abort', abort);
+        resolve();
+      };
+      const abort = () => {
+        const index = jobQueue.indexOf(wake);
+        if (index >= 0) jobQueue.splice(index, 1);
+        signal?.removeEventListener('abort', abort);
+        reject(abortReason(signal!));
+      };
+      jobQueue.push(wake);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
   }
 }
 
@@ -707,6 +729,7 @@ export class Job {
 
   private log: Logger;
   private submissionDir = '';
+  private executionSignal?: AbortSignal;
   private workspaceLease: SandboxWorkspaceLease | undefined;
   private jobIdentity: SandboxJobIdentity | undefined;
   private generatedFiles: GeneratedFile[] = [];
@@ -931,7 +954,9 @@ export class Job {
     this.inputDestinations.set(destination, file);
   }
 
-  async prime(): Promise<void> {
+  async prime(signal?: AbortSignal): Promise<void> {
+    this.executionSignal = signal;
+    throwIfAborted(signal);
     this.inputDestinations.clear();
     this.inputManifest.clear();
     const requestedDestinations = new Map<string, TFile>();
@@ -961,10 +986,11 @@ export class Job {
       this.workspaceLease = await this.session.acquire();
       this.jobIdentity = this.workspaceLease.identity;
     } else {
-      this.jobIdentity = await acquireJobIdentity(this.log);
+      this.jobIdentity = await acquireJobIdentity(this.log, signal);
       this.workspaceLease = await createSandboxWorkspace(this.jobIdentity);
     }
     this.submissionDir = this.workspaceLease.dir;
+    throwIfAborted(signal);
 
     if (!this.isSynthetic) {
       this.log.info(
@@ -983,7 +1009,9 @@ export class Job {
       await this.autoLoadDirkeep();
     }
 
+    throwIfAborted(signal);
     await this.prepareInputManifest();
+    throwIfAborted(signal);
 
     /* Promise.all rejects as soon as one operation fails, while its siblings
      * keep running. The route's finally then calls cleanup(), which clears the
@@ -1017,10 +1045,11 @@ export class Job {
     };
 
     const fileOps: Array<() => Promise<void>> = [];
+    const batchSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     for (const file of this.files) {
       const operationContext: PrimeOperationContext = {
         ...operationBase,
-        signal: controller.signal,
+        signal: batchSignal,
       };
       if (file.id) {
         fileOps.push(() => runFileOperation(() => this.primeInputFile(file, operationContext)));
@@ -1030,7 +1059,7 @@ export class Job {
     }
     let nextOperation = 0;
     const runPrimeWorker = async (): Promise<void> => {
-      while (!controller.signal.aborted) {
+      while (!batchSignal.aborted) {
         const operationIndex = nextOperation++;
         if (operationIndex >= fileOps.length) return;
         await fileOps[operationIndex]();
@@ -1040,6 +1069,7 @@ export class Job {
     await Promise.allSettled(
       Array.from({ length: workerCount }, () => runPrimeWorker()),
     );
+    if (signal?.aborted && !firstFailure) firstFailure = { error: abortReason(signal) };
     if (firstFailure) {
       this.log.error({
         inputCount: fileOps.length,
@@ -1214,7 +1244,7 @@ export class Job {
           `${this.fileEgressBaseUrl()}/sessions/${encodeURIComponent(sid)}/objects?detail=normalized`,
           {
             headers: this.fileEgressHeaders(),
-            signal: controller.signal,
+            signal: this.executionSignal ? AbortSignal.any([this.executionSignal, controller.signal]) : controller.signal,
           },
         );
         if ((res.status === 503 || this.isLegacyGatewayDenial(res)) && attempt < AUTO_LOAD_DIRKEEP_RETRIES) {
@@ -1428,7 +1458,7 @@ export class Job {
         method: 'POST', headers: this.fileEgressHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ files: files.map(file => ({
           sessionHandle: file.storage_session_id, objectHandle: file.id,
-        })) }), signal: controller.signal,
+        })) }), signal: this.executionSignal ? AbortSignal.any([this.executionSignal, controller.signal]) : controller.signal,
       });
       if (!response.ok) {
         await response.body?.cancel();
@@ -1614,6 +1644,7 @@ export class Job {
     memoryLimit: number,
     stdin?: string,
   ): Promise<NsJailResult> {
+    throwIfAborted(this.executionSignal);
     const command = ['/bin/bash', path.join(this.runtime.pkgdir, script), ...args];
 
     const filteredExtra = filterExtraEnvVars(this.extra_env_vars);
@@ -1648,10 +1679,13 @@ export class Job {
       identity: this.sandboxIdentity(),
       enableToolCallPipes: this.toolCallPipesEnabled && script === 'run',
       suppressSuccessLogs: this.isSynthetic,
+      signal: this.executionSignal,
     });
   }
 
-  async execute(): Promise<ExecuteResult> {
+  async execute(signal = this.executionSignal): Promise<ExecuteResult> {
+    this.executionSignal = signal;
+    throwIfAborted(signal);
     if (!this.isSynthetic) {
       this.log.info({ runtime: this.runtime.language, version: this.runtime.version.raw }, 'Executing');
     }
@@ -1679,6 +1713,7 @@ export class Job {
         this.cpu_times.compile,
         this.memory_limits.compile,
       );
+      throwIfAborted(signal);
       compileErrored = compile.code !== 0;
     }
 
@@ -1697,7 +1732,9 @@ export class Job {
       );
     }
 
+    throwIfAborted(signal);
     await this.handleSessionFiles();
+    throwIfAborted(signal);
 
     return {
       compile,
@@ -2576,14 +2613,16 @@ export class Job {
    * footprint sane when several concurrent jobs each try to ship 50 files.
    */
   async uploadGeneratedFiles(): Promise<Set<string>> {
+    throwIfAborted(this.executionSignal);
     const uploaded = new Set<string>();
     if (this.generatedFiles.length === 0) return uploaded;
 
     const results = await mapWithConcurrency(
       this.generatedFiles,
       config.upload_concurrency,
-      file => this.uploadOneFile(file),
+      file => this.executionSignal?.aborted ? Promise.resolve(null) : this.uploadOneFile(file),
     );
+    throwIfAborted(this.executionSignal);
     for (const id of results) {
       if (id) uploaded.add(id);
     }
@@ -2685,7 +2724,7 @@ export class Job {
         // @ts-expect-error — duplex is part of the fetch spec but missing
         // from lib.dom.d.ts in the version bundled with @types/bun.
         duplex: 'half',
-        signal: controller.signal,
+        signal: this.executionSignal ? AbortSignal.any([this.executionSignal, controller.signal]) : controller.signal,
       });
 
       if (!response.ok) {

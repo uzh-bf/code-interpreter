@@ -20,7 +20,14 @@ with tempfile.TemporaryDirectory() as directory:
     marker = os.path.join(directory, 'ready')
     job = os.path.join(directory, 'job.py')
     with open(job, 'w') as output:
-        output.write(f"import os,time; os.write(3,b'x'*4096); os.close(3); open({marker!r},'w').close(); time.sleep(30)")
+        output.write(f"""import os,time
+os.write(3,b'x'*4096)
+os.close(3)
+with open({marker + '.tmp'!r},'w') as ready:
+    ready.write(str(os.getpid()))
+os.rename({marker + '.tmp'!r},{marker!r})
+time.sleep(30)
+""")
     bootstrap = (f"import os; os.dup2({request_writer},3); os.dup2({response_reader},4); "
                  f"os.execv('/usr/local/bin/tool-call-pipe-bridge',"
                  f"['tool-call-pipe-bridge','--job-pipes',{sys.executable!r},{job!r}])")
@@ -32,6 +39,8 @@ with tempfile.TemporaryDirectory() as directory:
             assert relay.poll() is None
             time.sleep(0.01)
         assert os.path.exists(marker), 'job did not close its request writer'
+        with open(marker) as source:
+            child_pid = int(source.read())
         def cpu_seconds():
             with open(f'/proc/{relay.pid}/stat') as source:
                 fields = source.read().rsplit(')', 1)[1].split()
@@ -44,7 +53,8 @@ with tempfile.TemporaryDirectory() as directory:
         # Closing the broker response writer still terminates the invocation.
         os.close(response_writer)
         response_writer = -1
-        assert relay.wait(timeout=2) == 137
+        assert relay.wait(timeout=2) == 128 + signal.SIGTERM
+        assert not os.path.exists(f'/proc/{child_pid}'), 'relay returned before reaping its child'
         print('PASS: blocked relay stays idle after request EOF and terminates on broker EOF')
     finally:
         if relay.poll() is None:

@@ -7,6 +7,9 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-api
   labels:
     {{- include "codeapi.api.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   podMetricsEndpoints:
     - path: /metrics
@@ -29,6 +32,9 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-service-worker
   labels:
     {{- include "codeapi.serviceWorker.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   podMetricsEndpoints:
     - path: /metrics
@@ -51,7 +57,15 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-sandbox-runner
   labels:
     {{- include "codeapi.sandboxRunner.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
+  {{- with .Values.workerSandbox.sandboxRunner.namespaceOverride }}
+  namespaceSelector:
+    matchNames:
+      - {{ . | quote }}
+  {{- end }}
   podMetricsEndpoints:
     - path: /metrics
       port: sandbox
@@ -73,6 +87,9 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-egress-gateway
   labels:
     {{- include "codeapi.egressGateway.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   podMetricsEndpoints:
     - path: /metrics
@@ -95,6 +112,9 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-file-server
   labels:
     {{- include "codeapi.fileServer.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   podMetricsEndpoints:
     - path: /metrics
@@ -117,6 +137,9 @@ metadata:
   name: {{ include "codeapi.fullname" . }}-tool-call-server
   labels:
     {{- include "codeapi.toolCallServer.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   podMetricsEndpoints:
     - path: /metrics

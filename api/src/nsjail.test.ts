@@ -1,9 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, spyOn } from 'bun:test';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { config } from './config';
 import { buildArgs, execute, renderJobConfigOverlay } from './nsjail';
+import { logger } from './logger';
+import { nsjailSetupGateWatchdogFires } from './metrics';
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag);
@@ -523,3 +525,101 @@ describe('NsJail seccomp policy', () => {
     expect(policy).toContain('#define pidfd_open 434');
   });
 });
+
+
+test('cancellation while waiting for the setup gate prevents spawning', async () => {
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'cancel-before-spawn-'));
+  const originalConfig = config.nsjail_config;
+  const originalPath = config.nsjail_path;
+  const controller = new AbortController();
+  let entered!: () => void;
+  let release!: () => void;
+  const gateEntered = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await fsp.writeFile(path.join(tmp, 'sandbox.cfg'), 'name: "test"\n');
+  config.nsjail_config = path.join(tmp, 'sandbox.cfg');
+  config.nsjail_path = '/not-a-process';
+  const pending = execute({
+    command: ['/bin/true'], envVars: {}, submissionDir: tmp, pkgdir: tmp, timeout: 1000,
+    memoryLimit: -1, outputMaxSize: 1024, identity: { slot: 0, uid: 65534, gid: 65534, perJobUid: false }, signal: controller.signal,
+  }, {
+    pending: () => 1,
+    runSetup: async (_path, spawn) => { entered(); await gate; return { value: spawn(), markerSeen: true }; },
+  });
+  void pending.catch(() => undefined);
+  try {
+    await gateEntered;
+    controller.abort(new DOMException('test caller disconnected', 'AbortError'));
+    release();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  } finally {
+    release(); config.nsjail_config = originalConfig; config.nsjail_path = originalPath;
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('stalled termination keeps ownership after the watchdog and closed output until actual exit', async () => {
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'cancel-stalled-'));
+  const originalPath = config.nsjail_path;
+  const controller = new AbortController();
+  const errors = spyOn(logger, 'error').mockImplementation(() => {});
+  const setupTimeouts = spyOn(nsjailSetupGateWatchdogFires, 'inc');
+  const ready = path.join(tmp, 'ready');
+  const signalled = path.join(tmp, 'signalled');
+  const release = path.join(tmp, 'release');
+  const executable = path.join(tmp, 'jail');
+  await fsp.writeFile(executable, `#!/usr/bin/env node
+const fs = require('node:fs');
+process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(signalled)}, ''); process.stdout.end(); process.stderr.end(); });
+const watcher = fs.watch(${JSON.stringify(tmp)}, () => {
+  if (fs.existsSync(${JSON.stringify(release)})) { watcher.close(); process.exit(0); }
+});
+fs.writeFileSync(${JSON.stringify(ready)}, '');
+`, { mode: 0o755 });
+  config.nsjail_path = executable;
+  let settled = false;
+  const pending = execute({
+    command: ['/bin/true'], envVars: {}, submissionDir: tmp, pkgdir: tmp, timeout: 1000,
+    memoryLimit: -1, outputMaxSize: 1024, identity: { slot: 0, uid: 65534, gid: 65534, perJobUid: false }, signal: controller.signal,
+  }, {
+    pending: () => 0,
+    runSetup: async (_logPath, spawn, signal) => {
+      const value = spawn();
+      await new Promise<void>(resolve => {
+        signal!.addEventListener('abort', () => resolve(), { once: true });
+        if (signal!.aborted) resolve();
+      });
+      return { value, markerSeen: false };
+    },
+  });
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  const marker = async (file: string) => {
+    const deadline = Date.now() + 3000;
+    while (!await fsp.stat(file).then(() => true, () => false)) {
+      if (Date.now() > deadline) throw new Error('Synthetic process did not reach lifecycle marker');
+      await Bun.sleep(5);
+    }
+  };
+  try {
+    await marker(ready);
+    controller.abort(new DOMException('test cancellation', 'AbortError'));
+    await marker(signalled);
+    await Bun.sleep(5100);
+    expect(errors.mock.calls.some(call => {
+      const metadata = call[0] as Record<string, unknown>;
+      return metadata?.stage === 'shutdown' && metadata?.reason === 'timeout' && metadata?.timeoutMs === 5000;
+    })).toBe(true);
+    expect(settled).toBe(false);
+    expect(setupTimeouts).not.toHaveBeenCalled();
+    await fsp.writeFile(release, '');
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(settled).toBe(true);
+  } finally {
+    await fsp.writeFile(release, '');
+    await pending.catch(() => {});
+    errors.mockRestore();
+    setupTimeouts.mockRestore();
+    config.nsjail_path = originalPath;
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+}, 10_000);

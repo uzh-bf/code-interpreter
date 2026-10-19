@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as semver from 'semver';
 import {
   Job,
+  mapWithConcurrency,
   SessionWorkspaceDirtyError,
   ValidationError,
   type TFile,
@@ -283,4 +284,81 @@ describe('Job cleanup', () => {
       globalThis.fetch = originalFetch;
     }
   });
+});
+
+
+test('aborting a queued prime releases its waiter without taking another identity', async () => {
+  const held: SandboxJobIdentity[] = [];
+  const baseline = sandboxJobUidPool.activeCount();
+  for (;;) {
+    const identity = sandboxJobUidPool.acquire();
+    if (!identity) break;
+    held.push(identity);
+  }
+  const controller = new AbortController();
+  const waiting = makeJob();
+  try {
+    const priming = waiting.prime(controller.signal);
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort(new DOMException('test caller disconnected', 'AbortError'));
+    await expect(priming).rejects.toMatchObject({ name: 'AbortError' });
+    await waiting.cleanup();
+    expect(sandboxJobUidPool.activeCount()).toBe(baseline + held.length);
+    sandboxJobUidPool.release(held.pop()!);
+    const nextIdentity = sandboxJobUidPool.acquire();
+    expect(nextIdentity).not.toBeNull();
+    sandboxJobUidPool.release(nextIdentity!);
+    expect(sandboxJobUidPool.activeCount()).toBe(baseline + held.length);
+  } finally {
+    for (const identity of held) sandboxJobUidPool.release(identity);
+  }
+  expect(sandboxJobUidPool.activeCount()).toBe(baseline);
+});
+
+test('caller abort joins in-flight priming siblings and quarantines partial session input', async () => {
+  const workspace = await fsp.mkdtemp(path.join(os.tmpdir(), 'prime-caller-abort-'));
+  const identity: SandboxJobIdentity = { slot: 0, uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0, perJobUid: false };
+  let dirty = false;
+  let started!: () => void;
+  let finish!: () => void;
+  const began = new Promise<void>(resolve => { started = resolve; });
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  const session = { runtimeSessionId: 'rt_caller_abort', acquire: async () => ({ workspaceId: 'caller-abort', dir: workspace, identity }), markDirty: () => { dirty = true; } } as unknown as SessionWorkspace;
+  const job = new Job({ runtime: makeRuntime(), session, files: [{ name: 'main.sh', content: 'echo test' }], args: [], stdin: '', timeouts: { compile: 5000, run: 5000 }, cpu_times: { compile: 5000, run: 5000 }, memory_limits: { compile: 100_000_000, run: 100_000_000 } });
+  let siblingSettled = false;
+  job.writeFile = async () => { started(); await gate; siblingSettled = true; };
+  const controller = new AbortController();
+  let returned = false;
+  const priming = job.prime(controller.signal).finally(() => { returned = true; });
+  void priming.catch(() => undefined);
+  try {
+    await began;
+    controller.abort();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(returned).toBe(false);
+    finish();
+    await expect(priming).rejects.toBeInstanceOf(SessionWorkspaceDirtyError);
+    expect(siblingSettled).toBe(true);
+    expect(dirty).toBe(true);
+  } finally { finish(); await job.cleanup(); await fsp.rm(workspace, { recursive: true, force: true }); }
+});
+
+
+test('a failed metadata batch joins started siblings before returning cleanup ownership', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let siblingSettled = false;
+  let returned = false;
+  const batch = mapWithConcurrency([0, 1], 2, async index => {
+    if (index === 0) throw new Error('metadata failed');
+    await gate;
+    siblingSettled = true;
+    return index;
+  }).finally(() => { returned = true; });
+  void batch.catch(() => undefined);
+  await new Promise(resolve => setImmediate(resolve));
+  expect(returned).toBe(false);
+  release();
+  await expect(batch).rejects.toThrow('metadata failed');
+  expect(siblingSettled).toBe(true);
 });

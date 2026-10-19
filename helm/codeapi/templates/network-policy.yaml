@@ -168,6 +168,15 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.egressGateway.service.port }}
+    {{- if .Values.metrics.enabled }}
+    {{- with (.Values.metrics.serviceEndpoints | default dict).ingressFrom }}
+    - from:
+      {{- toYaml . | nindent 6 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.egressGateway.service.port }}
+    {{- end }}
+    {{- end }}
   egress:
     - to:
         - namespaceSelector:
@@ -272,6 +281,15 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.fileServer.service.port }}
+    {{- if .Values.metrics.enabled }}
+    {{- with (.Values.metrics.serviceEndpoints | default dict).ingressFrom }}
+    - from:
+      {{- toYaml . | nindent 6 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.fileServer.service.port }}
+    {{- end }}
+    {{- end }}
   egress:
     - to:
         - namespaceSelector:
@@ -319,6 +337,15 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.toolCallServer.service.port }}
+    {{- if .Values.metrics.enabled }}
+    {{- with (.Values.metrics.serviceEndpoints | default dict).ingressFrom }}
+    - from:
+      {{- toYaml . | nindent 6 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.toolCallServer.service.port }}
+    {{- end }}
+    {{- end }}
   egress:
     - to:
         - namespaceSelector:

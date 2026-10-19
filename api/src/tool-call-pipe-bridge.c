@@ -51,6 +51,19 @@ static int parent_death(pid_t parent) {
     return getppid() == parent ? 0 : -1;
 }
 
+static volatile sig_atomic_t stopping;
+
+static void request_stop(int signal_number) {
+    (void)signal_number;
+    stopping = 1;
+}
+
+static int reap(pid_t child, int *status) {
+    pid_t done;
+    do { done = waitpid(child, status, 0); } while (done < 0 && errno == EINTR);
+    return done == child ? 0 : -1;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) return 125;
     pid_t broker = getppid();
@@ -64,6 +77,16 @@ int main(int argc, char **argv) {
         return 125;
     }
     if (strcmp(argv[1], "--job-pipes") != 0 || argc < 3) return 125;
+    /* Keep cancellation pending across fork until the parent owns the PID.
+     * The exec child restores default handlers before unblocking signals. */
+    sigset_t blocked, original;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGTERM);
+    sigaddset(&blocked, SIGINT);
+    if (sigprocmask(SIG_BLOCK, &blocked, &original) != 0) return 125;
+    struct sigaction action = {.sa_handler = request_stop};
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGTERM, &action, NULL) != 0 || sigaction(SIGINT, &action, NULL) != 0) return 125;
     int request_upstream = fcntl(3, F_DUPFD_CLOEXEC, 5);
     int response_upstream = fcntl(4, F_DUPFD_CLOEXEC, 5);
     if (request_upstream < 0 || response_upstream < 0) return 125;
@@ -74,6 +97,10 @@ int main(int argc, char **argv) {
     pid_t child = fork();
     if (child < 0) return 125;
     if (child == 0) {
+        struct sigaction reset = {.sa_handler = SIG_DFL};
+        sigemptyset(&reset.sa_mask);
+        if (sigaction(SIGTERM, &reset, NULL) != 0 || sigaction(SIGINT, &reset, NULL) != 0
+            || sigprocmask(SIG_SETMASK, &original, NULL) != 0) _exit(125);
         if (parent_death(relay) != 0 || dup2(requests[1], 3) < 0
             || dup2(responses[0], 4) < 0) _exit(125);
         int fds[] = {request_upstream, response_upstream, requests[0], requests[1], responses[0], responses[1]};
@@ -87,10 +114,11 @@ int main(int argc, char **argv) {
     close(requests[1]);
     close(responses[0]);
     signal(SIGPIPE, SIG_IGN);
+    if (sigprocmask(SIG_SETMASK, &original, NULL) != 0) stopping = 1;
+    int failure = 0;
     if (nonblock(request_upstream) < 0 || nonblock(response_upstream) < 0 || nonblock(requests[0]) < 0 || nonblock(responses[1]) < 0) {
-        kill(child, SIGKILL);
-        waitpid(child, NULL, 0);
-        return 125;
+        stopping = 1;
+        failure = 1;
     }
     struct flow request = {.source = requests[0], .destination = request_upstream};
     struct flow response = {.source = response_upstream, .destination = responses[1]};
@@ -99,33 +127,41 @@ int main(int argc, char **argv) {
         pid_t done = waitpid(child, &status, WNOHANG);
         if (done == child) break;
         if (done < 0 && errno != EINTR) return 125;
+        if (stopping) {
+            /* Discard queued control traffic before waiting. NsJail must
+             * survive long enough to kill and reap its guest descendants. */
+            close(request_upstream); request_upstream = -1;
+            close(response_upstream); response_upstream = -1;
+            close(requests[0]); requests[0] = -1;
+            close(responses[1]); responses[1] = -1;
+            if (kill(child, SIGTERM) != 0 && errno != ESRCH) failure = 1;
+            if (reap(child, &status) != 0) return 125;
+            break;
+        }
         struct pollfd pollfds[] = {
-            /* HUP is reported even with events=0. Omit buffered sources
-             * until their destinations drain, or a closed writer spins poll. */
-            {.fd = response.length ? -1 : response_upstream, .events = POLLIN},
+            /* Broker closure abandons even buffered responses. Guest writer
+             * EOF is harmless; omit that source while its buffer drains. */
+            {.fd = response_upstream, .events = response.length ? 0 : POLLIN},
             {.fd = request.length ? -1 : request.source, .events = POLLIN},
             {.fd = responses[1], .events = response.length ? POLLOUT : 0},
             {.fd = request_upstream, .events = request.length ? POLLOUT : 0},
         };
         int result = poll(pollfds, 4, 100);
         if (result < 0 && errno == EINTR) continue;
-        if (result < 0 || (pollfds[0].revents & (POLLERR | POLLNVAL))
+        if (result < 0 || (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
             || (pollfds[1].revents & (POLLERR | POLLNVAL))
             || (pollfds[2].revents & (POLLERR | POLLHUP | POLLNVAL))
             || (pollfds[3].revents & (POLLERR | POLLHUP | POLLNVAL))
             || transfer(&request, pollfds[1].revents & (POLLIN | POLLHUP), pollfds[3].revents & POLLOUT) < 0
             || transfer(&response, pollfds[0].revents & (POLLIN | POLLHUP), pollfds[2].revents & POLLOUT) < 0 || response.source < 0) {
-            /* EOF/error terminates the entire invocation, including an
-             * abandoned tool call. Never leave an orphaned NsJail monitor. */
-            if (waitpid(child, &status, WNOHANG) == child) break;
-            kill(child, SIGKILL);
-            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-            break;
+            /* Broker EOF/error or a lost capability reader abandons the
+             * invocation. Guest request-writer EOF alone is harmless. */
+            stopping = 1;
         }
     }
     close(request_upstream);
     close(response_upstream);
     close(requests[0]);
     close(responses[1]);
-    return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    return failure ? 125 : WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
