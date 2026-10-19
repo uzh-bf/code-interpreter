@@ -46,6 +46,7 @@ export function legacyPackagesDirectory(raw: string | undefined): string | undef
 export const config = {
   hardened_sandbox_mode: process.env.CODEAPI_HARDENED_SANDBOX_MODE === 'true',
   log_level: process.env.SANDBOX_LOG_LEVEL ?? 'DEBUG',
+  e2e_lifecycle_case: process.env.SANDBOX_E2E_LIFECYCLE_CASE,
   bind_address: `0.0.0.0:${process.env.PORT ?? 2000}`,
   packages_directory: cleanDirectory(process.env.SANDBOX_PACKAGES_DIRECTORY)
     ?? legacyPackagesDirectory(process.env.SANDBOX_DATA_DIRECTORY)

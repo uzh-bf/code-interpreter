@@ -9,6 +9,7 @@ import { Job } from './job';
 import type { Runtime } from './runtime';
 import { readCleanupResources } from './cleanup-metrics';
 import { prepareWorkspaceRoot, sandboxJobUidPool } from './workspace-isolation';
+import { LiveCancellationObserver, type LifecycleRecord } from './live-cancellation-observer';
 
 // Run only in a dedicated Linux test container with /tmp mounted as tmpfs.
 // The real-jail variant additionally needs the runner image's namespace/cgroup
@@ -251,4 +252,72 @@ sleep 8
       await fsp.rm(pkgdir, { recursive: true, force: true });
     }
   }, 30_000,
+);
+
+test.skipIf(!nsjailEnabled)(
+  'caller cancellation observer proves actual cgroup, UID and release for direct and wrapped guests',
+  async () => {
+    await prepareWorkspaceRoot();
+    const pkgdir = await fsp.mkdtemp(path.join(os.tmpdir(), 'observed-runtime-'));
+    await fsp.chmod(pkgdir, 0o755);
+    await fsp.writeFile(path.join(pkgdir, 'run'), 'exec /bin/bash "$@"\n', { mode: 0o644 });
+    const oldPort = config.allowed_local_network_port;
+    const oldTarget = process.env.SANDBOX_FORWARD_TARGET;
+    config.allowed_local_network_port = 3190;
+    process.env.SANDBOX_FORWARD_TARGET = 'http://127.0.0.1:1';
+    try {
+      for (const wrapped of [false, true]) {
+        const caseId = 'synthetic_observation_' + (wrapped ? 'wrapped' : 'direct');
+        const controller = new AbortController();
+        const records: LifecycleRecord[] = [];
+        const rt = runtime(pkgdir);
+        rt.timeouts.run = 10000;
+        const job = new Job({
+          runtime: rt, session_id: 'observed-source-proof',
+          files: [{ name: 'main.sh', content: `printf 'CODEAPI_E2E_START:${caseId}:%s\\n' "$EPOCHREALTIME" >&2\nsetsid /bin/sh -c 'sleep 3; echo late > /mnt/data/late-output' >/dev/null 2>&1 &\nsleep 8\n` }],
+          args: [], stdin: '', timeouts: rt.timeouts, cpu_times: rt.cpu_times,
+          memory_limits: rt.memory_limits, is_synthetic: true, tool_call_socket_enabled: wrapped,
+        });
+        try {
+          await job.prime(controller.signal);
+          const identity = (job as any).jobIdentity;
+          const observer = new LiveCancellationObserver({
+            case_id: caseId, program_sha256: 'a'.repeat(64), output_basename: 'late-output',
+            horizon_ms: 3000, expires_at_ms: Date.now() + 60000,
+          }, { execution_id: 'synthetic_execution_123456', binding: {
+            case_id: caseId, program_sha256: 'a'.repeat(64), output_session_id: 'synthetic_storage_123456',
+          } }, identity, {
+            sink: { write: event => records.push(event), failed: () => false },
+            isLeased: () => sandboxJobUidPool.isActive(identity),
+          });
+          // Exercise the actual kernel/hooks independently of signed admission,
+          // which has its own manifest seam regression checks.
+          (job as any).lifecycleObserver = observer;
+          const running = job.execute(controller.signal);
+          void running.catch(() => {});
+          for (let attempt = 0; !records.some(r => r.event === 'started'); attempt++) {
+            if (attempt > 200 || records.some(r => r.event === 'observation_failed')) {
+              throw new Error('Observer did not establish actual start: ' + JSON.stringify(records));
+            }
+            await Promise.race([new Promise(resolve => setTimeout(resolve, 5)), running.then(() => { throw new Error('Execution ended before start'); })]);
+          }
+          controller.abort(new DOMException('synthetic browser Stop', 'AbortError'));
+          await expect(running).rejects.toMatchObject({ name: 'AbortError' });
+          await job.cleanup();
+          expect(records.map(r => r.event)).toEqual(['selected', 'started', 'cancel_requested', 'terminal', 'released']);
+          expect(records.find(r => r.event === 'terminal')).toMatchObject({ sandbox_processes_remaining: 0, output_root_absent: true });
+          expect(records[records.length - 1]?.lease_released).toBe(true);
+          expect(records[records.length - 1]!.guest_epoch_ms).toBeLessThan(records.find(r => r.event === 'started')!.start_epoch_lower_ms! + 3000);
+        } finally {
+          controller.abort();
+          await job.cleanup();
+        }
+      }
+    } finally {
+      config.allowed_local_network_port = oldPort;
+      if (oldTarget === undefined) delete process.env.SANDBOX_FORWARD_TARGET;
+      else process.env.SANDBOX_FORWARD_TARGET = oldTarget;
+      await fsp.rm(pkgdir, { recursive: true, force: true });
+    }
+  }, 30000,
 );

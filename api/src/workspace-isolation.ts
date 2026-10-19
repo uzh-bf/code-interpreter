@@ -168,6 +168,13 @@ export class SandboxJobUidPool {
     return this.activeSlots.size;
   }
 
+  isActive(identity: SandboxJobIdentity): boolean {
+    return identity.perJobUid === this.opts.perJobUids
+      && identity.uid === (this.opts.perJobUids ? this.opts.uidBase + identity.slot : SANDBOX_INSIDE_UID)
+      && identity.gid === (this.opts.perJobUids ? this.opts.gidBase + identity.slot : SANDBOX_INSIDE_GID)
+      && this.activeSlots.has(identity.slot);
+  }
+
   availableCount(): number {
     return this.availableSlots.length;
   }

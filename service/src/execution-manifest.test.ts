@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import crypto from 'crypto';
 import type * as t from './types';
 import { buildExecutionManifestClaims, collectManifestInputFiles } from './execution-manifest-claims';
 import {
@@ -17,6 +18,11 @@ import {
 const SECRET = 'test-secret';
 const PRIVATE_KEY = 'MC4CAQAwBQYDK2VwBCIEIBoxzSJjQ5jTVyuohHtlD+uDGqv/tZ6hQS2CmxuOg2Wn';
 const PUBLIC_KEY = 'MCowBQYDK2VwAyEAeY3PRoTS3adfU6E3gQUB5hSZdrdMSw6OrKkH4UhYh0U=';
+const LIFECYCLE_BINDING = {
+  case_id: 'case_0123456789abcdef',
+  program_sha256: 'b'.repeat(64),
+  output_session_id: 'abcdefghijklmnopqrstu',
+};
 
 function claims(overrides: Partial<ExecutionManifestClaims> = {}): ExecutionManifestClaims {
   return {
@@ -46,6 +52,26 @@ function expectManifestError(fn: () => unknown, reason: ExecutionManifestErrorRe
     expect(error).toBeInstanceOf(ExecutionManifestError);
     expect((error as ExecutionManifestError).reason).toBe(reason);
   }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .filter(key => obj[key] !== undefined)
+    .sort()
+    .map(key => `${JSON.stringify(key)}:${canonicalJson(obj[key])}`)
+    .join(',')}}`;
+}
+
+function signRawClaims(rawClaims: Record<string, unknown>, secret: string): string {
+  const payload = canonicalJson(rawClaims);
+  const signature = crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('base64url');
+  return `${Buffer.from(payload, 'utf8').toString('base64url')}.${signature}`;
 }
 
 describe('execution manifest signing', () => {
@@ -134,6 +160,35 @@ describe('execution manifest signing', () => {
     expectManifestError(() => verifyExecutionManifest(`${payload}!comment.${signature}`, SECRET, {
       nowSeconds: 150,
     }), 'malformed');
+  });
+
+  test('preserves one exact diagnostic binding and rejects malformed signed shapes', () => {
+    const token = signExecutionManifest(claims({ e2e_lifecycle_binding: LIFECYCLE_BINDING }), SECRET);
+    expect(verifyExecutionManifest(token, SECRET, { nowSeconds: 150 }).e2e_lifecycle_binding).toEqual(
+      LIFECYCLE_BINDING,
+    );
+
+    const malformed = { ...LIFECYCLE_BINDING, extra: 'field' };
+    expectManifestError(() => signExecutionManifest(
+      claims({ e2e_lifecycle_binding: malformed as never }),
+      SECRET,
+    ), 'malformed');
+    expectManifestError(() => verifyExecutionManifest(signRawClaims({
+      ...claims(),
+      e2e_lifecycle_binding: malformed,
+    }, SECRET), SECRET, { nowSeconds: 150 }), 'malformed');
+
+    for (const bad of [
+      { ...LIFECYCLE_BINDING, case_id: 'short' },
+      { ...LIFECYCLE_BINDING, program_sha256: 'B'.repeat(64) },
+      { ...LIFECYCLE_BINDING, output_session_id: 'ceg1.handle-shaped' },
+      { case_id: LIFECYCLE_BINDING.case_id, program_sha256: LIFECYCLE_BINDING.program_sha256 },
+    ]) {
+      expectManifestError(() => verifyExecutionManifest(signRawClaims({
+        ...claims(),
+        e2e_lifecycle_binding: bad,
+      }, SECRET), SECRET, { nowSeconds: 150 }), 'malformed');
+    }
   });
 });
 
