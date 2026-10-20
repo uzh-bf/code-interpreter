@@ -131,7 +131,10 @@ time.sleep(30)
         marker = os.path.join(directory, 'job.pid')
         sleeper = os.path.join(directory, 'sleep.py')
         with open(sleeper, 'w') as output:
-            output.write(f"import os,time; open({marker!r},'w').write(str(os.getpid())); time.sleep(300)")
+            # Broker EOF can trigger graceful shutdown before parent-death
+            # signals arrive. Ignore SIGTERM to exercise the SIGKILL fallback.
+            output.write(f"import os,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                         f"open({marker!r},'w').write(str(os.getpid())); time.sleep(300)")
         command[-1] = sleeper
         controller = os.path.join(directory, 'controller.js')
         broker_marker = os.path.join(directory, 'broker.pid')
@@ -164,7 +167,7 @@ time.sleep(30)
                         # Adoption by this subreaper can lag the controller's exit.
                         reaped = 0
                     if reaped:
-                        assert os.waitstatus_to_exitcode(status) == -9
+                        assert os.waitstatus_to_exitcode(status) == -9, (pid, os.waitstatus_to_exitcode(status))
                         break
                     time.sleep(0.01)
                 else:
