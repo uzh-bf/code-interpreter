@@ -85,14 +85,15 @@ describe('anonymous process pipes', () => {
         try { const inode = fs.readlinkSync(`/proc/self/fd/${fd}`); return ownedPipes.has(inode) ? [inode] : []; }
         catch { return []; }
       });
-      // Bun releases internal duplicates asynchronously after wrapper close.
+      // Bun may finish releasing internal FD duplicates after child close.
+      // Allow bounded asynchronous cleanup, but still reject persistent leaks.
       const deadline = performance.now() + 1000;
-      let pending = survivors();
-      while (pending.length > 0 && performance.now() < deadline) {
-        await new Promise<void>(resolve => setImmediate(resolve));
-        pending = survivors();
+      let remaining = survivors();
+      while (remaining.length && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        remaining = survivors();
       }
-      expect(pending).toEqual([]);
+      expect(remaining).toEqual([]);
     }
   }, 10000);
 });
