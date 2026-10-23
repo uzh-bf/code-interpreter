@@ -259,7 +259,6 @@ Source preparation includes an offline chart regression for both required target
 
 The controller-crash integration fixture ignores SIGTERM before publishing its start marker. This makes its strict SIGKILL assertions exercise kernel parent-death protection even when broker pipe closure first requests graceful shutdown. Unexpected reaped statuses are reported with the failing process identity. Graceful closure remains covered by the existing response-reader and rejection-budget cases.
 
-
 ## Approved minimal consumer fork amendment
 
 Approval mode: executable source-only batch. The user approved the upstream audit recommendation to minimize LibreChat changes. Retain its one-line attachment handoff repair and two tests in the existing handler suite; restore the nine consumer E2E paths to its actual development target. Existing upstream stateful upload coverage and external service configuration remain intact. Keep concise source-only plan and replay notes; no new runtime consumer hooks are required.
@@ -271,3 +270,31 @@ Verification preserves every original file, Stop, guest-process, execution-relea
 Source commands: `node --test tests/librechat/prepare.test.mjs`; `node tests/librechat/prepare.mjs --repo /absolute/librechat --revision <full-commit>`. The latter prints a nonsecret fixture path and exact source/overlay provenance. Use the fixture with its existing pinned LibreChat dependencies and normal Playwright commands. Preparation grants no permission for model calls, CodeAPI execution, diagnostics, cluster connectivity or deployment; each keeps its existing operator gate.
 
 Delivery is two ordinary source drafts: narrow the existing consumer MR and publish the CodeAPI-owned operator tooling through a draft PR against main. Plan challenge precedes implementation. Verify focused tests, simplification/risk and full integrated source review, inspect staged content, push normally and read back both draft descriptions. No ready, merge, image publication, deployment, secret read or further live request is included.
+
+### Consumer fixture scope and license
+
+The overlay is tested against LibreChat commit `3c17bff8294e28386e8571c6d47cb938cd267bae` and the reduced consumer repair branch. Other revisions must pass preparation without conflicts and require relevant source qualification before live use. The patch contains test source only; it must never be replayed into a consumer release branch. Fixture preparation does not establish a dependency-equipped runtime or transfer any credential/state file from the source checkout.
+
+The LibreChat-derived test overlay retains the upstream MIT notice:
+
+MIT License
+
+Copyright (c) 2026 LibreChat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
