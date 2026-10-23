@@ -39,7 +39,7 @@ A blocked milestone holds only dependent effects. Continue independent source wo
 | Plan, CI guard/regression wiring and integration | Main; critical-path coupling across the workflow and verification | Planning review, then exact command/source inspection and native tests |
 | Descendant helper and focused Python regression | Native worker; only the two named Python test paths | Approved plan; regression catches prior defect and port preserves signal assertions |
 | Fork ledger and path accounting | Main; unresolved ownership classification | Exact current comparison refs; every path explicitly classified |
-| Release, upstream, consumer and availability milestones | Main; future separable work receives bounded ownership before implementation | Prior milestone contracts and each row's acceptance above; no new effects inferred |
+| Release, consumer and availability milestones | Main; future separable work receives bounded ownership before implementation | Prior milestone contracts and each row's acceptance above; no new effects inferred |
 
 ### First package: lifecycle tests and ledger
 
@@ -85,7 +85,55 @@ Skills: `rs-sliced-development-workflow`, `rs-model-routing`, `rs-upstream-patch
 - Roadmap drafted before implementation. Initial planning review requested narrower native-CI scope, pinned upstream test provenance, explicit delegation/test obligations and complete ledger accounting; the draft incorporates those corrections. The same planner approved the corrected draft after focused recheck.
 - First package baseline: fork main `50cc28028a11fa8aff052dc23e389806f1950c10`.
 - Implemented: upstream descendant-wait helper and four focused regressions, existing native-lane bridge preflight, and current fork behavior/path accounting.
-- Focused container regression passes. Removing the absent-PID success branch makes its bounded negative control fail without signaling a real process. Workflow YAML and diff checks pass. Full native integration is pending hosted CI after the local image build could not reach its registry.
+- Focused container regression passes. Removing the absent-PID success branch makes its bounded negative control fail without signaling a real process. Workflow YAML and diff checks pass. Hosted CI passed all fourteen jobs at `3353cb1`, including both native architectures and packaged guest execution. Independent source review passed; the source package was published as draft PR #42.
 - Delivery required: verified/reviewed task branch and draft PR for the first package; later milestones retain their concrete merge and deployment gates.
 - Private receipt home: the governing checkout's ignored `docs/project/_local/reviews/2026-10-23-setup-review/`, with source-package checks/reviews under this worktree's ignored `docs/project/_local/reviews/`.
-- Next action: complete source review, publish the draft and verify the hosted native CI lanes.
+- Next action: reconcile the frozen upstream stable release in the same draft, preserving the accepted lifecycle test repair.
+
+
+## Upstream v1.10.10 source continuation
+
+This implements the already-approved upstream milestone. Keep the existing worktree, branch and draft PR #42; its verified test repair is deliberately carried into the upstream candidate. There is no stacked-PR topology or new repository. The integrated draft will describe the entire maintenance package. The terminal condition is a reviewed, source-qualified draft with passing hosted checks. Marking ready, merging to `main`, publishing commit images and deploying the new candidate retain their named authority and human gates.
+
+Frozen inputs are fork baseline `50cc28028a11fa8aff052dc23e389806f1950c10`, accepted lifecycle commit `3353cb1b9e257c4894bd0e44b6e5be3a827740b8`, and upstream stable `v1.10.10` at `77bcd2ec2e63be523bfab2dfa11159a2ceec0088`. The previous upstream ancestor is `58a023da4c47452f5e40114934679d0348c39064`. Import upstream's nine commits with a local history-preserving merge, maintaining upstream source and lockfiles. The complete incoming manifest is `git diff --name-only 58a023da4c47452f5e40114934679d0348c39064 77bcd2ec2e63be523bfab2dfa11159a2ceec0088`; this bounds upstream-owned additions without inventing new fork modules.
+
+### Reconciliation and ownership
+
+Main owns the local merge, authority, shared seams, ledger and integration. After the reviewed plan is committed, a bounded worker owns only the three Dockerfile conflict regions (`api/Dockerfile`, `docker/Dockerfile.worker-sandbox`, `launcher/Dockerfile`): adopt upstream's pinned Node include image while preserving existing fork comments, readable rootfs/spec-guard setup and broker/relay wiring. Main owns the `api/src/pipe-process.test.ts` overlap: adopt upstream's equivalent bounded descriptor wait, retaining distinct startup-cancellation cases. Main also retains the bounded clock/mocked-kill negative control and exception-type assertion in the new `tests/test_tool_call_pipes.py` add/add conflict. The helper itself is upstream-equivalent and should merge unchanged; preserve graceful SIGTERM/143 separately from parent-death SIGKILL.
+
+Inspect auto-merged `api/src/job.ts` for restored-module handling alongside cleanup/observation, `service/openapi.yml` and bridge tests for the existing public wire contract, `service/rollup.config.js` for both new upstream protocol and retained shared fork helpers, and Compose/chart values for compatibility. Upstream's optional extraction service and worker enrollment/import code are imported as source; this package adds no deployment, credentials, bridge activation or extraction service. Verify the existing HTTP backend/static-auth/non-dynamic-worker contract and optional feature gates against source. An unresolved departure from these contracts blocks source qualification before publication. Preserve upstream capability additions and their explicit gates; importing source does not prove deployed activation or acceptance.
+
+The source profiles differ and must be checked separately:
+
+- Bare service defaults are HTTP backend, static authentication, dynamic workers off, empty bridge token/recovery origin and empty gateway URL (`service/src/config.ts`). Workspace import is unavailable and browser enrollment is disabled.
+- Upstream Compose supplies a gateway URL and defaults to paired authentication and dynamic workers on. Preserve this upstream development profile: the import capability is advertised for an enabled bridge, but actual workspace execution still requires the remote-bridge backend and authenticated worker selection (`bridge/selection.ts`, `workspace-tools/router.ts`). Starting Compose is outside this source package. Do not describe its new import capability as inactive.
+- The managed execution contract remains explicit HTTP/static/non-dynamic with an empty bridge token. A gateway URL may construct the import helper, but selection rejects workspace dispatch before ownership reads or grant creation. Verify both the source gate and existing selection/import tests. Browser enrollment independently requires paired mode, recovery enabled, dynamic workers and a nonempty admin token; retain its fail-closed test cases. Standalone extraction has its own Compose file and is absent from the primary Compose/chart.
+
+| Continuation outcome | Exclusive owner | Dependency and acceptance |
+| --- | --- | --- |
+| Three Dockerfile conflict regions | Native `worker` role | Main starts merge; preserve fork permissions/comments and take pinned upstream Node inputs; worker edits only, main owns index |
+| Merge, test conflicts and automatic runtime/build seams | Main | Reviewed continuation; preserve both histories and named source-profile contracts |
+| Ledger retirement and complete active-path accounting | Main | Candidate final tree; semantic equivalence and exact source comparisons |
+| Hosted CI and integrated source qualification | Main, with read-only simplifier/risk/final roles | Candidate committed; all required source workflows pass and review findings dispositioned |
+
+Re-audit every active fork-ledger behavior against the final upstream tree. Retire only the equivalent descriptor-wait patch and descendant helper port; retain their distinct fork tests and explicit CI invocation. Preserve issuer-keyed trust, values-free logging, nonfatal telemetry, external replica/secret ownership, missing-bucket readiness, refusal-only retry/deadline handling, cancellation and diagnostic binding. Account for every active path and all automatic overlaps, and preserve the disabled fork Release workflow and exact-SHA image contract. The upstream dependency correction does not by itself authorize closing PR #38.
+
+### Verification and gates
+
+Run focused source/format/workflow checks, helper regressions and contract rendering first. Use the existing container/toolchains for dependency-backed checks, with hosted CI for the complete architecture/image matrix. Require API/service/code package tests and builds, Node 22/24 lanes, launcher/native filter and packaged guest-image checks, and deployment configuration/render tests. Retain upstream's updated Node versions and lockfiles; do not install substitute tools or weaken checks to make the merge pass. Source scans verify unchanged optional-service defaults and publication/secret permissions; CI remains source-only without cluster access. Full runtime, consumer and image publication acceptance is separate.
+
+The feature-wide portfolio adds no duplicate tests by default:
+
+| Consequential behavior | Obligation | Existing primary seam |
+| --- | --- | --- |
+| Restored modules use the current runtime without deleting user directories | none; retain and run imported regressions | `api/src/job-helpers.test.ts`, API unit lane and packaged guest execution |
+| Enrollment and credential recovery require proof and correct gates | none; run imported service/package suites | `service/src/bridge/browser-enrollment*.test.ts`, pairing tests and `packages/code` enrollment/worker tests |
+| Workspace import validates ownership, bounds reads and revokes grants | none; run imported grant/router/worker regressions and selection coverage | `service/src/workspace-tools/import.test.ts`, request/router tests and package workspace-import tests |
+| Extraction parses files inside its intended isolation | none; run the new upstream workflow | `.github/workflows/extraction.yml`: formatting, typecheck, unit tests and `npm run test:container` |
+| Updated runtimes/builds retain the managed contract | none; run both Node lanes, API/service builds, native/guest-image tests and existing chart/config checks | `.github/workflows/ci.yml` and current render scripts |
+
+Extend an existing regression only for a demonstrated uncovered failure; name its seam before adding it. The previous fourteen-job run qualifies only the unchanged lifecycle package, not this integration or the new Extraction Service workflow.
+
+Commit the merged candidate only after exact conflict/auto-merge inspection, staged-data scan and focused checks. Run the simplifier and one independent risk review for the upstream runtime/build/config seams, then the integrated final review over the complete `origin/main..candidate` package. Reuse lifecycle verification only where its tested tree, commands and boundary remain unchanged. Update the same draft PR early enough to obtain hosted checks, reporting pending gates honestly. Allow one initial reviewer report and one focused correction on the same bounded scope; recheck affected verification only. If the correction remains unresolved or needs a new contract decision, record the precise blocker and stop that dependent branch instead of repeating review or weakening acceptance. Prove both the frozen upstream and original fork baseline are ancestors of the candidate and re-run both ledger comparisons at the reviewed head.
+
+Progress: full lifecycle CI and source review passed at `3353cb1`. The continuation was persisted before the local upstream merge and approved by the planner after clarifying source profiles, the feature-wide test portfolio and exclusive ownership. Upstream source, hosted CI and review qualification remain pending. Production release work remains independently governed by its refreshed whole-diff and recorded approval gates.
