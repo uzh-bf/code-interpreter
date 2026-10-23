@@ -255,7 +255,6 @@ async function listTree(repo, revision, ceiling) {
         { ceiling },
         'source tree could not be listed',
     );
-    const paths = new Set();
     const folded = new Set();
     const symlinks = new Set();
     for (const record of listing.split('\0')) {
@@ -275,10 +274,9 @@ async function listTree(repo, revision, ceiling) {
             record.slice(tab + 1),
             'source tree path is unsafe',
         );
-        if (paths.has(rel) || folded.has(rel.toLowerCase())) {
+        if (folded.has(rel.toLowerCase())) {
             fail('source tree has colliding paths');
         }
-        paths.add(rel);
         folded.add(rel.toLowerCase());
         if (mode === '120000' && type === 'blob') {
             symlinks.add(rel);
