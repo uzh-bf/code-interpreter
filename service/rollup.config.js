@@ -45,6 +45,7 @@ export default {
         '../shared/live-cancellation-registration.ts',
         '../packages/code/src/protocol.ts',
         '../packages/code/src/identity.ts',
+        '../packages/code/src/browser-enrollment-protocol.ts',
       ],
       sourceMap: true,
       declaration: false,

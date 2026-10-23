@@ -158,12 +158,12 @@ States: Active, Review on sync, Draft, History only, Retired.
 | Retry only refused sandbox connections within an absolute deadline | Active | `39cbcd2`, `15416c4`, `055709d` | HTTP sandbox backend and cancellation |
 | Preserve early readiness and trusted-worker resource overrides | Active | `8eb246c`, `53ce639`, `b3c2e22` | Existing Helm deployment ownership |
 | Preserve normal exit during clean tool-pipe shutdown | Active | `api/src/tool-call-pipe-broker.ts`, `tests/pipe_runtime_image.cjs` | Relay-owned request transport |
-| Await asynchronous pipe descriptor reclamation in tests | Active | `api/src/pipe-process.test.ts` | Bun FileSink cleanup |
+| Await asynchronous pipe descriptor reclamation in tests | Retired | `api/src/pipe-process.test.ts` | Bun FileSink cleanup |
 | Check bounded NsJail startup failure without diagnostic prose | Active | `tests/supervisor_policy.py` | Upstream startup handshake |
 | Cancel abandoned execution and await guest cleanup | Active | `api/src/api/v2.ts`, `service/src/service/router.ts` | Queue cancellation and execution identity ownership |
 | Observe one bounded synthetic lifecycle case | Active | `shared/live-cancellation-registration.ts` | Signed manifest binding and disabled-by-default diagnostics |
 | Discover metrics across sandbox namespaces | Active | `helm/codeapi/templates/podmonitor.yaml` | Existing Prometheus Operator and restricted scrape peers |
-| Accept already-reaped descendants in cleanup tests | Review on sync | Upstream `71ef714` | Native orphan integration and focused Python regression |
+| Exercise upstream descendant cleanup in native CI | Active | Upstream helper `71ef714`; fork bounded negative control | Existing native CI lane |
 
 ## Publish exact-SHA UZH images
 
@@ -768,6 +768,10 @@ wait hunk when
 upstream provides equivalent bounded cleanup coverage or the runtime guarantees
 that its descriptors are reclaimed before the observed close events.
 
+Current disposition: retired in the v1.10.10 integration. Adopt upstream's
+bounded descriptor wait without replaying the fork's equivalent polling hunk.
+The separate startup-cancellation cases remain owned by the cancellation entry.
+
 ## Check bounded NsJail startup failure without diagnostic prose
 
 Required behavior and owned path:
@@ -876,7 +880,7 @@ changes. Drop when its chart has equivalent namespace/label selection and
 opt-in peer behavior protected by render checks. Deployment and dashboard
 ownership stay with the external GitOps repositories.
 
-## Accept already-reaped descendants in cleanup tests
+## Exercise upstream descendant cleanup in native CI
 
 The controller-death integration test distinguishes a live unadopted descendant
 from a process already reaped by its original parent. ECHILD alone is
@@ -884,15 +888,16 @@ inconclusive. An absent `/proc/<pid>` ends the wait successfully; an adopted
 child still requires SIGKILL exit status; a live descendant fails at the deadline.
 
 Shared path: `tests/tool_call_pipes.py`, which also retains graceful shutdown
-assertions. The helper is ported from upstream `71ef714` and is byte-equivalent
-to v1.10.10. Owned test path: `tests/test_tool_call_pipes.py`; its synthetic
+assertions. The helper is upstream-owned after integrating v1.10.10; its former
+fork port is retired. Owned test path: `tests/test_tool_call_pipes.py`; its synthetic
 cases preserve upstream behavior while bounding the absent-PID regression and
 avoiding a diagnostic-prose match. `.github/workflows/ci.yml` explicitly invokes
 those decision regressions.
 
-On sync, adopt the equivalent upstream helper rather than replaying it twice.
 Keep the distinct SIGTERM/143 assertions, parent-death check, safe bounded
-negative control and actual CI invocation. This is a test repair, not a change
+negative control and actual CI invocation. Drop this remaining test delta when
+upstream bounds the absent-PID negative control without real signals and runs
+the same focused cases in its native CI lane. This is a test repair, not a change
 to production termination.
 
 ## Retired debris
@@ -983,3 +988,34 @@ Recompute both comparisons at the reviewed head. Every active path must be
 assigned to an entry, shared seam or reference above; unexplained paths hold
 ledger qualification. Keep detailed path checks in private review receipts,
 not a prose-pinning CI test.
+
+
+### Re-audit basis: upstream v1.10.10 continuation
+
+- Fork source baseline `50cc28028a11fa8aff052dc23e389806f1950c10`; carried lifecycle
+  repair `3353cb1b9e257c4894bd0e44b6e5be3a827740b8`.
+- Integrated upstream `77bcd2ec2e63be523bfab2dfa11159a2ceec0088`, from previous
+  upstream ancestor `58a023da4c47452f5e40114934679d0348c39064`.
+- Adopt upstream's pinned Node build/runtime versions, restored-module handling,
+  worker enrollment/recovery, workspace import and separate extraction package.
+  The latter retains its own validation workflow and standalone Compose file;
+  no primary deployment is added by this reconciliation.
+- Keep the managed HTTP/static/non-dynamic contract. Development Compose retains
+  upstream's paired/dynamic profile and advertised import capability; actual
+  workspace dispatch still requires remote-bridge worker selection. Browser
+  enrollment also requires recovery configuration and an admin token. The
+  source profiles and acceptance tests are specified in the
+  [reliability roadmap](../project/2026-10-23-codeapi-reliability-roadmap.md).
+- Retire the equivalent descriptor-wait hunk and descendant-helper port.
+  Preserve startup-cancellation, graceful termination and safe negative-control
+  assertions. Upstream's dependency pin supersedes the source delta proposed
+  separately for `proxy-addr`; this ledger does not close a PR.
+- All other named fork behaviors remain active: upstream has no equivalent
+  issuer trust map, values-free sinks, nonfatal telemetry guard, external
+  controller ownership, missing-bucket readiness, refusal-only retry/deadline,
+  caller cancellation, selected lifecycle observation or chart scrape peers.
+  Shared auto-merged seams retain both upstream additions and those behaviors.
+- After this merge, both active-surface and reconciliation comparisons use
+  v1.10.10 as the ancestor. Upstream-only additions are no longer fork patches.
+  Rebuild path ownership at the final reviewed commit; source CI and review
+  qualify the candidate separately from image publication and runtime rollout.
