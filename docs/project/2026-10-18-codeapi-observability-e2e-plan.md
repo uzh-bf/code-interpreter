@@ -271,6 +271,10 @@ Source commands: `node --test tests/librechat/prepare.test.mjs`; `node tests/lib
 
 Delivery is two ordinary source drafts: narrow the existing consumer MR and publish the CodeAPI-owned operator tooling through a draft PR against main. Plan challenge precedes implementation. Verify focused tests, simplification/risk and full integrated source review, inspect staged content, push normally and read back both draft descriptions. No ready, merge, image publication, deployment, secret read or further live request is included.
 
+### Consumer migration progress
+
+The source migration is implemented in [CodeAPI PR #45](https://github.com/uzh-bf/code-interpreter/pull/45), with the reduced [LibreChat MR !81](https://gitlab.uzh.ch/ai-infrastructure/ai-buddy/librechat/-/merge_requests/81). The consumer E2E tree matches its target; the runtime guard and two regressions are unchanged. Four preparation contracts, all 34 relocated observation/receipt checks, both test-lane discoveries and scoped lint pass. Fixture files preserve the reviewed source except an equivalent config lint correction. Focused Opengrep reports no findings or scan errors. The earlier 352 consumer tests, API types and static checks remain applicable by exact source equivalence. The simplifier's redundant-state removal is accepted; focused risk and integrated final review remain required. No live acceptance follows from these source checks, and the unchanged Lighthouse metadata assertion remains unresolved.
+
 ### Consumer fixture scope and license
 
 The overlay is tested against LibreChat commit `3c17bff8294e28386e8571c6d47cb938cd267bae` and the reduced consumer repair branch. Other revisions must pass preparation without conflicts and require relevant source qualification before live use. The patch contains test source only; it must never be replayed into a consumer release branch. Fixture preparation does not establish a dependency-equipped runtime or transfer any credential/state file from the source checkout.
