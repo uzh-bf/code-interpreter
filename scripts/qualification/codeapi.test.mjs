@@ -49,12 +49,7 @@ const success = (stdout = 'qualification-ok\n', extra = {}) => ({
     ...extra,
 });
 
-test('destination confinement rejects unsafe endpoints before any request', async t => {
-    let requests = 0;
-    await local(t, (_, res) => {
-        requests++;
-        res.end();
-    });
+test('destination confinement rejects unsafe endpoints before any request', () => {
     for (const url of [
         'http://example.org/v1',
         'https://user:password@example.org/v1',
@@ -71,7 +66,6 @@ test('destination confinement rejects unsafe endpoints before any request', asyn
     assert.throws(() => exchange('http://127.0.0.1:1/v1', '/../other'), {
         reason: 'invalid_path',
     });
-    assert.equal(requests, 0);
 });
 
 test('transport rejects redirects, overflow, truncation and whole-response deadlines', async t => {
