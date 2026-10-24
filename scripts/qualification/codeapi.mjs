@@ -1126,8 +1126,7 @@ async function sustained({
         const admittedByCaller = { a: 0, b: 0 };
         const successfulByCaller = { a: 0, b: 0 };
         const failedByCaller = { a: 0, b: 0 };
-        let active = 0,
-            offered = 0,
+        let offered = 0,
             admitted = 0,
             successful = 0,
             failed = 0,
@@ -1173,7 +1172,7 @@ async function sustained({
                     break;
                 }
                 if (
-                    active + wave.length > 4 ||
+                    outstanding.size + wave.length > 4 ||
                     wave.some(
                         item =>
                             activeByCaller[item.caller] +
@@ -1195,7 +1194,6 @@ async function sustained({
                     const offeredAt = monotonic();
                     admitted++;
                     admittedByCaller[item.caller]++;
-                    active++;
                     activeByCaller[item.caller]++;
                     const work = renderResourceWorkload(
                         templates[item.kind],
@@ -1240,7 +1238,6 @@ async function sustained({
                         })
                         .finally(() => {
                             attemptedMs += monotonic() - offeredAt;
-                            active--;
                             activeByCaller[item.caller]--;
                             outstanding.delete(task);
                             if (monotonic() > end)

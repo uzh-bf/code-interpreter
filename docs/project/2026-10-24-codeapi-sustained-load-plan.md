@@ -18,13 +18,13 @@ Target: fork main. Frozen source baseline: `8c7916ccd10699c7d18ff82a03996b452706
 
 Execution mode: standard. Main owns authority, the shared-client authentication/budget seam, secrets, live execution, observer adaptation, integration and final proof. One bounded source executor implements the settled scheduler and behavioral tests after planning approval; it receives source-only scope. Native planner challenges the complete frozen plan; Opus 5.5 discusses methodology before execution and performs integrated final source review. Existing source and observer evidence is reused only where contracts remain unchanged. No new runtime dependency, service, toolchain or test framework is needed. No browser contract changes; screenshots do not apply. No ADR threshold is met.
 
-| Item | Exclusive execution owner | Dependency and acceptance |
-| --- | --- | --- |
-| Plan, contracts and methodology | Main with read-only planner and Opus discussion | Frozen draft, source-supported limits, explicit finite coverage and stop conditions |
-| Existing client budget/auth extension | Main | Explicit sustained envelope, default envelope unchanged, one shared ledger across both callers |
-| Paced scheduler and tests | Bounded source executor | Approved plan; only existing qualification module/test paths; deterministic offline fixtures |
-| Observer, signing and STG invocation | Main | Source checks/reviews, exact scopes/current context, fresh preflight and one-run authority |
-| Integrated review and draft delivery | Main with configured read-only roles | Immutable complete source range, terminal acceptance/cleanup evidence and private findings |
+| Item                                  | Exclusive execution owner                       | Dependency and acceptance                                                                      |
+| ------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Plan, contracts and methodology       | Main with read-only planner and Opus discussion | Frozen draft, source-supported limits, explicit finite coverage and stop conditions            |
+| Existing client budget/auth extension | Main                                            | Explicit sustained envelope, default envelope unchanged, one shared ledger across both callers |
+| Paced scheduler and tests             | Bounded source executor                         | Approved plan; only existing qualification module/test paths; deterministic offline fixtures   |
+| Observer, signing and STG invocation  | Main                                            | Source checks/reviews, exact scopes/current context, fresh preflight and one-run authority     |
+| Integrated review and draft delivery  | Main with configured read-only roles            | Immutable complete source range, terminal acceptance/cleanup evidence and private findings     |
 
 ### Source changes and invariant contracts
 
@@ -68,13 +68,13 @@ After the client has settled admitted work and completed its cleanup, allow at m
 
 ### Feature-wide test portfolio
 
-| Consequential risk | Test obligation and primary seam | Observable protection |
-| --- | --- | --- |
-| Long mode silently widens old safety limits or splits caller budgets | Extend existing client budget tests | Original envelopes stay exact; sustained global accounting and deadlines cannot be bypassed by caller choice; delayed/unresolved signing cannot dispatch late or after failure and cannot indefinitely block cleanup |
-| Caller identity leaks, changes midway or contaminates metrics | Extend existing synthetic HTTP protocol fixture | Two fixed suppliers are used, default auth preserved, equal labeled offers and no credentials in receipts |
-| Incomplete intervals, catch-up or missed slots appear successful | Extend existing fake-clock scheduler tests | Full plateau/boundary proof; late/blocked/overrun slots stop later admission without replay |
-| Wrong work, errors or failed cleanup pass under sustained mode | Extend existing full-flow and failure controls | Exact workload validation, 429/error stop, owned cleanup and honest terminal partial/failure |
-| Desired state is confused with measured runtime | No new maintained test: scoped live proof | Exact producing images/configuration, mandatory telemetry, every plateau and final health/canaries |
+| Consequential risk                                                   | Test obligation and primary seam                | Observable protection                                                                                                                                                                                                |
+| -------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Long mode silently widens old safety limits or splits caller budgets | Extend existing client budget tests             | Original envelopes stay exact; sustained global accounting and deadlines cannot be bypassed by caller choice; delayed/unresolved signing cannot dispatch late or after failure and cannot indefinitely block cleanup |
+| Caller identity leaks, changes midway or contaminates metrics        | Extend existing synthetic HTTP protocol fixture | Two fixed suppliers are used, default auth preserved, equal labeled offers and no credentials in receipts                                                                                                            |
+| Incomplete intervals, catch-up or missed slots appear successful     | Extend existing fake-clock scheduler tests      | Full plateau/boundary proof; late/blocked/overrun slots stop later admission without replay                                                                                                                          |
+| Wrong work, errors or failed cleanup pass under sustained mode       | Extend existing full-flow and failure controls  | Exact workload validation, 429/error stop, owned cleanup and honest terminal partial/failure                                                                                                                         |
+| Desired state is confused with measured runtime                      | No new maintained test: scoped live proof       | Exact producing images/configuration, mandatory telemetry, every plateau and final health/canaries                                                                                                                   |
 
 ### Delivery and later decisions
 
@@ -84,4 +84,4 @@ Run exactly one approved STG invocation after all gates. A failed admission-free
 
 ### Progress
 
-Drafted before implementation. Current source baseline and worktree are established. Opus 5.5 discussion is complete and its verified corrections are integrated. Native planner approved round two after bounded-signing, exact-rate-window and post-run-clock corrections. Fourteen baseline offline checks pass in the existing pinned Node24 container. No sustained STG workload has been admitted. The existing capacity-contract and production-promotion packages are separate completed history; their private results are reused only where their acceptance boundary is unchanged.
+Drafted before implementation. Current source baseline and worktree are established. Opus 5.5 discussion is complete and its verified corrections are integrated. Native planner approved round two after bounded-signing, exact-rate-window and post-run-clock corrections. Fourteen baseline offline checks pass in the existing pinned Node24 container. Source implementation and the extended offline suite pass nineteen checks; the simplifier reduction passes the three affected scheduler checks. Early [draft PR #47](https://github.com/uzh-bf/code-interpreter/pull/47) carries source CI while risk and integrated final reviews remain pending. No sustained STG workload has been admitted. The existing capacity-contract and production-promotion packages are separate completed history; their private results are reused only where their acceptance boundary is unchanged.
