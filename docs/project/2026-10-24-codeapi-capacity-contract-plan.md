@@ -76,4 +76,8 @@ Use existing cluster connectivity only. Service forwarding is an operator transp
 
 ### Progress
 
-Status: planner-approved. The native planner requested executable workload budgets, cleanup deadlines, a mandatory observer guard and explicit ownership. All four corrections were accepted; its same-draft correction pass returned APPROVED. An optional external challenge was unavailable; it does not replace the passed native review. Active slice: client risk-review correction before the bounded operator experiment. Required delivery: reviewed pushed draft plus private bounded-STG result or concrete blocker. Plan was committed before implementation; capability mapping and offline client controls are prepared. No live experiment has run under this package. No PR exists yet. Next: committed source risk review, bounded STG acceptance, then integrated draft delivery.
+Status: source package implemented, simplified and reviewed. The plan preceded implementation. All source review findings are dispositioned, and the independent final correction passed. The offline protocol/failure controls and focused source checks pass. Substantive scope: the qualification client, its tests and one existing CI step; no deployed service code changes.
+
+Delivery: [draft PR #46](https://github.com/uzh-bf/code-interpreter/pull/46), branch `rs/codeapi-capacity-contract`. Source-qualified head: `9f4b2e1a1b73cfd36c416d1ba3812aa771f1431e`. Documentation-only progress updates preserve that source evidence. The operational continuation, acceptance results, cleanup accounting and any next-window recommendation belong exclusively in the existing ignored review directory. Consult those private receipts before any release or tuning decision.
+
+The source package ends at reviewed draft delivery. Merge, runtime publication, capacity/concurrency changes, optional-feature activation and production effects retain their named gates. No additional source slice is active in this package.
