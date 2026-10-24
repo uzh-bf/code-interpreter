@@ -2,6 +2,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { randomUUID } from 'node:crypto';
 import { open, readFile } from 'node:fs/promises';
+import { writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -209,6 +210,7 @@ export function createClient({
     limits = {},
     now = Date.now,
     request = exchange,
+    receiptHealthy = () => true,
 }) {
     const base = apiBase(baseUrl);
     check(UUID.test(runId), 'invalid_run_id');
@@ -249,6 +251,7 @@ export function createClient({
         { cleanup = false, guestMs = 0, auth = token, ...options } = {}
     ) {
         check(!state.stopped || cleanup, 'admission_stopped');
+        check(cleanup || receiptHealthy(), 'receipt_unavailable');
         check(now() - start < (cleanup ? 900000 : 720000), 'run_deadline');
         if (!cleanup) await guardCheck(guardPath, runId, now());
         check(!state.stopped || cleanup, 'admission_stopped');
@@ -318,27 +321,27 @@ export function createClient({
         }
     }
     const own = (session, id, name) => {
-        if (
-            !ID.test(session ?? '') ||
-            !ID.test(id ?? '') ||
-            typeof name !== 'string'
-        ) {
+        if (!ID.test(session ?? '') || !ID.test(id ?? '')) {
             state.uncertain = true;
             throw new QualificationError('unknown_output_reference');
         }
         const existing = state.owned.find(
             x => x.id === id && x.storage_session_id === session
         );
-        if (existing) return existing;
+        if (existing) {
+            check(typeof name === 'string', 'unusable_output_name');
+            return existing;
+        }
         const ref = {
             id,
             storage_session_id: session,
-            name,
+            name: typeof name === 'string' ? name : '',
             kind: 'user',
             resource_id: runId,
         };
         state.owned.push(ref);
-        receipt({ type: 'owned_object', ...ref });
+        receipt({ type: 'owned_object', id, storage_session_id: session });
+        check(typeof name === 'string', 'unusable_output_name');
         check(state.owned.length <= cap.files, 'file_budget');
         return ref;
     };
@@ -717,8 +720,26 @@ export async function runQualification({
         'receipt_required'
     );
     const file = await open(receiptPath, 'wx', 0o600);
-    const lines = [];
-    const receipt = value => lines.push(JSON.stringify(value) + '\n');
+    let receiptFailed = false;
+    const receipt = value => {
+        if (receiptFailed) return;
+        try {
+            const bytes = Buffer.from(JSON.stringify(value) + '\n');
+            let offset = 0;
+            while (offset < bytes.length) {
+                const written = writeSync(
+                    file.fd,
+                    bytes,
+                    offset,
+                    bytes.length - offset
+                );
+                if (written <= 0) throw new Error();
+                offset += written;
+            }
+        } catch {
+            receiptFailed = true;
+        }
+    };
     let client;
     const stopped = () => {
         if (client) {
@@ -727,6 +748,7 @@ export async function runQualification({
     };
     process.on('SIGINT', stopped);
     process.on('SIGTERM', stopped);
+    process.on('SIGHUP', stopped);
     try {
         client = createClient({
             baseUrl,
@@ -734,6 +756,7 @@ export async function runQualification({
             runId,
             guardPath,
             receipt,
+            receiptHealthy: () => !receiptFailed,
             ...testing,
         });
         receipt({ type: 'start', runId, mode });
@@ -747,8 +770,12 @@ export async function runQualification({
         const summary = {
             type: 'summary',
             status:
-                !client.state.failures.length && !client.state.uncertain
-                    ? 'passed'
+                !client.state.failures.length &&
+                !client.state.uncertain &&
+                !receiptFailed
+                    ? comparisonToken
+                        ? 'passed'
+                        : 'partial'
                     : 'failed',
             requests: client.state.requests,
             executions: client.state.executions,
@@ -756,14 +783,20 @@ export async function runQualification({
             ownedObjects: client.state.owned.length,
             peakRequests: client.state.peak,
             cleanupUncertain: client.state.uncertain,
+            receiptFailed,
+            untested: comparisonToken ? [] : ['ownership_denial'],
             failures: client.state.failures,
         };
         receipt(summary);
+        if (receiptFailed) {
+            summary.status = 'failed';
+            summary.receiptFailed = true;
+        }
         return summary;
     } finally {
         process.removeListener('SIGINT', stopped);
         process.removeListener('SIGTERM', stopped);
-        await file.writeFile(lines.join(''));
+        process.removeListener('SIGHUP', stopped);
         await file.close();
     }
 }
@@ -773,6 +806,8 @@ if (
     import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
     const credential = process.env.CODEAPI_BEARER_TOKEN;
+    const comparison = process.env.CODEAPI_COMPARISON_BEARER_TOKEN;
+    delete process.env.CODEAPI_COMPARISON_BEARER_TOKEN;
     delete process.env.CODEAPI_BEARER_TOKEN;
     if (!process.argv.includes('--live') || process.env.CI || !credential) {
         process.stderr.write(
@@ -783,6 +818,7 @@ if (
         runQualification({
             baseUrl: process.env.CODEAPI_BASE_URL,
             token: () => credential,
+            comparisonToken: comparison ? () => comparison : undefined,
             runId: process.env.CODEAPI_RUN_ID,
             guardPath: process.env.CODEAPI_GUARD,
             receiptPath: process.env.CODEAPI_RECEIPT,

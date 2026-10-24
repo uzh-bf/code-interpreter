@@ -60,12 +60,12 @@ Use existing cluster connectivity only. Service forwarding is an operator transp
 
 ### Delegation map
 
-| Slice                             | Route and exclusive owner                                                            | Dependency and acceptance                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| 1: plan and capability assessment | Main plus read-only source explorer; explorer returns mapping, main writes documents | Frozen source and planner approval; exact source references                  |
-| 2: client and offline tests       | Main owns the two script paths after explicit worker handback; main owns CI and integration       | Approved plan; offline protocol and failure controls pass                    |
-| 3: STG experiment                 | Main; secrets and live effects retained for authority/privacy                        | Qualified tool commit and safety guard; one finite result with owned cleanup |
-| 4: review and draft delivery      | Main plus read-only final reviewer                                                   | Exact committed range, checks and private acceptance; reviewed pushed draft  |
+| Slice                             | Route and exclusive owner                                                                   | Dependency and acceptance                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 1: plan and capability assessment | Main plus read-only source explorer; explorer returns mapping, main writes documents        | Frozen source and planner approval; exact source references                  |
+| 2: client and offline tests       | Main owns the two script paths after explicit worker handback; main owns CI and integration | Approved plan; offline protocol and failure controls pass                    |
+| 3: STG experiment                 | Main; secrets and live effects retained for authority/privacy                               | Qualified tool commit and safety guard; one finite result with owned cleanup |
+| 4: review and draft delivery      | Main plus read-only final reviewer                                                          | Exact committed range, checks and private acceptance; reviewed pushed draft  |
 
 ### Slices and delivery
 
@@ -76,4 +76,4 @@ Use existing cluster connectivity only. Service forwarding is an operator transp
 
 ### Progress
 
-Status: planner-approved. The native planner requested executable workload budgets, cleanup deadlines, a mandatory observer guard and explicit ownership. All four corrections were accepted; its same-draft correction pass returned APPROVED. An optional external challenge was unavailable; it does not replace the passed native review. Active slice: capability/source inventory and frozen plan review. Required delivery: reviewed pushed draft plus private bounded-STG result or concrete blocker. Plan was committed before implementation; capability mapping and offline client controls are prepared. No live experiment has run under this package. No PR exists yet. Next: committed source risk review, bounded STG acceptance, then integrated draft delivery.
+Status: planner-approved. The native planner requested executable workload budgets, cleanup deadlines, a mandatory observer guard and explicit ownership. All four corrections were accepted; its same-draft correction pass returned APPROVED. An optional external challenge was unavailable; it does not replace the passed native review. Active slice: client risk-review correction before the bounded operator experiment. Required delivery: reviewed pushed draft plus private bounded-STG result or concrete blocker. Plan was committed before implementation; capability mapping and offline client controls are prepared. No live experiment has run under this package. No PR exists yet. Next: committed source risk review, bounded STG acceptance, then integrated draft delivery.

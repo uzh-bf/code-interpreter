@@ -185,6 +185,32 @@ test('unknown generated references retain every valid owned ref and mark uncerta
     });
     assert.equal(client.state.owned.length, 1);
     assert.equal(client.state.uncertain, true);
+    const missingName = createClient({
+        ...c,
+        baseUrl: 'http://127.0.0.1:1/v1',
+        token: () => 'synthetic',
+        request: async () => ({
+            status: 200,
+            headers: {},
+            bytes: Buffer.from(
+                JSON.stringify(
+                    success('', {
+                        files: [
+                            {
+                                id: 'v'.repeat(21),
+                                storage_session_id: 's'.repeat(21),
+                            },
+                        ],
+                    })
+                )
+            ),
+        }),
+    });
+    await assert.rejects(missingName.execute('pass', 'python'), {
+        reason: 'unknown_output_reference',
+    });
+    assert.equal(missingName.state.owned.length, 1);
+    assert.equal(missingName.state.uncertain, false);
 });
 
 async function protocol(
@@ -307,7 +333,13 @@ test('independent contract, bounded phases and exact artifacts complete with own
         comparisonToken: () => 'other',
         mode: 'all',
         waitMs: 0,
-        request: exchange,
+        request: async (...args) => {
+            const activeReceipt = await readFile(c.receiptPath, 'utf8');
+            assert.ok(activeReceipt.includes('"type":"start"'));
+            if (args[1].startsWith('/download/'))
+                assert.ok(activeReceipt.includes('"type":"owned_object"'));
+            return exchange(...args);
+        },
     });
     assert.equal(result.status, 'passed');
     assert.equal(server.objects.size, 0);
@@ -328,6 +360,19 @@ test('independent contract, bounded phases and exact artifacts complete with own
         .filter(x => x.type === 'phase');
     assert.equal(phases.length, 3);
     assert.ok(phases.every(x => x.successful === x.offered));
+});
+
+test('missing comparison identity reports partial qualification after cleanup', async t => {
+    const c = await files(t),
+        server = await protocol(t);
+    const result = await runQualification({
+        ...c,
+        baseUrl: server.baseUrl,
+        token: () => 'synthetic',
+    });
+    assert.equal(result.status, 'partial');
+    assert.deepEqual(result.untested, ['ownership_denial']);
+    assert.equal(server.objects.size, 0);
 });
 
 test('malformed HTTP success stops load and still deletes returned owned output', async t => {
