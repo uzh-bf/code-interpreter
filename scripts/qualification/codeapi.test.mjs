@@ -575,7 +575,7 @@ test('late anchor or missed slot cannot silently shrink or bunch soak coverage',
                 x =>
                     x.reason ===
                     (options.lateAnchor
-                        ? 'soak_anchor_deadline'
+                        ? 'soak_preflight_deadline'
                         : 'soak_slot_missed')
             )
         );

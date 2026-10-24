@@ -766,11 +766,14 @@ async function resources(
     client,
     { waitMs, began, monotonic, pause, guardPath }
 ) {
-    async function sample(kind, phase, index) {
-        const work = resourceWorkload(
-            kind,
-            `${client.runId}:${phase}:${index}`
-        );
+    check(
+        monotonic() - began + 2 * waitMs + 10000 + 20000 <= 100000,
+        'soak_preflight_deadline'
+    );
+    async function sample(kind, phase, index, prepared) {
+        const work =
+            prepared ??
+            resourceWorkload(kind, `${client.runId}:${phase}:${index}`);
         const result = await client.execute(work.code, work.lang);
         let output;
         try {
@@ -807,14 +810,18 @@ async function resources(
         ['cpu', 6, 'cpu'],
         ['memory', 4, 'memory'],
     ]) {
-        await pause(waitMs);
+        const preparationBegan = monotonic();
+        const prepared = Array.from({ length: count }, (_, i) =>
+            resourceWorkload(kind, `${client.runId}:${name}:${i}`)
+        );
+        await pause(Math.max(0, waitMs - (monotonic() - preparationBegan)));
         const startedAt = client.now(),
             phaseBegan = monotonic();
         const samples = [];
         await client.parallel(
             Array.from({ length: count }, (_, i) => i),
             2,
-            async i => samples.push(await sample(kind, name, i))
+            async i => samples.push(await sample(kind, name, i, prepared[i]))
         );
         check(
             !client.state.stopped && samples.length === count,
@@ -848,7 +855,10 @@ async function resources(
         await pause(Math.max(0, due - monotonic()));
         check(monotonic() - due <= 10000, 'soak_slot_missed');
         check(!client.state.stopped, 'admission_stopped');
-        await sample(i % 2 ? 'node_memory' : 'cpu', 'soak', i);
+        const kind = i % 2 ? 'node_memory' : 'cpu';
+        const prepared = resourceWorkload(kind, `${client.runId}:soak:${i}`);
+        check(monotonic() - due <= 10000, 'soak_slot_missed');
+        await sample(kind, 'soak', i, prepared);
         check(monotonic() <= end, 'soak_response_overrun');
     }
     await pause(Math.max(0, end - monotonic()));
