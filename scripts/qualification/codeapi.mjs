@@ -1,6 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { open, readFile } from 'node:fs/promises';
 import { writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -199,6 +199,7 @@ export async function guardCheck(path, runId, now = Date.now()) {
             now - guard.observedAt <= 20000,
         'guard_rejected'
     );
+    return guard;
 }
 
 export function createClient({
@@ -702,6 +703,179 @@ async function load(client, waitMs) {
     }
 }
 
+const RESOURCE_BYTES = 32 * 1024 * 1024;
+const HASH_STEPS = 1000000;
+
+export function resourceWorkload(kind, nonce) {
+    check(
+        ['cpu', 'memory', 'node_memory'].includes(kind),
+        'invalid_resource_kind'
+    );
+    check(
+        typeof nonce === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(nonce),
+        'invalid_resource_nonce'
+    );
+    const memory = kind !== 'cpu';
+    const pattern = createHash('sha256').update(nonce).digest()[0];
+    let value = Buffer.from(nonce);
+    if (memory) value = Buffer.alloc(RESOURCE_BYTES, pattern);
+    else
+        for (let i = 0; i < HASH_STEPS; i++)
+            value = createHash('sha256').update(value).digest();
+    const digest = memory
+        ? createHash('sha256').update(value).digest('hex')
+        : value.toString('hex');
+    const literal = JSON.stringify(nonce);
+    const code =
+        kind === 'node_memory'
+            ? `// qualification-resource:node_memory
+import {createHash} from 'node:crypto';
+const nonce=${literal};
+const cpu=process.cpuUsage(), wall=performance.now();
+const data=Buffer.alloc(${RESOURCE_BYTES},${pattern});
+for(let i=0;i<data.length;i+=4096)data[i]=${pattern};
+const digest=createHash('sha256').update(data).digest('hex');
+const used=process.cpuUsage(cpu);
+console.log(JSON.stringify({nonce,digest,bytes:data.length,cpuMs:(used.user+used.system)/1000,wallMs:performance.now()-wall}));`
+            : `# qualification-resource:${kind}
+import hashlib,json,time
+nonce=${literal}
+cpu=time.process_time(); wall=time.perf_counter()
+${
+    memory
+        ? `data=bytearray([${pattern}])*${RESOURCE_BYTES}
+for i in range(0,len(data),4096): data[i]=${pattern}
+digest=hashlib.sha256(data).hexdigest()`
+        : `data=nonce.encode('utf8')
+for _ in range(${HASH_STEPS}): data=hashlib.sha256(data).digest()
+digest=data.hex()`
+}
+print(json.dumps(dict(nonce=nonce,digest=digest,bytes=${
+                  memory ? RESOURCE_BYTES : 0
+              },cpuMs=(time.process_time()-cpu)*1000,wallMs=(time.perf_counter()-wall)*1000)))`;
+    return {
+        code,
+        lang: kind === 'node_memory' ? 'node' : 'python',
+        nonce,
+        digest,
+        bytes: memory ? RESOURCE_BYTES : 0,
+    };
+}
+
+async function resources(
+    client,
+    { waitMs, began, monotonic, pause, guardPath }
+) {
+    async function sample(kind, phase, index) {
+        const work = resourceWorkload(
+            kind,
+            `${client.runId}:${phase}:${index}`
+        );
+        const result = await client.execute(work.code, work.lang);
+        let output;
+        try {
+            output = JSON.parse(result.value.stdout);
+        } catch {
+            throw new QualificationError('resource_output_mismatch');
+        }
+        check(
+            output.nonce === work.nonce &&
+                output.digest === work.digest &&
+                output.bytes === work.bytes &&
+                Number.isFinite(output.cpuMs) &&
+                output.cpuMs > 0 &&
+                Number.isFinite(output.wallMs) &&
+                output.wallMs > 0 &&
+                output.wallMs <= 3000 &&
+                result.created.length === 0,
+            'resource_output_mismatch'
+        );
+        const item = {
+            phase,
+            index,
+            language: work.lang,
+            kind,
+            bytes: work.bytes,
+            cpuMs: output.cpuMs,
+            guestWallMs: output.wallMs,
+            durationMs: result.durationMs,
+        };
+        client.receipt({ type: 'resource_sample', ...item });
+        return item;
+    }
+    for (const [name, count, kind] of [
+        ['cpu', 6, 'cpu'],
+        ['memory', 4, 'memory'],
+    ]) {
+        await pause(waitMs);
+        const startedAt = client.now(),
+            phaseBegan = monotonic();
+        const samples = [];
+        await client.parallel(
+            Array.from({ length: count }, (_, i) => i),
+            2,
+            async i => samples.push(await sample(kind, name, i))
+        );
+        check(
+            !client.state.stopped && samples.length === count,
+            'resource_phase_incomplete'
+        );
+        await pause(5000);
+        client.receipt({
+            type: 'resource_phase',
+            name,
+            offered: count,
+            successful: samples.length,
+            concurrency: 2,
+            startedAt,
+            endedAt: client.now(),
+            durationMs: monotonic() - phaseBegan,
+        });
+    }
+    const anchor = monotonic(),
+        wallAnchor = client.now();
+    check(anchor - began <= 100000, 'soak_anchor_deadline');
+    const end = anchor + 600000;
+    client.receipt({
+        type: 'soak_start',
+        startedAt: wallAnchor,
+        durationMs: 600000,
+        offered: 16,
+        spacingMs: 37500,
+    });
+    for (let i = 0; i < 16; i++) {
+        const due = anchor + i * 37500;
+        await pause(Math.max(0, due - monotonic()));
+        check(monotonic() - due <= 10000, 'soak_slot_missed');
+        check(!client.state.stopped, 'admission_stopped');
+        await sample(i % 2 ? 'node_memory' : 'cpu', 'soak', i);
+        check(monotonic() <= end, 'soak_response_overrun');
+    }
+    await pause(Math.max(0, end - monotonic()));
+    // Admission checks do not prove health during the final observation-only interval.
+    const finalBound = monotonic() + 10000;
+    let finalGuard;
+    while (monotonic() < finalBound) {
+        finalGuard = await guardCheck(guardPath, client.runId, client.now());
+        if (finalGuard.observedAt >= wallAnchor + 600000) break;
+        await pause(1000);
+    }
+    check(
+        finalGuard.observedAt >= wallAnchor + 600000 && !client.state.stopped,
+        'final_observation_missing'
+    );
+    client.receipt({
+        type: 'resource_phase',
+        name: 'soak',
+        offered: 16,
+        successful: 16,
+        concurrency: 1,
+        startedAt: wallAnchor,
+        endedAt: client.now(),
+        durationMs: monotonic() - anchor,
+    });
+}
+
 export async function runQualification({
     baseUrl,
     token,
@@ -713,7 +887,14 @@ export async function runQualification({
     waitMs = 31000,
     ...testing
 } = {}) {
-    check(['contract', 'all'].includes(mode), 'invalid_mode');
+    check(['contract', 'all', 'resources'].includes(mode), 'invalid_mode');
+    check(
+        (!testing.monotonic && !testing.pause) || testing.request,
+        'test_clock_requires_transport'
+    );
+    const monotonic = testing.monotonic ?? (() => performance.now());
+    const pause = testing.pause ?? delay;
+    const began = monotonic();
     check(waitMs === 31000 || testing.request, 'invalid_rate_window');
     check(
         typeof receiptPath === 'string' && receiptPath.length > 0,
@@ -763,6 +944,14 @@ export async function runQualification({
         try {
             await contract(client, comparisonToken);
             if (mode === 'all') await load(client, waitMs);
+            if (mode === 'resources')
+                await resources(client, {
+                    waitMs,
+                    began,
+                    monotonic,
+                    pause,
+                    guardPath,
+                });
         } catch (error) {
             client.fail(error);
         }
@@ -822,7 +1011,11 @@ if (
             runId: process.env.CODEAPI_RUN_ID,
             guardPath: process.env.CODEAPI_GUARD,
             receiptPath: process.env.CODEAPI_RECEIPT,
-            mode: process.argv.includes('--load') ? 'all' : 'contract',
+            mode: process.argv.includes('--resources')
+                ? 'resources'
+                : process.argv.includes('--load')
+                ? 'all'
+                : 'contract',
         })
             .then(result => {
                 process.stdout.write(

@@ -12,6 +12,7 @@ import {
     guardCheck,
     createClient,
     runQualification,
+    resourceWorkload,
 } from './codeapi.mjs';
 
 async function local(t, handler) {
@@ -215,7 +216,12 @@ test('unknown generated references retain every valid owned ref and mark uncerta
 
 async function protocol(
     t,
-    { wrongRuntime = false, deleteFailure = false, rateLimit = false } = {}
+    {
+        wrongRuntime = false,
+        deleteFailure = false,
+        rateLimit = false,
+        corruptResource = false,
+    } = {}
 ) {
     const objects = new Map();
     let counter = 0,
@@ -254,6 +260,29 @@ async function protocol(
             if (wrongRuntime) {
                 const ref = put('unexpected.csv', Buffer.from('owned'));
                 return reply(res, 200, success('wrong\n', { files: [ref] }));
+            }
+            const resource =
+                /qualification-resource:(cpu|memory|node_memory)/.exec(
+                    input.code
+                );
+            if (resource) {
+                const nonce = JSON.parse(
+                    /nonce=("[^"\n]+")/.exec(input.code)[1]
+                );
+                const work = resourceWorkload(resource[1], nonce);
+                return reply(
+                    res,
+                    200,
+                    success(
+                        JSON.stringify({
+                            nonce,
+                            digest: corruptResource ? 'invalid' : work.digest,
+                            bytes: work.bytes,
+                            cpuMs: 25,
+                            wallMs: 30,
+                        }) + '\n'
+                    )
+                );
             }
             if (input.code.includes('write_bytes')) {
                 const name = /joinpath\('([^']+)'\)\.write_bytes/.exec(
@@ -431,4 +460,148 @@ test('stale safety guard prevents all traffic but does not prevent owned cleanup
     await assert.rejects(client.call('/health'), { reason: 'guard_rejected' });
     await client.cleanup();
     assert.equal(client.state.requests, 2);
+});
+
+test('resource workload oracle has independent known answers and bounded allocations', () => {
+    const cpu = resourceWorkload('cpu', 'synthetic-fixture');
+    assert.equal(
+        cpu.digest,
+        '6a03d93e5d75c8e8d3b5e5f8e54f5db6710e3cf7c8bc8128b8506c827cb7b6f1'
+    );
+    assert.equal(cpu.bytes, 0);
+    for (const kind of ['memory', 'node_memory']) {
+        const work = resourceWorkload(kind, 'synthetic-fixture');
+        assert.equal(work.bytes, 32 * 1024 * 1024);
+        assert.equal(work.digest.length, 64);
+    }
+    assert.throws(() => resourceWorkload('cpu', 'invalid\nnonce'));
+});
+
+async function resourceRun(
+    t,
+    {
+        lateAnchor = false,
+        lateSlot = false,
+        finalFailure = false,
+        corruptResource = false,
+    } = {}
+) {
+    const c = await files(t),
+        server = await protocol(t, { corruptResource });
+    const epoch = Date.now();
+    let elapsed = 0,
+        delayed = false;
+    const result = await runQualification({
+        ...c,
+        baseUrl: server.baseUrl,
+        token: () => 'synthetic-secret',
+        comparisonToken: () => 'other',
+        mode: 'resources',
+        waitMs: 31000,
+        now: () => epoch + elapsed,
+        monotonic: () => elapsed,
+        pause: async ms => {
+            elapsed += ms;
+            if (lateSlot && !delayed && ms === 37500) {
+                elapsed += 11000;
+                delayed = true;
+            }
+            await writeFile(
+                c.guardPath,
+                JSON.stringify({
+                    runId: c.runId,
+                    observedAt: epoch + elapsed,
+                    ok: !(finalFailure && elapsed >= 672000),
+                })
+            );
+        },
+        request: async (...args) => {
+            if (lateAnchor && args[1] === '/health') elapsed += 35000;
+            // This fixture observes local fake time only, while production uses the external observer.
+            await writeFile(
+                c.guardPath,
+                JSON.stringify({
+                    runId: c.runId,
+                    observedAt: epoch + elapsed,
+                    ok: true,
+                })
+            );
+            return exchange(...args);
+        },
+    });
+    const events = (await readFile(c.receiptPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(JSON.parse);
+    assert.equal(server.objects.size, 0);
+    assert.ok(
+        result.requests <= 160 &&
+            result.executions <= 40 &&
+            result.requestedGuestMs <= 120000
+    );
+    assert.equal(
+        (await readFile(c.receiptPath, 'utf8')).includes('synthetic-secret'),
+        false
+    );
+    return { result, events, elapsed };
+}
+
+test('resource phases and all paced slots fit one bounded invocation with owned cleanup', async t => {
+    const { result, events, elapsed } = await resourceRun(t);
+    assert.equal(result.status, 'passed');
+    assert.equal(result.executions, 38);
+    assert.equal(result.requests, 52);
+    assert.equal(result.requestedGuestMs, 102500);
+    assert.equal(result.ownedObjects, 3);
+    const phases = events.filter(x => x.type === 'resource_phase');
+    assert.deepEqual(
+        phases.map(x => [x.name, x.offered, x.successful]),
+        [
+            ['cpu', 6, 6],
+            ['memory', 4, 4],
+            ['soak', 16, 16],
+        ]
+    );
+    assert.equal(phases[2].durationMs, 600000);
+    assert.equal(elapsed, 672000);
+});
+
+test('late anchor or missed slot cannot silently shrink or bunch soak coverage', async t => {
+    for (const options of [{ lateAnchor: true }, { lateSlot: true }]) {
+        const { result, events } = await resourceRun(t, options);
+        assert.equal(result.status, 'failed');
+        assert.ok(
+            result.failures.some(
+                x =>
+                    x.reason ===
+                    (options.lateAnchor
+                        ? 'soak_anchor_deadline'
+                        : 'soak_slot_missed')
+            )
+        );
+        assert.equal(
+            events.some(x => x.type === 'resource_phase' && x.name === 'soak'),
+            false
+        );
+    }
+});
+
+test('corrupt resource results stop admission and final-idle guard failure cannot pass', async t => {
+    for (const options of [{ corruptResource: true }, { finalFailure: true }]) {
+        const { result, events } = await resourceRun(t, options);
+        assert.equal(result.status, 'failed');
+        assert.ok(
+            result.failures.some(
+                x =>
+                    x.reason ===
+                    (options.corruptResource
+                        ? 'resource_output_mismatch'
+                        : 'guard_rejected')
+            )
+        );
+        assert.equal(
+            events.some(x => x.type === 'resource_phase' && x.name === 'soak'),
+            false
+        );
+    }
 });
