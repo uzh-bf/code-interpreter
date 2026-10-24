@@ -1,0 +1,79 @@
+# CodeAPI independent-client and bounded performance qualification
+
+## Approval summary
+
+Approval mode: executable batch. The user accepted the next qualification package and requested a deeper capability assessment, a persisted plan and goal-driven execution. This package makes direct CodeAPI use repeatable without LibreChat and measures the existing staging configuration before recommending capacity changes.
+
+Add a dependency-free operator client derived from the public OpenAPI contract. Verify runtime selection, input/output files, exact downloaded bytes, metadata, ownership denial, profile mismatch, guest timeout and recovery. Reuse that client for a finite sequential Python baseline, Python burst and mixed-language burst. Distinguish normal rate-limit rejection from execution failure. Capture end-to-end latency, achieved throughput, aggregate processing/queue metrics and resource/scaling observations privately. Source-supported optional features receive a capability assessment with clear activation prerequisites and evidence limits.
+
+Authority covers synthetic STG API requests within the bounds below, existing-profile in-memory signing, existing-context read-only observation, task-owned Service port-forwards, owned test-file cleanup, source checks, reviews, commits, ordinary task-branch push and draft PR delivery. Existing production deployment authority is not extended. Capacity/concurrency changes, new trust identities, ingress exposure, diagnostics, fault injection, release publication and production traffic remain separate decisions. Upstream patch applicability is investigated alongside this package; importing or releasing a new runtime is not required to measure the current deployment.
+
+Done means the client and its failure controls pass offline tests, one approved bounded STG experiment produces honest acceptance or a precise blocker, owned artifacts/forwards are accounted for, and the reviewed source package is delivered as a draft. A successful Service-path test does not qualify ingress, a second application's issuer or an availability SLA. Missing telemetry reduces the claims rather than being filled by estimates.
+
+## Execution details
+
+### Working context and ownership
+
+Target: fork `main`. Baseline: `4105b53ecfeef1f9eea7a246a36601e181de11cf`. Branch: `rs/codeapi-capacity-contract`; worktree: `trees/storage-reliability-investigation/trees/codeapi-capacity-contract`. The existing repository artifact root remains `docs/project/`. History: [reliability roadmap](2026-10-23-codeapi-reliability-roadmap.md). All real-environment observations, identifiers, measurements and detailed review receipts stay in ignored `docs/project/_local/reviews/2026-10-24-capacity-contract/`. Tracked artifacts contain source-derived facts, generic procedures and progress only.
+
+Execution mode: standard. Main owns authority, authentication, live execution, integration and final proof. The read-only capability explorer owns optional-feature mapping. A planner challenges this frozen plan. One bounded implementation worker owns only the client and its offline tests; main owns integration, CI and documentation. Native trusted review covers private operational contracts; externally routed roles receive source-only scope. No separate chat is created.
+
+No product primitive or production contract changes. ADR gate: not met; this package adds qualification tools and documentation. New deployment ownership, trust or public capability activation would reopen design and authority review. No UI change; screenshots do not apply.
+
+### Evidence and research
+
+The public source supports a default HTTP execution profile, an issuer-bound JWT trust model, an independent file lifecycle, several runtimes and optional workspace/bridge/extraction backends. Current use and historical acceptance are evaluated privately. Inspect source gates before describing optional features as usable. `@librechat/code` is a remote-worker protocol/CLI; it is not assumed to be a general REST SDK.
+
+Main compares stable upstream tags and release metadata, recording a source-only applicability assessment against `v1.10.13`. Use official Node HTTP documentation for streaming, deadlines and abort behavior. Existing probes inform compatibility only; the new client imports no LibreChat code and does not monkey-patch global fetch. Preserve ordinary source CI without cluster or secret access.
+
+### Finite STG experiment and stop conditions
+
+Use one unique synthetic principal for the entire invocation; do not rotate identities to avoid limits. Fresh short-lived JWTs are signed in memory with only the existing approved profile mapping. A comparison principal may issue one owned-object denial check and performs no execution. Accept a caller-provided bearer token for reuse by a separately onboarded client; never persist or print either credential.
+
+Hard bounds: 900 seconds including cleanup, at most 160 HTTP requests, at most 40 executions, at most four in flight, at most 16 owned files, at most 1 MiB per request/response and at most 120 guest-seconds requested. Default profile only. Synthetic files are small; normal executions cap guest runtime at three seconds. Timeout testing uses a shorter guest cap and one bounded sleep. No retries or automatic replay. Stop ordinary admission at 720 seconds. Ordinary requests have a sixty-second whole-response deadline; already admitted requests settle within that deadline before cleanup. Reserve forty HTTP requests and the final 120 seconds for cleanup, which uses four-request concurrency and fifteen-second whole-response deadlines. Each owned object receives one DELETE and one absence check. The fixed workload can create at most four files; sixteen is the hard safety ceiling. No new ordinary work after SIGINT/SIGTERM or guard failure. Unresolved execution completion, missing returned references, failed deletion, expired cleanup credentials or any unknown object ownership makes the run failed with cleanup uncertainty; never claim cleanup or replay an execution.
+
+Contract qualification precedes load. Exercise Python, Node, Bun JavaScript, Bun TypeScript and bash with deterministic output, then verify Python input/output reuse, list/metadata, deletion absence, invalid language, invalid authentication, profile mismatch, one guest timeout and subsequent recovery. Expected negative cases must return their documented status/shape; HTTP 200 alone is insufficient. Track every returned owned output before validating it so failure still reaches cleanup. A response that cannot establish ownership leaves an explicit cleanup concern and blocks further workload admission.
+
+Load phases are eight short Python jobs sequentially, eight Python jobs in a bounded four-request burst, then eight alternating Python/Node jobs at four-request concurrency. Each load job sleeps two seconds and returns an exact marker plus guest-reported elapsed time; this measures dispatch/backlog and mixed-queue behavior, not CPU saturation. Enforce ordinary principal limits with at least one full observed execution-rate window between phases; never raise rate limits. Report offered/admitted/successful counts, phase duration, end-to-end percentiles and guest timing separately. Aggregate processing duration is not an individual queue-wait measurement. A short finite experiment is not a soak or maximum-capacity result.
+
+Stop admission on the first unexpected response, incorrect output, cleanup uncertainty, transport failure, new workload restart/unready state, memory pressure, sustained queue growth beyond the finite offered jobs, or an ordinary 429. Classify and preserve the 429 and Retry-After; do not retry it. Main runs a bounded observer every five seconds. Its mandatory private guard is bound to this invocation UUID and expires after twenty seconds. Admission checks it before every request. It must prove original workload readiness and unchanged restart counts, no node MemoryPressure, and observable waiting/active queues. More than eight waiting jobs for twenty seconds, any waiting count above twenty-four, or failed/stale observation stops admission. Required safety observations missing at preflight block live work. Optional CPU/memory and processing-time metrics may be absent only with that measurement limitation recorded. Do not infer stability from missing metrics. A failure holds subsequent phases, preserves receipts and runs only owned cleanup. No node drain, cache purge, worker restart or storage/Redis fault.
+
+The fixed ledger is: five runtime successes, two Python file executions, one guest-timeout case, one recovery, one invalid-language request and two pre-admission negative requests: at most twelve qualification execution-route calls. Add twenty-four load executions: at most thirty-six total, at most 107 requested guest-seconds, and fewer than eighty HTTP requests including negative cases and cleanup. Profile mismatch and authentication denial request no guest runtime. Negative execution requests still count toward the ordinary execution limiter. Read the effective rate window/limit privately before admission; wait a complete window after qualification and between phases. Abort before any workload if required waits cannot fit the finite envelope. No executable phase may exceed the lesser of its ledger and the hard budget.
+
+### Client and transport contract
+
+New paths: `scripts/qualification/codeapi.mjs`, `scripts/qualification/codeapi.test.mjs`, and `docs/project/2026-10-24-codeapi-capabilities.md`. Extend the existing deployment-config CI job with the offline tests. One implementation module contains the REST transport, synthetic cases, bounded scheduler and command entrypoint; avoid a new SDK package or framework.
+
+Require an exact base URL and explicit live mode; no default remote endpoint. Permit HTTPS or HTTP on loopback only, reject URL credentials/query/fragment, redirects and cross-origin requests. Require an explicit private receipt path for live use. The transport uses Node HTTP/HTTPS with whole-response byte bounds, finite deadlines, abort handling and no retries. Record safe machine outcomes only; response bodies, JWTs, private keys and server error messages never enter receipts. The signing JWK is deleted from the environment after parsing. Generated IDs and detailed timing remain in the caller's private receipt.
+
+Use existing cluster connectivity only. Service forwarding is an operator transport; record it distinctly from ingress. An absent consumer-facing route is an explicit unqualified transport, not permission to expose a new endpoint. Stop only task-owned forwards. Delete only synthetic object references returned during this invocation and verify absence, including after a test fails. Preserve unrelated resources and historical evidence.
+
+### Test portfolio
+
+| Consequential risk                                 | Obligation and seam                                       | Acceptance                                                                                                                          |
+| -------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Credential or response leakage / wrong destination | Add transport tests with an ephemeral local HTTP fixture  | Redirect, oversized/truncated response and deadline fail closed; no auth in safe receipts; rejected destination receives no request |
+| Incorrect outputs or false positive HTTP success   | Add synthetic protocol-fixture tests for full client flow | Exact bytes and machine outcomes checked; malformed success fails; all returned owned refs still cleaned                            |
+| Runaway work or incomplete owned cleanup           | Add new scheduler/guard/failure tests in the same offline suite     | Budget, concurrency, admission-stop and cleanup reserve enforced; failure blocks later phases; cleanup failure remains terminal     |
+| Runtime and independent-client compatibility       | Live contract suite                                       | All required cases pass or precise unsupported behavior is reported without changing the server                                     |
+| Python dispatch versus actual capacity             | Bounded live phases plus read-only telemetry              | Useful throughput/latency and actual useful work measured; pod count alone never passes acceptance                                  |
+
+### Delegation map
+
+| Slice | Route and exclusive owner | Dependency and acceptance |
+| --- | --- | --- |
+| 1: plan and capability assessment | Main plus read-only source explorer; explorer returns mapping, main writes documents | Frozen source and planner approval; exact source references |
+| 2: client and offline tests | Bounded executor owns the two named script paths; main owns CI and integration | Approved plan; offline protocol and failure controls pass |
+| 3: STG experiment | Main; secrets and live effects retained for authority/privacy | Qualified tool commit and safety guard; one finite result with owned cleanup |
+| 4: review and draft delivery | Main plus read-only final reviewer | Exact committed range, checks and private acceptance; reviewed pushed draft |
+
+### Slices and delivery
+
+1. Persist this reviewed plan and source-backed capability assessment. Main writes the plan; capability explorer maps optional features. Verify every material capability against immutable source and official documentation. Commit the plan before implementation.
+2. Implement the independent client and offline consequential tests. Route the settled implementation to one worker; main integrates the authentication/ownership seams. Run checks in a disposable existing-toolchain container; host Git remains outside it. Add `node --test scripts/qualification/codeapi.test.mjs` to `.github/workflows/ci.yml` in the existing deployment-config job. Commit, simplify and review applicable risk once.
+3. Main runs the live STG preflight, contract and bounded load phases once. Bind evidence privately to actual source/images/configuration and test-tool commit. Collect telemetry through existing read-only paths. Clean only owned files and local forwards, record missing transport/metrics and hold failed dependent phases. No configuration tuning is automatic; prepare an evidence-backed recommendation for a later named window.
+4. Complete integrated review over the exact committed package, verify corrections, inspect staged content for real-environment data and secrets, push the task branch and create/update one draft PR. No merge, publication, production rollout or new automation follows from draft delivery.
+
+### Progress
+
+Status: planner-approved. The native planner requested executable workload budgets, cleanup deadlines, a mandatory observer guard and explicit ownership. All four corrections were accepted; its same-draft correction pass returned APPROVED. An optional external challenge was unavailable; it does not replace the passed native review. Active slice: capability/source inventory and frozen plan review. Required delivery: reviewed pushed draft plus private bounded-STG result or concrete blocker. Source baseline refreshed; no live experiment has run under this package. No PR exists yet. Next: planner pass, plan commit, then independent-client implementation.
