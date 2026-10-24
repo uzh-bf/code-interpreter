@@ -1019,11 +1019,13 @@ test('sustained schedule binds nonces, kinds, callers and the full ledger', asyn
     assert.equal(server.sustainedRequests.length, 336);
     assert.equal(new Set(server.sustainedRequests.map(x => x.nonce)).size, 336);
     assert.equal(new Set(server.sustainedRequests.map(x => x.seed)).size, 3);
-    for (const request of server.sustainedRequests)
+    for (const request of server.sustainedRequests) {
+        assert.ok(request.nonce.startsWith(`${runId}:`));
         assert.match(
-            request.nonce,
-            new RegExp(`^${runId}:[124]:\\d+:[ab]:\\d+$`)
+            request.nonce.slice(runId.length + 1),
+            /^[124]:\d+:[ab]:\d+$/
         );
+    }
     const requestKinds = new Map(
         server.sustainedRequests.map(x => [
             `${x.plateau}:${x.slot}:${x.caller}:${x.position}`,
