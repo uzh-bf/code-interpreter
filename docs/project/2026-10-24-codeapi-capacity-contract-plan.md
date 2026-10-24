@@ -78,9 +78,9 @@ Use existing cluster connectivity only. Service forwarding is an operator transp
 
 Status: source package implemented, simplified and reviewed. The plan preceded implementation. All source review findings are dispositioned, and the independent final correction passed. The offline protocol/failure controls and focused source checks pass. Substantive scope: the qualification client, its tests and one existing CI step; no deployed service code changes.
 
-Delivery: [draft PR #46](https://github.com/uzh-bf/code-interpreter/pull/46), branch `rs/codeapi-capacity-contract`. Source-qualified head: `9f4b2e1a1b73cfd36c416d1ba3812aa771f1431e`. Documentation-only progress updates preserve that source evidence. The operational continuation, acceptance results, cleanup accounting and any next-window recommendation belong exclusively in the existing ignored review directory. Consult those private receipts before any release or tuning decision.
+Delivery: [draft PR #46](https://github.com/uzh-bf/code-interpreter/pull/46), branch `rs/codeapi-capacity-contract`. Source-qualified head: `48d0bd917fde0370794744bbeb986083011e5f9f`. Documentation-only progress updates preserve that source evidence. The operational continuation, acceptance results, cleanup accounting and any next-window recommendation belong exclusively in the existing ignored review directory. Consult those private receipts before any release or tuning decision.
 
-The source package ends at reviewed draft delivery. Merge, runtime publication, capacity/concurrency changes, optional-feature activation and production effects retain their named gates. The approved resource-and-stability extension below is now active in the same draft package.
+The source package ends at reviewed draft delivery. Merge, runtime publication, capacity/concurrency changes, optional-feature activation and production effects retain their named gates. The resource-and-stability source extension below is implemented and reviewed in the same draft package. Environment acceptance remains in the private continuation.
 
 
 ## Approved resource-and-stability extension
@@ -110,3 +110,8 @@ Pass requires the entire contract, six CPU jobs, four memory jobs and sixteen on
 ### Extension delivery
 
 Before live admission: persist and commit this reviewed plan, implement the two named source files, run offline contract/scheduler/failure checks in the existing Node 24 container toolchain, inspect the exact diff and obtain source review. Tests cover deterministic output validation, total budgets, monotonic pacing/deadline refusal and failure-stop/cleanup behavior with a fake clock/transport; no ten-minute local sleep is needed. Reuse ordinary CI without secrets or Kubernetes access. Resource test risks extend the existing qualification boundary; capacity claims remain absent beyond bounded evidence. Add a bounded real execution check of generated Python and Node fixtures with known-answer outputs in existing local/container runtimes, plus corrupt-result rejection. No live tuning or replays follow from a local speed observation. The source package ends at reviewed draft delivery; source merge and production rollout remain separate gates. Keep all measurements and operational continuation in ignored `docs/project/_local/reviews/2026-10-24-resource-soak/`.
+
+
+### Extension source progress
+
+The opt-in resource/stability mode and its failure controls are implemented. Fourteen offline cases pass in the pinned Node container, and the generated Python and Node programs pass bounded real-runtime checks. Integrated source review and its focused correction pass are complete. [Hosted source CI](https://github.com/uzh-bf/code-interpreter/actions/runs/40118267705) passed at the source-qualified head above. This checkpoint changes documentation only and preserves that source verification. Optional scoped scanner rule retrieval was unavailable; no passing scan is claimed. The source remains in [draft PR #46](https://github.com/uzh-bf/code-interpreter/pull/46); runtime evidence and the operational continuation are maintained privately.
