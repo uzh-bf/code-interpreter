@@ -60,4 +60,4 @@ Commit this generic plan after planning review and before implementation. Privat
 
 ## Progress
 
-Planning started after direct approval. Existing merged source qualification is reused. Current live preflight, trusted planning challenge, operator adaptation and recovery approval package are pending. No synthetic execution or disruption has begun in this package.
+The generic procedure is delivered in [draft PR #50](https://github.com/uzh-bf/code-interpreter/pull/50). Native planning review and trusted integrated operator review are complete; the focused stop-path finding was corrected and its behavioral regressions pass. Public qualification client behavior remains unchanged. The latest operational checkpoint, actual acceptance, measurements, cleanup and disruption authority are maintained exclusively in the existing ignored package directory; consult its continuation before any later live action. Source delivery and CI do not establish environment acceptance. The staging interruption proposal retains its exact-action human gate.
