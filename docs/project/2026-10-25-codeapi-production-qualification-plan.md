@@ -1,0 +1,63 @@
+# CodeAPI production load and sandbox recovery qualification
+
+## Approval summary
+
+Approval mode: executable batch. The user approved the next bounded production-load and Spot-recovery test package after the sustained-load tooling was merged. Execute a finite production repeat of the accepted paced workload using the existing deployment, capacity, signing profile and synthetic caller contract. Separately qualify sandbox-runner process replacement in staging. Preserve the distinction between process recovery and a real Spot node interruption.
+
+Production acceptance reuses the existing direct API/artifact contract and the three eight-minute sustained intervals. The existing shared envelope remains authoritative: at most 400 HTTP calls, 360 execution-route reservations, 1080000 requested guest milliseconds, four in-flight requests, and a 1800-second invocation bound. Two stable synthetic callers share one ledger. Stop admission on the first failure or stale guard, settle admitted work, and clean only owned synthetic artifacts and local processes. Preserve every failed invocation separately; there are no unchanged automatic retries.
+
+The authorized production effects are synthetic API calls, read-only observations using existing connectivity, owned loopback Service forwards, exact existing read-only signing scope, and deletion of newly owned test artifacts. No deployment, capacity, rate, secret-policy or cloud-resource change is proposed. Production disruption is excluded. A staging interruption requires a concrete target, disruption type and recovery boundary; prepare its exact approval package before a destructive action. The earlier general approval does not silently authorize an Azure node eviction or deletion.
+
+Done means production finite acceptance or a precise preserved blocker, reviewed staging recovery procedure, verified owned cleanup or explicitly preserved cleanup uncertainty blocking acceptance, and honest evidence scope. Source changes, review and ordinary draft delivery are authorized. A staging pod-replacement experiment can demonstrate controller/process recovery only. Genuine node loss, running-job interruption and cloud-capacity recovery remain separately named tests.
+
+## Execution details
+
+### Working context and ownership
+
+Target: fork main, starting from the merged qualification package. Branch: `rs/codeapi-production-qualification`; worktree: `trees/storage-reliability-investigation/trees/codeapi-production-qualification`. Artifact root: `docs/project/`. Main owns the plan, trusted-source review, secrets, live requests, interruption authority and final proof. Execution mode: standard. One bounded trusted source executor owns only the named private operator adaptation below; it has no secret, live-system or forge access. A read-only trusted planning pass challenges this finite procedure before commit; Claude reviews the production operator adaptation and the recovery semantics. Existing qualifying source reviews and deterministic checks are reused where their contract is unchanged.
+
+All actual environment bindings, workload observations, identities, measurements and receipts stay in ignored `docs/project/_local/reviews/2026-10-25-production-qualification/`. The tracked plan and draft description contain intended behavior and source verification only. No browser or UI changes are included.
+
+### Production workload and guard
+
+Reuse `scripts/qualification/codeapi.mjs` and its existing tests unchanged. Reuse the accepted staging observer and final-health predicates, adapting only the environment context, exact loopback ports, existing production PEM signing profile and applicable production canary inventory. Preserve original workload identity, readiness, restart, immutable-image, Argo source/producing revision, KEDA ownership, queue, retirement and timestamp checks. Keep the original five-second freshness bins and interval-boundary proof. A mismatch or unknown metric identity stops admission instead of relaxing a predicate.
+
+Before any synthetic request, require both existing contexts reachable, all intended production workloads ready, healthy schedulable serving nodes, no active maintenance, stable source/configuration bindings, empty fresh queues and sandbox activity, ordinary principal rate limits sufficient for the exact fixed offers, and a fresh successful applicable producing storage canary. Capture a complete new environment baseline; earlier staging or production receipts cannot substitute. Preserve the production runner's existing concurrency as measured from the allowlisted configuration, without changing it.
+
+Use only the existing `codeapi-prd` profile's exact approved signing secret, mapped into the child process and removed from its environment before parsing. Reuse the approved in-memory public-verifier match to select the signing key ID. Never print, hash, serialize or save private keys, verifier values or tokens. Use the existing issuer/audience and two stable synthetic principals with fresh short-lived tokens; no identity rotation or trust expansion.
+
+The complete original request ledger, workload schedule, observation acceptance and final-health rules in the merged sustained-load plan are inherited unchanged, except the explicit environment/profile/canary binding adaptation above. Client `passed` alone is insufficient: external observer coverage, all interval boundaries and final acceptance must pass independently. No repeated workload produces files; the direct contract owns the three temporary objects. Maintain global/per-caller in-flight limits, missed-slot stop behavior, independent interval guards, exact outputs and fair offered allocation. Record client timing, resource and queue observations without treating fixed offered load as saturation capacity or an SLA. A failed ordinary request, unexpected 429, output mismatch, cleanup uncertainty, stale guard, source movement, maintenance or original workload turnover makes the invocation incomplete and holds dependent tests.
+
+After client terminal settlement and its owned artifact cleanup, require fresh queue/sandbox drain in sixty seconds, final bindings and original health, fresh owner-bound canary production, and all owned processes/forwards stopped within the existing 120-second post-run bound. No further CodeAPI request is permitted in that read-only evidence/shutdown period. Canary evidence cannot extend the bound. Unknown or failed artifact cleanup blocks acceptance; preserve the uncertainty without broad discovery or unapproved repair. Applicable production canary evidence must be at most twenty minutes old. Do not create manual canary jobs or alter schedules to manufacture acceptance.
+
+### Recovery sequence and scope
+
+First prepare a read-only staging inventory: runner Deployment/ReplicaSet/pod ownership, existing HPA/KEDA bounds, node pool ownership and disruption budgets, original API/worker health, active queues and sandbox metrics. Bind one proposed target by UID and resourceVersion in private receipts. Use current official eviction semantics and a nonmutating server dry-run where permitted. Respect disruption budgets and normal termination; never force deletion or bypass admission.
+
+Before actual interruption, obtain one coherent approval naming the concrete pod eviction or separate cloud interruption, expected temporary service effect, exact UID/guards, admission count, recovery deadline, success evidence and recovery path. The approved package already allows all independent source preparation and production-load work. Do not repeat generic approval for those actions.
+
+A pod-replacement proposal must keep production untouched and cloud capacity unchanged. Run it only with empty queues and no active sandbox executions, so it measures idle replacement. Success requires replacement UID on the intended unchanged owner/template, ready serving endpoints, preserved desired state and a bounded exact-result direct smoke. Do not claim active-job survival, cancellation under node loss, capacity reacquisition or Spot eviction tolerance from this proof. A genuine Spot interruption needs a separate explicit cloud target, cost/outage envelope and safe recovery plan through the existing DF Cloud/Pulumi/GitOps route.
+
+### Delegation Map and bounded slices
+
+| Slice | Owner | Dependency | Acceptance |
+| --- | --- | --- | --- |
+| Persist finite plan and authority | Main with read-only planner | User direction and existing qualification contracts | Frozen draft passes planning challenge and is committed before implementation |
+| Adapt private production operator | Bounded trusted source executor; main integrates | Named plan and unchanged client contract | Environment-only diff, existing observer/signer fixtures pass, integrated review before admission |
+| Run one finite production qualification | Main exclusively | Source/operator checks, review and complete fresh preflight | Same workload/observer/final-health acceptance and verified owned cleanup, or preserved failure |
+| Prepare staging recovery approval package | Main exclusively with Claude advice | Read-only ownership/disruption inventory and official semantics | Exact target/action/guards/limits/recovery prepared; interruption waits for specific authority |
+| Review and deliver the package | Main with integrated reviewer | Prior slices terminal | Sanitized tracked plan, private receipts, ordinary push and draft; honest unmet gates |
+
+Only this plan is a new tracked path. Private operator paths are `run_prd.py`, `final-health.py`, `sandbox-metric-cohort.py`, `observer-contract.test.py`, `signing-wrapper.mjs`, `signing-smoke.test.mjs`, `analyze-results.py`, and `operator-adaptation.md` beneath the existing ignored package directory. Main additionally owns `preflight.py`, `preflight.test.py`, `recovery-approval-package.md`, and `continuation.md` there. Allowlisted baseline and receipt JSON files are generated evidence, not a new framework. No executable production source changes are planned.
+
+Feature-wide test portfolio: `none` for unchanged public client scheduling/budgets, with the merged twenty-case suite and producing hosted run reused. `extend existing` for the private observer/signing fixtures named above to protect context, destination, profile, original-pod stop and production-canary changes. `add new` only for the small main-owned preflight fixture if its allowlisted configuration/rate/node checks are not already protected. Live proof owns image/owner/source binding, interval coverage and final canary/cleanup acceptance; fixture success cannot substitute.
+
+### Verification and delivery
+
+All offline adaptation checks, the planning pass and integrated source/operator review must pass before the first production request. Reuse unchanged public-client verification. The private operator adaptation must have a reviewed mechanical diff against the accepted source and offline checks for exact context/port/profile/canary bindings, original-pod stop behavior, source/replica-owner invariants and failure cleanup. Preserve existing behavioral fixtures; add only checks that protect changed environment binding behavior. No new runtime dependency, maintained framework or deployed service change is required.
+
+Commit this generic plan after planning review and before implementation. Private operational files remain ignored. Run focused repository formatting and diff checks for tracked text; inspect staged material for secrets and real-environment data before every commit or draft update. Complete integrated review and ordinary branch push/draft delivery. Ready/merge, publication and environment rollout remain outside this package. Preserve all historical artifacts, existing user connectivity and unrelated work.
+
+## Progress
+
+Planning started after direct approval. Existing merged source qualification is reused. Current live preflight, trusted planning challenge, operator adaptation and recovery approval package are pending. No synthetic execution or disruption has begun in this package.
