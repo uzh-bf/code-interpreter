@@ -1256,7 +1256,8 @@ async function sustained({
             await Promise.all(outstanding);
         }
 
-        if (!client.state.stopped) await pause(Math.max(0, end - monotonic()));
+        while (!client.state.stopped && monotonic() < end)
+            await pause(Math.max(1, Math.ceil(end - monotonic())));
         const durationMs = monotonic() - phaseBegan;
         const perCaller = Object.fromEntries(
             ['a', 'b'].map(caller => {

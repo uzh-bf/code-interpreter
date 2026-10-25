@@ -881,6 +881,7 @@ async function sustainedRun(
         holdSlots = 1,
         missingBoundary = false,
         overrun = false,
+        earlyWake = false,
         pauseMs = 20,
     } = {}
 ) {
@@ -915,7 +916,7 @@ async function sustainedRun(
                 elapsed += 1001;
                 delayed = true;
             }
-            elapsed += ms;
+            elapsed += earlyWake && ms > 1 ? ms - 1 : ms;
             const missing =
                 missingBoundary && elapsed >= 480000 && elapsed <= 490000;
             await writeGuard(epoch + (missing ? 479999 : elapsed));
@@ -1100,6 +1101,14 @@ test('a sustained failure stops admission but waits for concurrent settlement be
             [2, 7, 1],
         ]
     );
+});
+
+test('sustained intervals wait through an early timer wake before reporting duration', async t => {
+    const { result, events } = await sustainedRun(t, { earlyWake: true });
+    assert.equal(result.status, 'passed');
+    const phases = events.filter(x => x.type === 'sustained_phase');
+    assert.equal(phases.length, 3);
+    assert.ok(phases.every(x => x.durationMs >= 480000));
 });
 
 test('late, blocked, missing-boundary and overrun intervals stop without catch-up', async t => {
