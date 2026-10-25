@@ -535,6 +535,12 @@ test('resource workload oracle has independent known answers and bounded allocat
     assert.throws(() => resourceWorkload('cpu', 'invalid\nnonce'));
 });
 
+async function publishFixtureGuard(path, value) {
+    const temporary = `${path}.${randomUUID()}`;
+    await writeFile(temporary, JSON.stringify(value));
+    await rename(temporary, path);
+}
+
 async function resourceRun(
     t,
     {
@@ -564,26 +570,20 @@ async function resourceRun(
                 elapsed += 11000;
                 delayed = true;
             }
-            await writeFile(
-                c.guardPath,
-                JSON.stringify({
-                    runId: c.runId,
-                    observedAt: epoch + elapsed,
-                    ok: !(finalFailure && elapsed >= 672000),
-                })
-            );
+            await publishFixtureGuard(c.guardPath, {
+                runId: c.runId,
+                observedAt: epoch + elapsed,
+                ok: !(finalFailure && elapsed >= 672000),
+            });
         },
         request: async (...args) => {
             if (lateAnchor && args[1] === '/health') elapsed += 35000;
             // This fixture observes local fake time only, while production uses the external observer.
-            await writeFile(
-                c.guardPath,
-                JSON.stringify({
-                    runId: c.runId,
-                    observedAt: epoch + elapsed,
-                    ok: true,
-                })
-            );
+            await publishFixtureGuard(c.guardPath, {
+                runId: c.runId,
+                observedAt: epoch + elapsed,
+                ok: true,
+            });
             return exchange(...args);
         },
     });
@@ -896,14 +896,12 @@ async function sustainedRun(
         heldRequestCount = 0;
     const ordinaryRequests = new Set(),
         heldRequests = [];
-    const writeGuard = async observedAt => {
-        const temporary = `${c.guardPath}.${randomUUID()}`;
-        await writeFile(
-            temporary,
-            JSON.stringify({ runId: c.runId, observedAt, ok: true })
-        );
-        await rename(temporary, c.guardPath);
-    };
+    const writeGuard = observedAt =>
+        publishFixtureGuard(c.guardPath, {
+            runId: c.runId,
+            observedAt,
+            ok: true,
+        });
     const result = await runQualification({
         ...c,
         baseUrl: server.baseUrl,
