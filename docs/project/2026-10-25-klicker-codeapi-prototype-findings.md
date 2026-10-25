@@ -22,9 +22,11 @@ Question: can an AI SDK tool composed beside the calculator reserve one call, si
 
 Runnable artifact: `/private/tmp/klicker-codeapi-prototype/README.md`. Its command uses a disposable Node 24.22.1 container, pnpm 11.5.0 and current Klicker AI SDK 7.0.52, jose 5.9.4 and Zod 3.25.76. Dependencies are existing read-only mounts and the test container has no network. The five prototype files remain outside both application repositories.
 
-Observation: all thirty-five synthetic checks passed, with no failures or skips. They invoke the actual SDK `tool.execute` callback against a loopback HTTP fake. Coverage includes default-off/non-Tutor/unallowlisted denial without transport, synchronous one-call reservation under concurrent callbacks, generated in-memory Ed25519 signing, issuer/audience/key/source/expiry checks, result validation, HTTP errors, malformed/oversized responses, bounded UTF-8 output, timeout and caller abort.
+Observation: all thirty-six synthetic checks passed, with no failures or skips. They invoke the actual SDK `tool.execute` callback against a loopback HTTP fake. Coverage includes default-off/non-Tutor/unallowlisted denial without transport, synchronous one-call reservation under concurrent callbacks, generated in-memory Ed25519 signing, issuer/audience/key/source/expiry checks, result validation, HTTP errors, malformed/oversized responses, bounded UTF-8 output, timeout and caller abort.
 
 An independent rerun exposed a flaky signature negative control: changing unused base64url padding bits can preserve the decoded bytes. The correction flips a decoded signature byte. The corrected full suite passes; a focused check across sixteen generated keys rejected all 2048 byte mutations. The verifier behavior is unchanged.
+
+A complete AI SDK `generateText` turn is also verified with the installed `MockLanguageModelV4`: the first step requests the Python tool, the next consumes its actual typed result and derives the final answer. It makes one fake HTTP request and completes in two steps under the existing five-step cap, with retries disabled. This adds no dependency or real model call.
 
 The fake uses the fork's flat public `/v1/exec` response; the old nested sandbox `run` shape is rejected. It binds the proposed `external:klicker` source to a synthetic issuer trust entry rather than impersonating LibreChat. The model supplies code only. The server owns identity, endpoint, key and execution policy.
 
