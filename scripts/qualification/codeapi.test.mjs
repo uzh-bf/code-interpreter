@@ -655,7 +655,8 @@ test('corrupt resource results stop admission and final-idle guard failure canno
                     (options.corruptResource
                         ? 'resource_output_mismatch'
                         : 'guard_rejected')
-            )
+            ),
+            JSON.stringify({ options, failures: result.failures })
         );
         assert.equal(
             events.some(x => x.type === 'resource_phase' && x.name === 'soak'),
@@ -891,7 +892,10 @@ async function sustainedRun(
     let elapsed = 0,
         delayed = false,
         zeroPauses = 0,
-        overrunAdded = false;
+        overrunAdded = false,
+        heldRequestCount = 0;
+    const ordinaryRequests = new Set(),
+        heldRequests = [];
     const writeGuard = async observedAt => {
         const temporary = `${c.guardPath}.${randomUUID()}`;
         await writeFile(
@@ -912,6 +916,10 @@ async function sustainedRun(
         pause: async ms => {
             zeroPauses += ms === 0 ? 1 : 0;
             await delay(pauseMs);
+            if (ordinaryRequests.size) {
+                await Promise.allSettled(ordinaryRequests);
+                await new Promise(resolve => setImmediate(resolve));
+            }
             if (lateSlot && !delayed && ms === 0 && zeroPauses === 2) {
                 elapsed += 1001;
                 delayed = true;
@@ -920,6 +928,10 @@ async function sustainedRun(
             const missing =
                 missingBoundary && elapsed >= 480000 && elapsed <= 490000;
             await writeGuard(epoch + (missing ? 479999 : elapsed));
+            if (heldRequests.length && heldRequestCount >= holdSlots)
+                setImmediate(() => {
+                    for (const release of heldRequests.splice(0)) release();
+                });
         },
         request: async (...args) => {
             let input;
@@ -929,6 +941,13 @@ async function sustainedRun(
             const label =
                 input?.code &&
                 /nonce="[^"]*:(\d+):(\d+):([ab]):\d+"/.exec(input.code);
+            const perform = async () => {
+                await writeGuard(epoch + elapsed);
+                const response = await exchange(...args);
+                if (input?.code?.includes('qualification-resource'))
+                    elapsed += 1;
+                return response;
+            };
             if (
                 holdFirst &&
                 label &&
@@ -936,20 +955,22 @@ async function sustainedRun(
                 (!holdCaller || label[3] === holdCaller) &&
                 Number(label[2]) < holdSlots
             ) {
-                return new Promise(resolve => {
-                    setTimeout(async () => {
-                        resolve(await exchange(...args));
-                    }, 500);
+                heldRequestCount++;
+                return new Promise((resolve, reject) => {
+                    heldRequests.push(() => perform().then(resolve, reject));
                 });
             }
             if (overrun && !overrunAdded && input?.code?.includes(':1:47:')) {
                 elapsed += 11001;
                 overrunAdded = true;
             }
-            await writeGuard(epoch + elapsed);
-            const response = await exchange(...args);
-            if (input?.code?.includes('qualification-resource')) elapsed += 1;
-            return response;
+            const pending = perform();
+            ordinaryRequests.add(pending);
+            try {
+                return await pending;
+            } finally {
+                ordinaryRequests.delete(pending);
+            }
         },
     });
     const events = (await readFile(c.receiptPath, 'utf8'))
@@ -962,7 +983,14 @@ async function sustainedRun(
         (await readFile(c.receiptPath, 'utf8')).includes('synthetic-secret'),
         false
     );
-    return { result, events, server, elapsed, runId: c.runId };
+    return {
+        result,
+        events,
+        server,
+        elapsed,
+        runId: c.runId,
+        heldRequestCount,
+    };
 }
 
 test('sustained schedule binds nonces, kinds, callers and the full ledger', async t => {
@@ -1128,12 +1156,38 @@ test('late, blocked, missing-boundary and overrun intervals stop without catch-u
         [{ missingBoundary: true }, 'sustained_boundary_missing', 1],
         [{ overrun: true }, 'sustained_response_overrun', 1],
     ]) {
-        const { result, events } = await sustainedRun(t, options);
-        assert.equal(result.status, 'failed');
-        assert.ok(result.failures.some(x => x.reason === reason));
+        const { result, events, heldRequestCount } = await sustainedRun(
+            t,
+            options
+        );
+        assert.equal(
+            result.status,
+            'failed',
+            JSON.stringify({
+                options,
+                failures: result.failures,
+                heldRequestCount,
+            })
+        );
+        assert.ok(
+            result.failures.some(x => x.reason === reason),
+            JSON.stringify({
+                options,
+                expectedReason: reason,
+                failures: result.failures,
+            })
+        );
         assert.equal(
             events.filter(x => x.type === 'sustained_phase').length,
             phases
         );
     }
+});
+
+test('ordinary transport latency settles before the virtual sustained schedule advances', async t => {
+    const { result, events } = await sustainedRun(t, {
+        serverOptions: { sustainedDelay: { ms: 40 } },
+    });
+    assert.equal(result.status, 'passed');
+    assert.equal(events.filter(x => x.type === 'sustained_phase').length, 3);
 });
