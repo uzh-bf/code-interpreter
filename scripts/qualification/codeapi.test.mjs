@@ -884,6 +884,7 @@ async function sustainedRun(
         overrun = false,
         earlyWake = false,
         pauseMs = 20,
+        credentialDelayMs = 0,
     } = {}
 ) {
     const c = await files(t),
@@ -893,7 +894,11 @@ async function sustainedRun(
         delayed = false,
         zeroPauses = 0,
         overrunAdded = false,
-        heldRequestCount = 0;
+        heldRequestCount = 0,
+        registeredRequests = 0,
+        expectedRequests = 0,
+        currentPlateau = null,
+        nextSlot = 0;
     const ordinaryRequests = new Set(),
         heldRequests = [];
     const writeGuard = observedAt =>
@@ -905,8 +910,14 @@ async function sustainedRun(
     const result = await runQualification({
         ...c,
         baseUrl: server.baseUrl,
-        token: () => 'synthetic-secret',
-        comparisonToken: () => 'other',
+        token: async () => {
+            if (credentialDelayMs) await delay(credentialDelayMs);
+            return 'synthetic-secret';
+        },
+        comparisonToken: async () => {
+            if (credentialDelayMs) await delay(credentialDelayMs);
+            return 'other';
+        },
         mode: 'sustained',
         waitMs: 0,
         now: () => epoch + elapsed,
@@ -914,6 +925,16 @@ async function sustainedRun(
         pause: async ms => {
             zeroPauses += ms === 0 ? 1 : 0;
             await delay(pauseMs);
+            const dispatchEnd = Date.now() + 5000;
+            while (registeredRequests < expectedRequests) {
+                const events = (await readFile(c.receiptPath, 'utf8'))
+                    .trim()
+                    .split('\n')
+                    .map(JSON.parse);
+                if (events.some(event => event.type === 'failure')) break;
+                assert.ok(Date.now() < dispatchEnd, 'fixture dispatch barrier');
+                await delay(1);
+            }
             if (ordinaryRequests.size) {
                 await Promise.allSettled(ordinaryRequests);
                 await new Promise(resolve => setImmediate(resolve));
@@ -926,6 +947,17 @@ async function sustainedRun(
             const missing =
                 missingBoundary && elapsed >= 480000 && elapsed <= 490000;
             await writeGuard(epoch + (missing ? 479999 : elapsed));
+            const starts = (await readFile(c.receiptPath, 'utf8'))
+                .trim()
+                .split('\n')
+                .map(JSON.parse)
+                .filter(event => event.type === 'sustained_start');
+            const stage = starts.at(-1);
+            if (stage && stage.plateau !== currentPlateau) {
+                currentPlateau = stage.plateau;
+                nextSlot = 0;
+            }
+            if (stage && nextSlot++ < 48) expectedRequests += stage.concurrency;
             if (heldRequests.length && heldRequestCount >= holdSlots)
                 setImmediate(() => {
                     for (const release of heldRequests.splice(0)) release();
@@ -939,6 +971,7 @@ async function sustainedRun(
             const label =
                 input?.code &&
                 /nonce="[^"]*:(\d+):(\d+):([ab]):\d+"/.exec(input.code);
+            if (label) registeredRequests++;
             const perform = async () => {
                 await writeGuard(epoch + elapsed);
                 const response = await exchange(...args);
@@ -1182,9 +1215,10 @@ test('late, blocked, missing-boundary and overrun intervals stop without catch-u
     }
 });
 
-test('ordinary transport latency settles before the virtual sustained schedule advances', async t => {
+test('ordinary signing and transport latency settle before the virtual sustained schedule advances', async t => {
     const { result, events } = await sustainedRun(t, {
         serverOptions: { sustainedDelay: { ms: 40 } },
+        credentialDelayMs: 40,
     });
     assert.equal(result.status, 'passed');
     assert.equal(events.filter(x => x.type === 'sustained_phase').length, 3);
