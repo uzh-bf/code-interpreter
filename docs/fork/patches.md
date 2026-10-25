@@ -1019,3 +1019,53 @@ not a prose-pinning CI test.
   v1.10.10 as the ancestor. Upstream-only additions are no longer fork patches.
   Rebuild path ownership at the final reviewed commit; source CI and review
   qualify the candidate separately from image publication and runtime rollout.
+
+
+### Re-audit basis: upstream v1.10.13 continuation
+
+- Fork baseline: `80810a0934e96eb1dd9bbca84f288fb345791f65`.
+- Upstream release commit: `2fa9f0d43e8e38b7d6240bc76e2483c6a47c64c7`;
+  previous upstream ancestor: `77bcd2ec2e63be523bfab2dfa11159a2ceec0088`.
+- Adopt upstream workspace-import parent creation and root race prevention,
+  extraction gateway/credential isolation, response-close outcome accounting
+  and Bun 1.4.4 alignment. The optional extraction package stays outside the
+  primary deployment. The public execution contract is unchanged.
+- All incoming paths match upstream except the existing shared CI, sandbox
+  Dockerfiles, launcher Dockerfile and chart values. Their incoming changes
+  only advance Bun pins; preserve the fork's native lifecycle checks,
+  spec-guard permissions, external ownership and chart settings.
+- No fork behavior is retired in this continuation. Retain issuer-keyed trust,
+  values-free sinks, nonfatal telemetry, missing-bucket readiness, bounded
+  refusal-only retry, caller cancellation and guest cleanup ownership,
+  selected default-disabled lifecycle observation and restricted metrics peers.
+  Existing behavioral tests remain the semantic proof for these shared seams.
+- The fork release job remains disabled. The existing seven-image publication
+  workflow remains the delivery mechanism; upstream release ancestry is
+  retained without creating fork stable tags or releases.
+- The execution and recovery contract is in the
+  [release plan](../project/2026-10-25-upstream-v1.10.13-plan.md).
+  Recompute both final-tree comparisons at the reviewed candidate; unexplained
+  paths or unsupported retirement claims hold qualification.
+
+### Qualification and consumer-fixture path accounting
+
+`scripts/qualification/codeapi.mjs` and `scripts/qualification/codeapi.test.mjs`
+own the independent bounded operator API/artifact, resource and sustained-load
+verification controls. They do not change service admission or deployment.
+Retain their budget, ownership, guard, terminality and cleanup tests. Drop when
+an upstream operator suite provides equivalent bounded qualification.
+
+`tests/librechat/consumer-e2e.patch`, `tests/librechat/prepare.mjs` and
+`tests/librechat/prepare.test.mjs` own the disposable consumer harness. It keeps
+custom operational verification out of the LibreChat application fork while
+preserving its upstream E2E coverage. This fixture is test-only, with no
+production consumer or service activation. Drop when upstream supplies the
+same isolated consumer acceptance path.
+
+Additional execution references, not replay units:
+
+- `docs/project/2026-10-24-codeapi-capabilities.md`
+- `docs/project/2026-10-24-codeapi-capacity-contract-plan.md`
+- `docs/project/2026-10-24-codeapi-sustained-load-plan.md`
+- `docs/project/2026-10-25-codeapi-production-qualification-plan.md`
+- `docs/project/2026-10-25-upstream-v1.10.13-plan.md`
