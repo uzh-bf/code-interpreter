@@ -24,6 +24,8 @@ Runnable artifact: `/private/tmp/klicker-codeapi-prototype/README.md`. Its comma
 
 Observation: all thirty-five synthetic checks passed, with no failures or skips. They invoke the actual SDK `tool.execute` callback against a loopback HTTP fake. Coverage includes default-off/non-Tutor/unallowlisted denial without transport, synchronous one-call reservation under concurrent callbacks, generated in-memory Ed25519 signing, issuer/audience/key/source/expiry checks, result validation, HTTP errors, malformed/oversized responses, bounded UTF-8 output, timeout and caller abort.
 
+An independent rerun exposed a flaky signature negative control: changing unused base64url padding bits can preserve the decoded bytes. The correction flips a decoded signature byte. The corrected full suite passes; a focused check across sixteen generated keys rejected all 2048 byte mutations. The verifier behavior is unchanged.
+
 The fake uses the fork's flat public `/v1/exec` response; the old nested sandbox `run` shape is rejected. It binds the proposed `external:klicker` source to a synthetic issuer trust entry rather than impersonating LibreChat. The model supplies code only. The server owns identity, endpoint, key and execution policy.
 
 Conclusion: the local callback/transport seam is feasible. The experiment returns canned output and executes no Python. It does not prove real model choice, the complete chat route, history persistence, browser behavior, deployed trust/network reachability, guest timeout or guest reaping. An aborted fake HTTP response proves transport cancellation only. No production activation or deployment trust entry was created.
