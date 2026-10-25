@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises';
+import {
+    mkdtemp,
+    writeFile,
+    readFile,
+    rename,
+    rm,
+    stat,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -221,9 +228,13 @@ async function protocol(
         deleteFailure = false,
         rateLimit = false,
         corruptResource = false,
+        sustainedRateLimit = null,
+        sustainedDelay = null,
     } = {}
 ) {
     const objects = new Map();
+    const resourceCache = new Map();
+    const sustainedRequests = [];
     let counter = 0,
         executions = 0,
         peak = 0,
@@ -252,30 +263,73 @@ async function protocol(
                 res.setHeader('Retry-After', '30');
                 return reply(res, 429, { error: 'rate_limited' });
             }
+            const resource =
+                /qualification-resource:(cpu|memory|node_memory)/.exec(
+                    input.code
+                );
+            let resourceRequest;
+            if (resource) {
+                const nonce = JSON.parse(
+                    /nonce=("[^"\n]+")/.exec(input.code)[1]
+                );
+                const seedMatch = /seed=("[^"\n]+")/.exec(input.code);
+                const seed = seedMatch ? JSON.parse(seedMatch[1]) : nonce;
+                const label = /^([^:]+):([124]):(\d+):([ab]):(\d+)$/.exec(
+                    nonce
+                );
+                resourceRequest = {
+                    kind: resource[1],
+                    nonce,
+                    seed,
+                    plateau: label ? Number(label[2]) : null,
+                    slot: label ? Number(label[3]) : null,
+                    caller: label ? label[4] : null,
+                    position: label ? Number(label[5]) : null,
+                };
+                if (label) sustainedRequests.push(resourceRequest);
+                if (
+                    sustainedRateLimit &&
+                    Object.entries(sustainedRateLimit).every(
+                        ([key, value]) => resourceRequest[key] === value
+                    )
+                ) {
+                    res.setHeader('Retry-After', '30');
+                    return reply(res, 429, { error: 'rate_limited' });
+                }
+            }
             executions++;
             active++;
             peak = Math.max(peak, active);
-            await delay(2);
+            const delayed =
+                sustainedDelay &&
+                resourceRequest &&
+                Object.entries(sustainedDelay).every(
+                    ([key, value]) =>
+                        key === 'ms' || resourceRequest[key] === value
+                );
+            await delay(delayed ? sustainedDelay.ms : 2);
             active--;
             if (wrongRuntime) {
                 const ref = put('unexpected.csv', Buffer.from('owned'));
                 return reply(res, 200, success('wrong\n', { files: [ref] }));
             }
-            const resource =
-                /qualification-resource:(cpu|memory|node_memory)/.exec(
-                    input.code
-                );
             if (resource) {
-                const nonce = JSON.parse(
-                    /nonce=("[^"\n]+")/.exec(input.code)[1]
-                );
-                const work = resourceWorkload(resource[1], nonce);
+                const cacheKey = `${resourceRequest.kind}:${resourceRequest.seed}`;
+                let work = resourceCache.get(cacheKey);
+                if (!work) {
+                    work = resourceWorkload(
+                        resourceRequest.kind,
+                        resourceRequest.nonce,
+                        resourceRequest.seed
+                    );
+                    resourceCache.set(cacheKey, work);
+                }
                 return reply(
                     res,
                     200,
                     success(
                         JSON.stringify({
-                            nonce,
+                            nonce: resourceRequest.nonce,
                             digest: corruptResource ? 'invalid' : work.digest,
                             bytes: work.bytes,
                             cpuMs: 25,
@@ -343,11 +397,15 @@ async function protocol(
     return {
         baseUrl,
         objects,
+        sustainedRequests,
         get executions() {
             return executions;
         },
         get peak() {
             return peak;
+        },
+        get active() {
+            return active;
         },
     };
 }
@@ -602,6 +660,480 @@ test('corrupt resource results stop admission and final-idle guard failure canno
         assert.equal(
             events.some(x => x.type === 'resource_phase' && x.name === 'soak'),
             false
+        );
+    }
+});
+
+test('sustained envelopes are global while legacy caps and deadlines stay fixed', async t => {
+    const c = await files(t);
+    let clock = 0;
+    const response = {
+        status: 200,
+        headers: {},
+        bytes: Buffer.from(JSON.stringify(success())),
+    };
+    const request = async () => response;
+    const common = {
+        ...c,
+        baseUrl: 'http://127.0.0.1:1/v1',
+        token: () => 'synthetic',
+        request,
+        now: () => Date.now() + clock,
+        monotonic: () => clock,
+    };
+
+    const legacy = createClient({ ...common, limits: { requests: 999 } });
+    for (let i = 0; i < 120; i++) await legacy.call('/health');
+    await assert.rejects(legacy.call('/health'), {
+        reason: 'request_budget',
+    });
+    for (let i = 0; i < 40; i++)
+        await legacy.call('/health', { cleanup: true });
+    assert.equal(legacy.state.requests, 160);
+    await assert.rejects(legacy.call('/health', { cleanup: true }), {
+        reason: 'request_budget',
+    });
+
+    clock = 0;
+    const legacyClock = createClient({ ...common, limits: { requests: 999 } });
+    clock = 720000;
+    await assert.rejects(legacyClock.call('/health'), {
+        reason: 'run_deadline',
+    });
+    await legacyClock.call('/health', { cleanup: true });
+    clock = 900000;
+    await assert.rejects(legacyClock.call('/health', { cleanup: true }), {
+        reason: 'run_deadline',
+    });
+
+    clock = 0;
+    const legacyExec = createClient({
+        ...common,
+        limits: { executions: 999, guestMs: 999999 },
+    });
+    for (let i = 0; i < 40; i++)
+        await legacyExec.call('/exec', {
+            method: 'POST',
+            body: '{}',
+            headers: { 'Content-Type': 'application/json' },
+        });
+    await assert.rejects(
+        legacyExec.call('/exec', {
+            method: 'POST',
+            body: '{}',
+            headers: { 'Content-Type': 'application/json' },
+        }),
+        { reason: 'execution_budget' }
+    );
+
+    clock = 0;
+    const sustained = createClient({
+        ...common,
+        envelope: 'sustained',
+        limits: { requests: 999, files: 999 },
+    });
+    for (let i = 0; i < 360; i++) await sustained.call('/health');
+    assert.equal(sustained.state.requests, 360);
+    await assert.rejects(sustained.call('/health'), {
+        reason: 'request_budget',
+    });
+    clock = 1620000;
+    await assert.rejects(sustained.call('/health'), { reason: 'run_deadline' });
+    await sustained.call('/health', { cleanup: true });
+    clock = 1800000;
+    await assert.rejects(sustained.call('/health', { cleanup: true }), {
+        reason: 'run_deadline',
+    });
+
+    clock = 0;
+    const caps = createClient({
+        ...common,
+        envelope: 'sustained',
+        limits: { files: 999, guestMs: 9999999 },
+    });
+    await caps.execute('pass', 'python', { timeout: 1080000 });
+    assert.equal(caps.state.guestMs, 1080000);
+    await assert.rejects(caps.execute('pass', 'python'), {
+        reason: 'execution_budget',
+    });
+    for (let i = 0; i < 16; i++)
+        caps.own('s'.repeat(21), String(i).padStart(21, 'b'), `file-${i}`);
+    assert.throws(() => caps.own('s'.repeat(21), 'z'.repeat(21), 'overflow'), {
+        reason: 'file_budget',
+    });
+    assert.equal(caps.state.owned.length, 17);
+});
+
+test('bounded suppliers, dispatch checks and caller-B owned cleanup stay explicit', async t => {
+    const c = await files(t);
+    let remote = 0;
+    const client = createClient({
+        ...c,
+        baseUrl: 'http://127.0.0.1:1/v1',
+        token: () => 'synthetic',
+        envelope: 'sustained',
+        monotonic: () => 0,
+        request: async () => {
+            remote++;
+            return {
+                status: 200,
+                headers: {},
+                bytes: Buffer.from(JSON.stringify(success())),
+            };
+        },
+    });
+
+    await assert.rejects(
+        client.execute('pass', 'python', {
+            auth: () => new Promise(() => {}),
+            dispatchBy: 80,
+        }),
+        { reason: 'credential_deadline' }
+    );
+    assert.equal(remote, 0);
+    assert.equal(client.state.requests, 1);
+    assert.equal(client.state.executions, 1);
+    assert.equal(client.state.dispatches, 0);
+    assert.equal(client.state.inFlight, 0);
+
+    await assert.rejects(
+        client.execute('pass', 'python', {
+            auth: async () => {
+                await delay(40);
+                return 'late';
+            },
+            dispatchBy: 10,
+        }),
+        { reason: 'credential_deadline' }
+    );
+    assert.equal(remote, 0);
+
+    let release;
+    let supplierStarted = false;
+    const racing = client.execute('pass', 'python', {
+        auth: () => {
+            supplierStarted = true;
+            return new Promise(resolve => {
+                release = resolve;
+            });
+        },
+        dispatchBy: 10000,
+    });
+    while (!supplierStarted) await delay(1);
+    client.stop();
+    release('too-late');
+    await assert.rejects(racing, { reason: 'admission_stopped' });
+    assert.equal(remote, 0);
+
+    const receipts = [];
+    const ownerCalls = [];
+    const owner = createClient({
+        ...c,
+        baseUrl: 'http://127.0.0.1:1/v1',
+        token: () => 'owner-a',
+        receipt: value => receipts.push(value),
+        request: async (_base, path, options) => {
+            if (path === '/exec') {
+                assert.equal(options.token, 'owner-b');
+                return {
+                    status: 200,
+                    headers: {},
+                    bytes: Buffer.from(
+                        JSON.stringify(
+                            success('', {
+                                files: [
+                                    {
+                                        id: 'v'.repeat(21),
+                                        name: 'caller-b.csv',
+                                        storage_session_id: 's'.repeat(21),
+                                    },
+                                ],
+                            })
+                        )
+                    ),
+                };
+            }
+            ownerCalls.push(options.token);
+            return {
+                status: options.method === 'DELETE' ? 200 : 404,
+                headers: {},
+                bytes: Buffer.from('{}'),
+            };
+        },
+    });
+    const output = await owner.execute('pass', 'python', {
+        auth: () => 'owner-b',
+    });
+    assert.equal(output.created.length, 1);
+    await owner.cleanup();
+    assert.deepEqual(ownerCalls, ['owner-b', 'owner-b']);
+    assert.equal(JSON.stringify(receipts).includes('owner-b'), false);
+});
+
+async function sustainedRun(
+    t,
+    {
+        serverOptions = {},
+        lateSlot = false,
+        holdFirst = false,
+        holdPlateau = 1,
+        holdCaller = null,
+        holdSlots = 1,
+        missingBoundary = false,
+        overrun = false,
+        earlyWake = false,
+        pauseMs = 20,
+    } = {}
+) {
+    const c = await files(t),
+        server = await protocol(t, serverOptions),
+        epoch = Date.now();
+    let elapsed = 0,
+        delayed = false,
+        zeroPauses = 0,
+        overrunAdded = false;
+    const writeGuard = async observedAt => {
+        const temporary = `${c.guardPath}.${randomUUID()}`;
+        await writeFile(
+            temporary,
+            JSON.stringify({ runId: c.runId, observedAt, ok: true })
+        );
+        await rename(temporary, c.guardPath);
+    };
+    const result = await runQualification({
+        ...c,
+        baseUrl: server.baseUrl,
+        token: () => 'synthetic-secret',
+        comparisonToken: () => 'other',
+        mode: 'sustained',
+        waitMs: 0,
+        now: () => epoch + elapsed,
+        monotonic: () => elapsed,
+        pause: async ms => {
+            zeroPauses += ms === 0 ? 1 : 0;
+            await delay(pauseMs);
+            if (lateSlot && !delayed && ms === 0 && zeroPauses === 2) {
+                elapsed += 1001;
+                delayed = true;
+            }
+            elapsed += earlyWake && ms > 1 ? ms - 1 : ms;
+            const missing =
+                missingBoundary && elapsed >= 480000 && elapsed <= 490000;
+            await writeGuard(epoch + (missing ? 479999 : elapsed));
+        },
+        request: async (...args) => {
+            let input;
+            try {
+                input = JSON.parse(args[2]?.body);
+            } catch {}
+            const label =
+                input?.code &&
+                /nonce="[^"]*:(\d+):(\d+):([ab]):\d+"/.exec(input.code);
+            if (
+                holdFirst &&
+                label &&
+                Number(label[1]) === holdPlateau &&
+                (!holdCaller || label[3] === holdCaller) &&
+                Number(label[2]) < holdSlots
+            ) {
+                return new Promise(resolve => {
+                    setTimeout(async () => {
+                        resolve(await exchange(...args));
+                    }, 500);
+                });
+            }
+            if (overrun && !overrunAdded && input?.code?.includes(':1:47:')) {
+                elapsed += 11001;
+                overrunAdded = true;
+            }
+            await writeGuard(epoch + elapsed);
+            const response = await exchange(...args);
+            if (input?.code?.includes('qualification-resource')) elapsed += 1;
+            return response;
+        },
+    });
+    const events = (await readFile(c.receiptPath, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(JSON.parse);
+    assert.equal(server.objects.size, 0);
+    assert.equal(server.active, 0);
+    assert.equal(
+        (await readFile(c.receiptPath, 'utf8')).includes('synthetic-secret'),
+        false
+    );
+    return { result, events, server, elapsed, runId: c.runId };
+}
+
+test('sustained schedule binds nonces, kinds, callers and the full ledger', async t => {
+    const { result, events, server, elapsed, runId } = await sustainedRun(t);
+    assert.equal(result.status, 'passed');
+    assert.equal(result.executions, 348);
+    assert.equal(result.requests, 362);
+    assert.equal(result.requestedGuestMs, 1032500);
+    assert.equal(result.ownedObjects, 3);
+    assert.ok(result.peakRequests <= 4);
+    assert.equal(elapsed, 1440000);
+
+    const starts = events.filter(x => x.type === 'sustained_start');
+    assert.deepEqual(
+        starts.map(x => [x.name, x.offered, x.concurrency, x.durationMs]),
+        [
+            ['1x', 48, 1, 480000],
+            ['2x', 96, 2, 480000],
+            ['4x', 192, 4, 480000],
+        ]
+    );
+    const phases = events.filter(x => x.type === 'sustained_phase');
+    assert.deepEqual(
+        phases.map(x => [
+            x.name,
+            x.offered,
+            x.admitted,
+            x.successful,
+            x.failed,
+            x.durationMs,
+        ]),
+        [
+            ['1x', 48, 48, 48, 0, 480000],
+            ['2x', 96, 96, 96, 0, 480000],
+            ['4x', 192, 192, 192, 0, 480000],
+        ]
+    );
+    for (const phase of phases) {
+        assert.ok(phase.occupancy > 0 && phase.occupancy <= 4);
+        for (const caller of ['a', 'b']) {
+            assert.deepEqual(phase.perCaller[caller].allocation, {
+                cpu: 12 * phase.plateau,
+                memory: 6 * phase.plateau,
+                node_memory: 6 * phase.plateau,
+            });
+            assert.equal(
+                phase.perCaller[caller].successful,
+                24 * phase.plateau
+            );
+        }
+    }
+
+    const samples = events.filter(x => x.type === 'sustained_sample');
+    assert.equal(samples.length, 336);
+    assert.equal(server.sustainedRequests.length, 336);
+    assert.equal(new Set(server.sustainedRequests.map(x => x.nonce)).size, 336);
+    assert.equal(new Set(server.sustainedRequests.map(x => x.seed)).size, 3);
+    for (const request of server.sustainedRequests) {
+        assert.ok(request.nonce.startsWith(`${runId}:`));
+        assert.match(
+            request.nonce.slice(runId.length + 1),
+            /^[124]:\d+:[ab]:\d+$/
+        );
+    }
+    const requestKinds = new Map(
+        server.sustainedRequests.map(x => [
+            `${x.plateau}:${x.slot}:${x.caller}:${x.position}`,
+            x.kind,
+        ])
+    );
+    for (const sample of samples) {
+        assert.equal(
+            requestKinds.get(
+                `${sample.plateau}:${sample.slot}:${sample.caller}:${sample.position}`
+            ),
+            sample.kind
+        );
+        assert.ok(sample.cpuMs > 0 && sample.guestWallMs > 0);
+    }
+    for (const phase of phases) {
+        const slots = Map.groupBy(
+            samples.filter(x => x.plateau === phase.plateau),
+            x => x.slot
+        );
+        for (const [slot, wave] of slots) {
+            const ordered = wave.sort(
+                (left, right) => left.order - right.order
+            );
+            assert.equal(ordered.length, phase.plateau);
+            assert.equal(ordered[0].caller, slot % 2 === 0 ? 'a' : 'b');
+        }
+    }
+});
+
+test('a sustained failure stops admission but waits for concurrent settlement before cleanup', async t => {
+    const { result, events, server } = await sustainedRun(t, {
+        serverOptions: {
+            sustainedRateLimit: { plateau: 2, slot: 3, caller: 'a' },
+            sustainedDelay: {
+                plateau: 2,
+                slot: 3,
+                caller: 'b',
+                ms: 80,
+            },
+        },
+        pauseMs: 30,
+    });
+    assert.equal(result.status, 'failed');
+    assert.ok(result.failures.some(x => x.reason === 'rate_limited'));
+    assert.equal(server.active, 0);
+    assert.equal(server.objects.size, 0);
+    const failure = events.find(x => x.type === 'sustained_failure');
+    assert.deepEqual(
+        {
+            plateau: failure.plateau,
+            slot: failure.slot,
+            caller: failure.caller,
+            kind: failure.kind,
+            reason: failure.reason,
+            httpStatus: failure.httpStatus,
+        },
+        {
+            plateau: 2,
+            slot: 3,
+            caller: 'a',
+            kind: 'cpu',
+            reason: 'rate_limited',
+            httpStatus: 429,
+        }
+    );
+    const phases = events.filter(x => x.type === 'sustained_phase');
+    assert.deepEqual(
+        phases.map(x => [x.plateau, x.successful, x.failed]),
+        [
+            [1, 48, 0],
+            [2, 7, 1],
+        ]
+    );
+});
+
+test('sustained intervals wait through an early timer wake before reporting duration', async t => {
+    const { result, events } = await sustainedRun(t, { earlyWake: true });
+    assert.equal(result.status, 'passed');
+    const phases = events.filter(x => x.type === 'sustained_phase');
+    assert.equal(phases.length, 3);
+    assert.ok(phases.every(x => x.durationMs >= 480000));
+});
+
+test('late, blocked, missing-boundary and overrun intervals stop without catch-up', async t => {
+    for (const [options, reason, phases] of [
+        [{ lateSlot: true }, 'sustained_slot_late', 1],
+        [
+            {
+                holdFirst: true,
+                holdPlateau: 2,
+                holdCaller: 'a',
+                holdSlots: 2,
+            },
+            'sustained_slot_blocked',
+            2,
+        ],
+        [{ holdFirst: true, holdPlateau: 4 }, 'sustained_slot_blocked', 3],
+        [{ missingBoundary: true }, 'sustained_boundary_missing', 1],
+        [{ overrun: true }, 'sustained_response_overrun', 1],
+    ]) {
+        const { result, events } = await sustainedRun(t, options);
+        assert.equal(result.status, 'failed');
+        assert.ok(result.failures.some(x => x.reason === reason));
+        assert.equal(
+            events.filter(x => x.type === 'sustained_phase').length,
+            phases
         );
     }
 });

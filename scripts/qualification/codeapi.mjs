@@ -15,6 +15,12 @@ const CAPS = Object.freeze({
     files: 16,
     guestMs: 120000,
 });
+const SUSTAINED_CAPS = Object.freeze({
+    requests: 400,
+    executions: 360,
+    files: 16,
+    guestMs: 1080000,
+});
 
 export class QualificationError extends Error {
     constructor(reason, status) {
@@ -212,18 +218,28 @@ export function createClient({
     now = Date.now,
     request = exchange,
     receiptHealthy = () => true,
+    monotonic = now,
+    envelope = 'bounded',
 }) {
     const base = apiBase(baseUrl);
     check(UUID.test(runId), 'invalid_run_id');
     check(typeof token === 'function', 'token_supplier_required');
+    check(['bounded', 'sustained'].includes(envelope), 'invalid_envelope');
+    const maximum = envelope === 'sustained' ? SUSTAINED_CAPS : CAPS;
+    const totalMs = envelope === 'sustained' ? 1800000 : 900000;
+    const admissionMs = envelope === 'sustained' ? 1620000 : 720000;
     const cap = Object.fromEntries(
-        Object.entries(CAPS).map(([k, v]) => [k, Math.min(v, limits[k] ?? v)])
+        Object.entries(maximum).map(([k, v]) => [
+            k,
+            Math.min(v, limits[k] ?? v),
+        ])
     );
     check(
         Object.values(cap).every(v => Number.isSafeInteger(v) && v >= 0),
         'invalid_budget'
     );
-    const start = now();
+    const start = monotonic();
+    const objectOwners = new Map();
     const state = {
         requests: 0,
         executions: 0,
@@ -234,6 +250,7 @@ export function createClient({
         stopped: false,
         peak: 0,
         inFlight: 0,
+        dispatches: 0,
     };
     const fail = error => {
         state.stopped = true;
@@ -249,13 +266,33 @@ export function createClient({
     };
     async function call(
         path,
-        { cleanup = false, guestMs = 0, auth = token, ...options } = {}
+        {
+            cleanup = false,
+            guestMs = 0,
+            auth = token,
+            dispatchBy = Infinity,
+            ...options
+        } = {}
     ) {
+        const requestEnd = Math.min(
+            monotonic() + (cleanup ? 15000 : 60000),
+            start + totalMs
+        );
+        const dispatchCheck = () => {
+            check(!state.stopped || cleanup, 'admission_stopped');
+            check(
+                monotonic() - start < (cleanup ? totalMs : admissionMs),
+                'run_deadline'
+            );
+            check(monotonic() <= dispatchBy, 'dispatch_deadline');
+            check(monotonic() < requestEnd, 'request_deadline');
+        };
         check(!state.stopped || cleanup, 'admission_stopped');
         check(cleanup || receiptHealthy(), 'receipt_unavailable');
-        check(now() - start < (cleanup ? 900000 : 720000), 'run_deadline');
+        dispatchCheck();
         if (!cleanup) await guardCheck(guardPath, runId, now());
-        check(!state.stopped || cleanup, 'admission_stopped');
+        dispatchCheck();
+        check(state.inFlight < 4, 'concurrency_budget');
         check(
             state.requests <
                 (cleanup ? cap.requests : Math.max(0, cap.requests - 40)),
@@ -273,23 +310,62 @@ export function createClient({
         }
         state.requests++;
         const began = now();
-        const credential = auth === null ? undefined : await auth();
-        check(
-            auth === null ||
-                (typeof credential === 'string' && credential.length > 0),
-            'credential_unavailable'
-        );
-        check(state.inFlight < 4, 'concurrency_budget');
         state.inFlight++;
         state.peak = Math.max(state.peak, state.inFlight);
+        let dispatched = false;
         try {
+            const credential =
+                auth === null
+                    ? undefined
+                    : await new Promise((resolve, reject) => {
+                          const timer = setTimeout(
+                              () =>
+                                  reject(
+                                      new QualificationError(
+                                          'credential_deadline'
+                                      )
+                                  ),
+                              Math.max(
+                                  0,
+                                  Math.min(
+                                      1000,
+                                      requestEnd - monotonic(),
+                                      dispatchBy - monotonic()
+                                  )
+                              )
+                          );
+                          Promise.resolve()
+                              .then(auth)
+                              .then(
+                                  value => {
+                                      clearTimeout(timer);
+                                      resolve(value);
+                                  },
+                                  () => {
+                                      clearTimeout(timer);
+                                      reject(
+                                          new QualificationError(
+                                              'credential_unavailable'
+                                          )
+                                      );
+                                  }
+                              );
+                      });
+            check(
+                auth === null ||
+                    (typeof credential === 'string' && credential.length > 0),
+                'credential_unavailable'
+            );
+            dispatchCheck();
+            if (!cleanup) await guardCheck(guardPath, runId, now());
+            dispatchCheck();
+            check(cleanup || receiptHealthy(), 'receipt_unavailable');
+            dispatched = true;
+            state.dispatches++;
             const response = await request(base, path, {
                 ...options,
                 token: credential,
-                timeoutMs: Math.min(
-                    cleanup ? 15000 : 60000,
-                    900000 - (now() - start)
-                ),
+                timeoutMs: requestEnd - monotonic(),
                 headers: {
                     'X-CodeAPI-Expected-Profile': 'default',
                     ...options.headers,
@@ -315,13 +391,14 @@ export function createClient({
             }
             return response;
         } catch (error) {
-            if (path === '/exec' || path === '/upload') state.uncertain = true;
+            if (dispatched && (path === '/exec' || path === '/upload'))
+                state.uncertain = true;
             throw error;
         } finally {
             state.inFlight--;
         }
     }
-    const own = (session, id, name) => {
+    const own = (session, id, name, auth = token) => {
         if (!ID.test(session ?? '') || !ID.test(id ?? '')) {
             state.uncertain = true;
             throw new QualificationError('unknown_output_reference');
@@ -341,6 +418,7 @@ export function createClient({
             resource_id: runId,
         };
         state.owned.push(ref);
+        objectOwners.set(ref, auth);
         receipt({ type: 'owned_object', id, storage_session_id: session });
         check(typeof name === 'string', 'unusable_output_name');
         check(state.owned.length <= cap.files, 'file_budget');
@@ -349,10 +427,19 @@ export function createClient({
     async function execute(
         code,
         lang,
-        { files = [], timeout = 3000, expectTimeout = false } = {}
+        {
+            files = [],
+            timeout = 3000,
+            expectTimeout = false,
+            auth = token,
+            dispatchBy = Infinity,
+        } = {}
     ) {
+        check(typeof auth === 'function', 'token_supplier_required');
         const began = now();
         const response = await call('/exec', {
+            auth,
+            dispatchBy,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code, lang, timeout, files }),
@@ -381,7 +468,8 @@ export function createClient({
                     own(
                         file?.storage_session_id ?? value.session_id,
                         file?.id,
-                        file?.name
+                        file?.name,
+                        auth
                     )
                 );
             } catch {
@@ -418,18 +506,33 @@ export function createClient({
             'invalid_concurrency'
         );
         let next = 0;
+        let admissionFailure;
         await Promise.all(
             Array.from({ length: concurrency }, async () => {
-                while (next < items.length && !state.stopped) {
+                while (
+                    next < items.length &&
+                    !state.stopped &&
+                    !admissionFailure
+                ) {
                     const item = items[next++];
                     try {
                         await fn(item);
                     } catch (error) {
-                        fail(error);
+                        if (
+                            error instanceof QualificationError &&
+                            [
+                                'concurrency_budget',
+                                'execution_budget',
+                                'request_budget',
+                            ].includes(error.reason)
+                        )
+                            admissionFailure ??= error;
+                        else fail(error);
                     }
                 }
             })
         );
+        if (admissionFailure) fail(admissionFailure);
     }
     async function cleanup() {
         const objects = [...state.owned];
@@ -443,13 +546,17 @@ export function createClient({
                         const removed = await call('/files' + path, {
                             method: 'DELETE',
                             cleanup: true,
+                            auth: objectOwners.get(object),
                         });
                         check(
                             removed.status === 200 || removed.status === 404,
                             'delete_failed'
                         );
                         status(
-                            await call('/download' + path, { cleanup: true }),
+                            await call('/download' + path, {
+                                cleanup: true,
+                                auth: objectOwners.get(object),
+                            }),
                             404
                         );
                         receipt({
@@ -705,19 +812,17 @@ async function load(client, waitMs) {
 
 const RESOURCE_BYTES = 32 * 1024 * 1024;
 const HASH_STEPS = 1000000;
+const RESOURCE_KINDS = Object.freeze(['cpu', 'memory', 'node_memory']);
 
-export function resourceWorkload(kind, nonce) {
+function prepareResourceWorkload(kind, seed) {
+    check(RESOURCE_KINDS.includes(kind), 'invalid_resource_kind');
     check(
-        ['cpu', 'memory', 'node_memory'].includes(kind),
-        'invalid_resource_kind'
-    );
-    check(
-        typeof nonce === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(nonce),
+        typeof seed === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(seed),
         'invalid_resource_nonce'
     );
     const memory = kind !== 'cpu';
-    const pattern = createHash('sha256').update(nonce).digest()[0];
-    let value = Buffer.from(nonce);
+    const pattern = createHash('sha256').update(seed).digest()[0];
+    let value = Buffer.from(seed);
     if (memory) value = Buffer.alloc(RESOURCE_BYTES, pattern);
     else
         for (let i = 0; i < HASH_STEPS; i++)
@@ -725,12 +830,29 @@ export function resourceWorkload(kind, nonce) {
     const digest = memory
         ? createHash('sha256').update(value).digest('hex')
         : value.toString('hex');
+    return {
+        kind,
+        lang: kind === 'node_memory' ? 'node' : 'python',
+        pattern,
+        digest,
+        bytes: memory ? RESOURCE_BYTES : 0,
+    };
+}
+
+function renderResourceWorkload(template, nonce) {
+    check(
+        typeof nonce === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(nonce),
+        'invalid_resource_nonce'
+    );
+    const { kind, lang, pattern, digest, bytes } = template;
+    const memory = kind !== 'cpu';
     const literal = JSON.stringify(nonce);
     const code =
         kind === 'node_memory'
             ? `// qualification-resource:node_memory
 import {createHash} from 'node:crypto';
 const nonce=${literal};
+const seed=${JSON.stringify(template.seed)};
 const cpu=process.cpuUsage(), wall=performance.now();
 const data=Buffer.alloc(${RESOURCE_BYTES},${pattern});
 for(let i=0;i<data.length;i+=4096)data[i]=${pattern};
@@ -740,13 +862,14 @@ console.log(JSON.stringify({nonce,digest,bytes:data.length,cpuMs:(used.user+used
             : `# qualification-resource:${kind}
 import hashlib,json,time
 nonce=${literal}
+seed=${JSON.stringify(template.seed)}
 cpu=time.process_time(); wall=time.perf_counter()
 ${
     memory
         ? `data=bytearray([${pattern}])*${RESOURCE_BYTES}
 for i in range(0,len(data),4096): data[i]=${pattern}
 digest=hashlib.sha256(data).hexdigest()`
-        : `data=nonce.encode('utf8')
+        : `data=seed.encode('utf8')
 for _ in range(${HASH_STEPS}): data=hashlib.sha256(data).digest()
 digest=data.hex()`
 }
@@ -759,6 +882,40 @@ print(json.dumps(dict(nonce=nonce,digest=digest,bytes=${
         nonce,
         digest,
         bytes: memory ? RESOURCE_BYTES : 0,
+    };
+}
+
+export function resourceWorkload(kind, nonce, seed = nonce) {
+    const template = prepareResourceWorkload(kind, seed);
+    return renderResourceWorkload({ ...template, seed }, nonce);
+}
+
+function validateResourceResult(work, kind, result) {
+    let output;
+    try {
+        output = JSON.parse(result.value.stdout);
+    } catch {
+        throw new QualificationError('resource_output_mismatch');
+    }
+    check(
+        output.nonce === work.nonce &&
+            output.digest === work.digest &&
+            output.bytes === work.bytes &&
+            Number.isFinite(output.cpuMs) &&
+            output.cpuMs > 0 &&
+            Number.isFinite(output.wallMs) &&
+            output.wallMs > 0 &&
+            output.wallMs <= 3000 &&
+            result.created.length === 0,
+        'resource_output_mismatch'
+    );
+    return {
+        language: work.lang,
+        kind,
+        bytes: work.bytes,
+        cpuMs: output.cpuMs,
+        guestWallMs: output.wallMs,
+        durationMs: result.durationMs,
     };
 }
 
@@ -775,33 +932,10 @@ async function resources(
             prepared ??
             resourceWorkload(kind, `${client.runId}:${phase}:${index}`);
         const result = await client.execute(work.code, work.lang);
-        let output;
-        try {
-            output = JSON.parse(result.value.stdout);
-        } catch {
-            throw new QualificationError('resource_output_mismatch');
-        }
-        check(
-            output.nonce === work.nonce &&
-                output.digest === work.digest &&
-                output.bytes === work.bytes &&
-                Number.isFinite(output.cpuMs) &&
-                output.cpuMs > 0 &&
-                Number.isFinite(output.wallMs) &&
-                output.wallMs > 0 &&
-                output.wallMs <= 3000 &&
-                result.created.length === 0,
-            'resource_output_mismatch'
-        );
         const item = {
             phase,
             index,
-            language: work.lang,
-            kind,
-            bytes: work.bytes,
-            cpuMs: output.cpuMs,
-            guestWallMs: output.wallMs,
-            durationMs: result.durationMs,
+            ...validateResourceResult(work, kind, result),
         };
         client.receipt({ type: 'resource_sample', ...item });
         return item;
@@ -886,6 +1020,342 @@ async function resources(
     });
 }
 
+const SUSTAINED_SLOTS = 48;
+const SUSTAINED_SPACING_MS = 10000;
+const SUSTAINED_PLATEAU_MS = 480000;
+const SUSTAINED_BOUNDARY_MS = 10000;
+const SUSTAINED_KIND_CYCLE = Object.freeze([
+    'cpu',
+    'memory',
+    'node_memory',
+    'cpu',
+]);
+
+function sustainedWave(burst, slot) {
+    const callers = slot % 2 === 0 ? ['a', 'b'] : ['b', 'a'];
+    if (burst === 1)
+        return [
+            {
+                caller: callers[0],
+                position: 0,
+                kind: SUSTAINED_KIND_CYCLE[Math.floor(slot / 2) % 4],
+            },
+        ];
+    if (burst === 2)
+        return callers.map(caller => ({
+            caller,
+            position: 0,
+            kind: SUSTAINED_KIND_CYCLE[slot % 4],
+        }));
+    check(burst === 4, 'invalid_sustained_burst');
+    return callers.flatMap(caller =>
+        [0, 1].map(position => ({
+            caller,
+            position,
+            kind: SUSTAINED_KIND_CYCLE[(2 * slot + position) % 4],
+        }))
+    );
+}
+
+function addAllocation(target, caller, kind) {
+    target[caller] ??= { cpu: 0, memory: 0, node_memory: 0 };
+    target[caller][kind]++;
+}
+
+async function sustained({
+    client,
+    token,
+    comparisonToken,
+    waitMs,
+    began,
+    monotonic,
+    pause,
+    guardPath,
+}) {
+    check(
+        monotonic() - began + 31000 + 3 * 490000 <= 1620000,
+        'sustained_preflight_deadline'
+    );
+
+    const preparationBegan = monotonic();
+    const templates = Object.fromEntries(
+        RESOURCE_KINDS.map(kind => {
+            const seed = `${client.runId}:sustained:template:${kind}`;
+            return [kind, { ...prepareResourceWorkload(kind, seed), seed }];
+        })
+    );
+    await pause(Math.max(0, waitMs - (monotonic() - preparationBegan)));
+
+    const suppliers = { a: token, b: comparisonToken };
+    const reportFailure = (context, error) => {
+        const detail =
+            error instanceof QualificationError
+                ? {
+                      reason: error.reason,
+                      ...(error.status ? { httpStatus: error.status } : {}),
+                  }
+                : { reason: 'unexpected_failure' };
+        client.receipt({
+            type: 'sustained_failure',
+            ...context,
+            ...detail,
+        });
+        client.fail(
+            error instanceof QualificationError
+                ? error
+                : new QualificationError('unexpected_failure')
+        );
+    };
+
+    for (const burst of [1, 2, 4]) {
+        if (client.state.stopped) break;
+        const phaseBegan = monotonic(),
+            wallBegan = client.now(),
+            end = phaseBegan + SUSTAINED_PLATEAU_MS;
+        const outstanding = new Set();
+        const activeByCaller = { a: 0, b: 0 };
+        const samples = [];
+        const scheduledAllocation = {
+            a: { cpu: 0, memory: 0, node_memory: 0 },
+            b: { cpu: 0, memory: 0, node_memory: 0 },
+        };
+        const successfulAllocation = {
+            a: { cpu: 0, memory: 0, node_memory: 0 },
+            b: { cpu: 0, memory: 0, node_memory: 0 },
+        };
+        const admittedByCaller = { a: 0, b: 0 };
+        const successfulByCaller = { a: 0, b: 0 };
+        const failedByCaller = { a: 0, b: 0 };
+        let offered = 0,
+            admitted = 0,
+            successful = 0,
+            failed = 0,
+            attemptedMs = 0;
+
+        client.receipt({
+            type: 'sustained_start',
+            name: `${burst}x`,
+            plateau: burst,
+            offered: SUSTAINED_SLOTS * burst,
+            concurrency: burst,
+            startedAt: wallBegan,
+            durationMs: SUSTAINED_PLATEAU_MS,
+        });
+
+        const context = (slot, item) => ({
+            plateau: burst,
+            slot,
+            caller: item.caller,
+            position: item.position,
+            order: item.order,
+            kind: item.kind,
+        });
+        try {
+            for (let slot = 0; slot < SUSTAINED_SLOTS; slot++) {
+                if (client.state.stopped) break;
+                const due = phaseBegan + slot * SUSTAINED_SPACING_MS;
+                await pause(Math.max(0, due - monotonic()));
+                if (client.state.stopped) break;
+                const wave = sustainedWave(burst, slot);
+                wave.forEach((item, order) => {
+                    item.order = order;
+                });
+                offered += wave.length;
+                for (const item of wave)
+                    addAllocation(scheduledAllocation, item.caller, item.kind);
+                if (monotonic() - due > 1000) {
+                    for (const item of wave)
+                        reportFailure(
+                            context(slot, item),
+                            new QualificationError('sustained_slot_late')
+                        );
+                    break;
+                }
+                if (
+                    outstanding.size + wave.length > 4 ||
+                    wave.some(
+                        item =>
+                            activeByCaller[item.caller] +
+                                wave.filter(x => x.caller === item.caller)
+                                    .length >
+                            2
+                    )
+                ) {
+                    for (const item of wave)
+                        reportFailure(
+                            context(slot, item),
+                            new QualificationError('sustained_slot_blocked')
+                        );
+                    break;
+                }
+
+                for (const item of wave) {
+                    const nonce = `${client.runId}:${burst}:${slot}:${item.caller}:${item.position}`;
+                    const offeredAt = monotonic();
+                    admitted++;
+                    admittedByCaller[item.caller]++;
+                    activeByCaller[item.caller]++;
+                    const work = renderResourceWorkload(
+                        templates[item.kind],
+                        nonce
+                    );
+                    const task = client
+                        .execute(work.code, work.lang, {
+                            auth: suppliers[item.caller],
+                            dispatchBy: due + 1000,
+                        })
+                        .then(async result => {
+                            const measurement = validateResourceResult(
+                                work,
+                                item.kind,
+                                result
+                            );
+                            const sample = {
+                                plateau: burst,
+                                slot,
+                                caller: item.caller,
+                                position: item.position,
+                                order: item.order,
+                                ...measurement,
+                            };
+                            samples.push(sample);
+                            successful++;
+                            successfulByCaller[item.caller]++;
+                            addAllocation(
+                                successfulAllocation,
+                                item.caller,
+                                item.kind
+                            );
+                            client.receipt({
+                                type: 'sustained_sample',
+                                ...sample,
+                            });
+                        })
+                        .catch(error => {
+                            failed++;
+                            failedByCaller[item.caller]++;
+                            reportFailure(context(slot, item), error);
+                        })
+                        .finally(() => {
+                            attemptedMs += monotonic() - offeredAt;
+                            activeByCaller[item.caller]--;
+                            outstanding.delete(task);
+                            if (monotonic() > end)
+                                reportFailure(
+                                    context(slot, item),
+                                    new QualificationError(
+                                        'sustained_response_overrun'
+                                    )
+                                );
+                        });
+                    outstanding.add(task);
+                }
+            }
+            await Promise.all(outstanding);
+        } finally {
+            await Promise.all(outstanding);
+        }
+
+        while (!client.state.stopped && monotonic() < end)
+            await pause(Math.max(1, Math.ceil(end - monotonic())));
+        const durationMs = monotonic() - phaseBegan;
+        const perCaller = Object.fromEntries(
+            ['a', 'b'].map(caller => {
+                const callerSamples = samples.filter(
+                    sample => sample.caller === caller
+                );
+                return [
+                    caller,
+                    {
+                        offered: Object.values(
+                            scheduledAllocation[caller]
+                        ).reduce((sum, count) => sum + count, 0),
+                        admitted: admittedByCaller[caller],
+                        successful: successfulByCaller[caller],
+                        failed: failedByCaller[caller],
+                        allocation: scheduledAllocation[caller],
+                        successfulAllocation: successfulAllocation[caller],
+                        p50Ms: percentile(
+                            callerSamples.map(x => x.durationMs),
+                            0.5
+                        ),
+                        p95Ms: percentile(
+                            callerSamples.map(x => x.durationMs),
+                            0.95
+                        ),
+                        p99Ms: percentile(
+                            callerSamples.map(x => x.durationMs),
+                            0.99
+                        ),
+                    },
+                ];
+            })
+        );
+        client.receipt({
+            type: 'sustained_phase',
+            name: `${burst}x`,
+            plateau: burst,
+            slots: SUSTAINED_SLOTS,
+            spacingMs: SUSTAINED_SPACING_MS,
+            burstCeiling: burst,
+            scheduledDurationMs: SUSTAINED_PLATEAU_MS,
+            offered,
+            admitted,
+            successful,
+            failed,
+            startedAt: wallBegan,
+            endedAt: client.now(),
+            durationMs,
+            achievedPerSecond:
+                durationMs > 0 ? successful / (durationMs / 1000) : 0,
+            occupancy: durationMs > 0 ? attemptedMs / durationMs : 0,
+            p50Ms: percentile(
+                samples.map(x => x.durationMs),
+                0.5
+            ),
+            p95Ms: percentile(
+                samples.map(x => x.durationMs),
+                0.95
+            ),
+            p99Ms: percentile(
+                samples.map(x => x.durationMs),
+                0.99
+            ),
+            allocation: scheduledAllocation,
+            successfulAllocation,
+            perCaller,
+        });
+
+        if (client.state.stopped) break;
+        const wallEnd = wallBegan + SUSTAINED_PLATEAU_MS;
+        const boundaryEnd = monotonic() + SUSTAINED_BOUNDARY_MS;
+        let boundary;
+        while (monotonic() <= boundaryEnd) {
+            try {
+                boundary = await guardCheck(
+                    guardPath,
+                    client.runId,
+                    client.now()
+                );
+                if (boundary.observedAt >= wallEnd) break;
+            } catch {
+                boundary = undefined;
+            }
+            const remaining = boundaryEnd - monotonic();
+            if (remaining <= 0) break;
+            await pause(Math.min(1000, remaining));
+        }
+        if (!boundary || boundary.observedAt < wallEnd) {
+            reportFailure(
+                { plateau: burst, boundary: true },
+                new QualificationError('sustained_boundary_missing')
+            );
+            break;
+        }
+        client.receipt({ type: 'sustained_boundary', plateau: burst });
+    }
+}
+
 export async function runQualification({
     baseUrl,
     token,
@@ -897,7 +1367,16 @@ export async function runQualification({
     waitMs = 31000,
     ...testing
 } = {}) {
-    check(['contract', 'all', 'resources'].includes(mode), 'invalid_mode');
+    check(
+        ['contract', 'all', 'resources', 'sustained'].includes(mode),
+        'invalid_mode'
+    );
+    check(
+        mode !== 'sustained' ||
+            (typeof token === 'function' &&
+                typeof comparisonToken === 'function'),
+        'sustained_suppliers_required'
+    );
     check(
         (!testing.monotonic && !testing.pause) || testing.request,
         'test_clock_requires_transport'
@@ -949,6 +1428,8 @@ export async function runQualification({
             receipt,
             receiptHealthy: () => !receiptFailed,
             ...testing,
+            envelope: mode === 'sustained' ? 'sustained' : 'bounded',
+            monotonic,
         });
         receipt({ type: 'start', runId, mode });
         try {
@@ -956,6 +1437,17 @@ export async function runQualification({
             if (mode === 'all') await load(client, waitMs);
             if (mode === 'resources')
                 await resources(client, {
+                    waitMs,
+                    began,
+                    monotonic,
+                    pause,
+                    guardPath,
+                });
+            if (mode === 'sustained')
+                await sustained({
+                    client,
+                    token,
+                    comparisonToken,
                     waitMs,
                     began,
                     monotonic,
@@ -1021,7 +1513,9 @@ if (
             runId: process.env.CODEAPI_RUN_ID,
             guardPath: process.env.CODEAPI_GUARD,
             receiptPath: process.env.CODEAPI_RECEIPT,
-            mode: process.argv.includes('--resources')
+            mode: process.argv.includes('--sustained')
+                ? 'sustained'
+                : process.argv.includes('--resources')
                 ? 'resources'
                 : process.argv.includes('--load')
                 ? 'all'
