@@ -1069,3 +1069,7 @@ Additional execution references, not replay units:
 - `docs/project/2026-10-24-codeapi-sustained-load-plan.md`
 - `docs/project/2026-10-25-codeapi-production-qualification-plan.md`
 - `docs/project/2026-10-25-upstream-v1.10.13-plan.md`
+
+The follow-up `docs/project/2026-10-25-klicker-codeapi-prototype-findings.md`
+records a disposable synthetic experiment and future integration limits; it is
+a documentary reference and introduces no replayable service behavior.
