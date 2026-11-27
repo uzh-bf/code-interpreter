@@ -48,18 +48,9 @@ async function validateLifecycleAuthConfig(): Promise<void> {
   await validateStartupAuthConfig();
 }
 
-function fileServerHost(): string {
-  try {
-    return new URL(env.FILE_SERVER_URL).host;
-  } catch {
-    return 'invalid FILE_SERVER_URL';
-  }
-}
-
 const fileServerStore = createStorePairingMonitor({
   probe: () => probeFileServerStore({ store: connection, fileServerUrl: env.FILE_SERVER_URL }),
   log: logger,
-  fileServer: fileServerHost(),
 });
 
 /**

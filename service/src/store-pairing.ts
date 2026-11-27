@@ -201,12 +201,10 @@ export interface StorePairingMonitor {
 export function createStorePairingMonitor(opts: {
   probe: () => Promise<StorePairing>;
   log: StorePairingLog;
-  /** Label for log lines; a host, never a URL with credentials. */
-  fileServer: string;
   delays?: Partial<StorePairingDelays>;
 }): StorePairingMonitor {
   const delays = { ...DEFAULT_DELAYS, ...opts.delays };
-  const meta = { fileServer: opts.fileServer };
+  const meta = { component: 'service-api' };
   let current: StorePairing = inconclusive('file_server_unavailable');
   let reported = false;
   let splitAwaitingConfirmation = false;
@@ -230,12 +228,12 @@ export function createStorePairingMonitor(opts: {
     reported = true;
     resolveFirst?.();
     if (result.status === 'split') {
-      opts.log.error(SPLIT_MESSAGE, meta);
+      opts.log.error(SPLIT_MESSAGE, { ...meta, reason: 'store_split' });
       return;
     }
     if (!changed) return;
     if (result.status === 'shared') {
-      opts.log.info('File server shares this API\'s Redis', meta);
+      opts.log.info('File server shares this API\'s Redis', { ...meta, reason: 'store_shared' });
       return;
     }
     opts.log.warn(UNKNOWN_MESSAGES[result.reason], { ...meta, reason: result.reason });

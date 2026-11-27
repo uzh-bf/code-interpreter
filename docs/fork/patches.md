@@ -715,7 +715,9 @@ Drop when upstream provides equivalent readiness and bounded-failure coverage.
 Required behavior: retry only ECONNREFUSED before an accepted response, preserve
 signed bytes, prohibit redirects, and enforce one absolute deadline and caller
 cancellation across attempts. Re-arm distant timers without 32-bit overflow.
-A timeout, reset, response or ambiguous acceptance never permits a replay.
+An explicit 503 `runner_draining` refusal before parsing or execution can
+retry under its own attempt cap and the same absolute deadline. Timeouts,
+resets, other responses and ambiguous acceptance never permit a replay.
 
 Owned paths: `service/src/sandbox-backend/http.ts`,
 `service/src/sandbox-backend/http.test.ts` and
@@ -1080,3 +1082,14 @@ identity, cancellation and guest cleanup, external replica ownership, and
 restricted monitoring peers. An unregistered upload session produces the
 bounded log reason `upload_session_unknown` and the upstream HTTP error
 code. The worker publishing job remains restricted to the upstream repository.
+
+The four merge conflicts were in the worker sandbox Deployment, its chart
+values, and the HTTP sandbox backend with its tests. The chart retains
+external replica ownership and fork security settings while admitting
+upstream's optional drain lifecycle. The HTTP backend combines bounded
+pre-execution drain refusals with the existing connection-refusal and
+cancellation rules. Other overlapping paths retain the compatible changes
+from both parents. The incoming worker publication workflow
+(`.github/workflows/code-package.yml`) keeps its upstream-only repository
+guard. The file server retains missing-bucket readiness and store pairing.
+Its monitor records only the bounded pairing outcome and component.

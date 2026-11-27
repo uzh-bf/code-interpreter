@@ -78,7 +78,7 @@ function captureLog(): { log: StorePairingLog; entries: LogEntry[] } {
 }
 
 function monitorFor(probe: () => Promise<StorePairing>, log: StorePairingLog): StorePairingMonitor {
-  const monitor = createStorePairingMonitor({ probe, log, fileServer: 'file-server.test:3000', delays: FAST });
+  const monitor = createStorePairingMonitor({ probe, log, delays: FAST });
   monitors.push(monitor);
   return monitor;
 }
@@ -221,7 +221,7 @@ describe('store pairing monitor', () => {
     const [first] = entries;
     expect(first.level).toBe('error');
     expect(first.message).toContain('does not share this API\'s Redis');
-    expect(first.meta).toEqual({ fileServer: 'file-server.test:3000' });
+    expect(first.meta).toEqual({ component: 'service-api', reason: 'store_split' });
 
     fileServerRedis = apiRedis;
     await waitFor(() => monitor.status() === 'shared');
@@ -249,7 +249,7 @@ describe('store pairing monitor', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].level).toBe('warn');
     expect(entries[0].message).toContain('older version');
-    expect(entries[0].meta).toEqual({ fileServer: 'file-server.test:3000', reason: 'endpoint_missing' });
+    expect(entries[0].meta).toEqual({ component: 'service-api', reason: 'endpoint_missing' });
     expect((await fetch(`${await apiHealth(monitor)}/v1/health`)).status).toBe(200);
   });
 
