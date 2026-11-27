@@ -120,6 +120,7 @@ beforeAll(async () => {
     MINIO_SECRET_KEY: 'test-secret-key',
     MINIO_BUCKET: 'test-bucket',
     MINIO_REGION: 'us-east-1',
+    CODEAPI_FILE_SERVER_AUTOSTART: 'true',
     FILE_SERVER_HOST: '127.0.0.1',
     FILE_SERVER_PORT: String(fileServerPort),
     OTEL_TRACING_ENABLED: 'false',
