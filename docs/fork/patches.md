@@ -1069,3 +1069,14 @@ Additional execution references, not replay units:
 - `docs/project/2026-10-24-codeapi-sustained-load-plan.md`
 - `docs/project/2026-10-25-codeapi-production-qualification-plan.md`
 - `docs/project/2026-10-25-upstream-v1.10.13-plan.md`
+
+### Re-audit basis: upstream v1.11.0
+
+The release builds on v1.10.13 at `2fa9f0d` and integrates `c7bf37d`
+into the fork baseline `f154dd6`. Adopt the upstream file-store pairing check,
+workspace cleanup receipts, detached commands, PDF extraction updates and
+graceful drain behind its existing opt-in. Preserve issuer-scoped storage
+identity, cancellation and guest cleanup, external replica ownership, and
+restricted monitoring peers. An unregistered upload session produces the
+bounded log reason `upload_session_unknown` and the upstream HTTP error
+code. The worker publishing job remains restricted to the upstream repository.

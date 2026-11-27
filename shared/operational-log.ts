@@ -82,6 +82,7 @@ const NUMBER_KEYS = new Set([
 ]);
 
 const REASONS = new Set([
+  'upload_session_unknown',
   'bad_signature',
   'capacity',
   'config',

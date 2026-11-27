@@ -195,7 +195,7 @@ test('refuses an upload whose session was registered in another Redis', async ()
   expect(storedObjects).toEqual([]);
   expect(await fileServerRedis.keys('upload:*')).toEqual([]);
   expect(await otherRedis.keys('upload:*')).toEqual([]);
-  expect(await fileServerLogged('must use the same Redis as this file server')).toBe(true);
+  expect(await fileServerLogged('"reason":"upload_session_unknown"')).toBe(true);
   expect(fileServerLog).not.toContain(sessionKey);
   await expect(authorizeWorkspaceImportSource({
     req: requestFrom(refused),

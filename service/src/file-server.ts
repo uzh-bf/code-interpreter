@@ -412,7 +412,7 @@ app.post('/sessions/:session_id/objects', async (req: express.Request, res: expr
     try {
       const results = await Promise.all(uploadPromises);
       if (sessionUnknown) {
-        logger.error(`[${INSTANCE_ID}] ${sessionUnknown.message}`, { session_id });
+        logger.error('Upload session is not registered', { component: 'file-server', reason: 'upload_session_unknown', status: sessionUnknown.status });
         return res.status(sessionUnknown.status).json(sessionUnknown.body);
       }
       const successfulUploads = results.filter((result): result is t.UploadResult => result !== null);
@@ -468,7 +468,7 @@ app.put('/sessions/:session_id/objects/:fileId', async (req: express.Request, re
     return res.status(200).json(result);
   } catch (err) {
     if (err instanceof UploadSessionUnknownError) {
-      logger.error(`[${INSTANCE_ID}] ${err.message}`, { session_id, fileId });
+      logger.error('Upload session is not registered', { component: 'file-server', reason: 'upload_session_unknown', status: err.status });
       return res.status(err.status).json(err.body);
     }
     logger.error(`[${INSTANCE_ID}] Error uploading file ${decodedFilename}:`, { error: err });
