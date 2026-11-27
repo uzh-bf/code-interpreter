@@ -235,6 +235,12 @@ workerSandbox:
     affinity: {}
 
   sandboxRunner:
+    gracefulDrain:
+      enabled: false
+      minDelaySeconds: 5
+      timeoutSeconds: 45
+      retryAfterSeconds: 1
+      terminationGracePeriodSeconds: 60
     # Place the untrusted-code sandbox-runner Deployment, Service, ServiceAccount
     # and NetworkPolicy in a SEPARATE namespace from the rest of the release (the
     # service-worker, egress-gateway, api, etc. stay in .Release.Namespace). Empty

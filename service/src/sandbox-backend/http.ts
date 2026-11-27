@@ -3,6 +3,7 @@ import type { SandboxBackend, SandboxExecuteContext, SandboxRawResponse, Sandbox
 import { injectTraceHeaders, withSpan } from '../telemetry';
 import { Jobs } from '../enum';
 import { env } from '../config';
+import { MAX_RUNNER_DRAIN_RETRIES, MAX_RUNNER_DRAIN_RETRY_DELAY_MS } from '../../../shared/drain-contract';
 
 const REFUSAL_RETRY_BACKOFF_MS = 500;
 
@@ -14,6 +15,21 @@ const cancellation = (): CanceledError<unknown> => new axios.CanceledError('Sand
  *  timeouts, cancellations and ambiguous failures stay untouched. */
 function refusedBeforeConnection(error: unknown): error is AxiosError {
   return axios.isAxiosError(error) && error.code === 'ECONNREFUSED' && error.response === undefined;
+}
+
+function isRunnerDrainingError(error: unknown): error is AxiosError {
+  if (!axios.isAxiosError(error) || error.response?.status !== 503) return false;
+  const data = error.response.data;
+  return typeof data === 'object'
+    && data !== null
+    && (data as { error?: unknown }).error === 'runner_draining';
+}
+
+function retryAfterMillis(error: AxiosError): number {
+  const raw = error.response?.headers['retry-after'];
+  const seconds = Number(Array.isArray(raw) ? raw[0] : raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return 1_000;
+  return Math.min(seconds * 1_000, MAX_RUNNER_DRAIN_RETRY_DELAY_MS);
 }
 
 /** Fixed backoff, capped by the remaining deadline. */
@@ -35,14 +51,31 @@ function pauseBeforeRetry(signal: AbortSignal, deadlineAtMs: number): Promise<vo
   });
 }
 
+async function delayWithSignal(timeoutMillis: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw signal.reason ?? new Error('Aborted');
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, timeoutMillis);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new Error('Aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /** POST the signed request to SANDBOX_ENDPOINT and rethrow Axios errors
  *  untouched so the worker's existing abort/timeout/sandbox-error mapping
  *  stays byte-identical.
  *
  *  A POST the sandbox refused before receiving it is retried until one
  *  attempt succeeds or the call's absolute deadline ends it, resending the
- *  same signed bytes. Redirects stay disabled, otherwise a 3xx could replay
- *  the accepted POST against a redirect target. */
+ *  same signed bytes. An explicit runner_draining response is safe to retry
+ *  because the runner rejects it before execution, but that retry budget is
+ *  separate and bounded. Redirects stay disabled, otherwise a 3xx could
+ *  replay the accepted POST against a redirect target. */
 export class HttpSandboxBackend implements SandboxBackend {
   readonly name = 'http' as const;
 
@@ -72,6 +105,7 @@ export class HttpSandboxBackend implements SandboxBackend {
         'codeapi.language': ctx.language,
         'codeapi.sandbox.backend': this.name,
       }, async () => {
+        let drainAttempts = 0;
         for (;;) {
           if (ctx.signal.aborted || cancel.signal.aborted || Date.now() >= deadlineAtMs) {
             throw cancellation();
@@ -88,8 +122,17 @@ export class HttpSandboxBackend implements SandboxBackend {
               }
             );
           } catch (error) {
-            if (!refusedBeforeConnection(error)) throw error;
-            await pauseBeforeRetry(cancel.signal, deadlineAtMs);
+            if (refusedBeforeConnection(error)) {
+              await pauseBeforeRetry(cancel.signal, deadlineAtMs);
+              continue;
+            }
+            if (!isRunnerDrainingError(error) || drainAttempts >= MAX_RUNNER_DRAIN_RETRIES) {
+              throw error;
+            }
+            drainAttempts += 1;
+            const remainingMs = deadlineAtMs - Date.now();
+            if (remainingMs <= 0) throw cancellation();
+            await delayWithSignal(Math.min(retryAfterMillis(error), remainingMs), ctx.signal);
           }
         }
       }, 'CLIENT');
